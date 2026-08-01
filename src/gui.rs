@@ -346,41 +346,42 @@ fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
         return Some(thumb_file);
     }
 
-    if is_thumb_pending(&key) {
-        return None;
-    }
+    let title = video_path.file_name().and_then(|n| n.to_str()).unwrap_or("Video");
+    generate_video_fallback_image(title, &ext, &thumb_file);
 
-    set_thumb_pending(&key, true);
-    let input_str = key.clone();
-    let thumb_str = thumb_file.to_string_lossy().to_string();
-    let ext_str = ext.clone();
+    if !is_thumb_pending(&key) {
+        set_thumb_pending(&key, true);
+        let input_str = key.clone();
+        let thumb_str = thumb_file.to_string_lossy().to_string();
+        let ext_str = ext.clone();
 
-    std::thread::spawn(move || {
-        let mut res = Command::new("ffmpeg")
-            .args(["-i", &input_str, "-vframes", "1", "-s", "320x180", "-y", &thumb_str])
-            .output();
-
-        if res.is_err() || !Path::new(&thumb_str).exists() {
-            res = Command::new("ffmpeg")
+        std::thread::spawn(move || {
+            let mut res = Command::new("ffmpeg")
                 .args(["-ss", "00:00:00.500", "-i", &input_str, "-vframes", "1", "-s", "320x180", "-y", &thumb_str])
                 .output();
-        }
 
-        if res.is_err() || !Path::new(&thumb_str).exists() {
-            let _ = Command::new("mpv")
-                .args(["--no-audio", "--frames=1", &format!("--o={}", thumb_str), &input_str])
-                .output();
-        }
+            if res.is_err() || !Path::new(&thumb_str).exists() {
+                res = Command::new("ffmpeg")
+                    .args(["-i", &input_str, "-vframes", "1", "-s", "320x180", "-y", &thumb_str])
+                    .output();
+            }
 
-        if !Path::new(&thumb_str).exists() {
-            let title = Path::new(&input_str).file_name().and_then(|n| n.to_str()).unwrap_or("Video");
-            generate_video_fallback_image(title, &ext_str, Path::new(&thumb_str));
-        }
+            if res.is_err() || !Path::new(&thumb_str).exists() {
+                let _ = Command::new("mpv")
+                    .args(["--no-audio", "--frames=1", &format!("--o={}", thumb_str), &input_str])
+                    .output();
+            }
 
-        set_thumb_pending(&input_str, false);
-    });
+            if !Path::new(&thumb_str).exists() {
+                let title = Path::new(&input_str).file_name().and_then(|n| n.to_str()).unwrap_or("Video");
+                generate_video_fallback_image(title, &ext_str, Path::new(&thumb_str));
+            }
 
-    None
+            set_thumb_pending(&input_str, false);
+        });
+    }
+
+    Some(thumb_file)
 }
 
 fn generate_web_fallback_image(target_path: &Path) {
@@ -413,7 +414,8 @@ fn generate_web_fallback_image(target_path: &Path) {
 }
 
 fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
-    let path = Path::new(target);
+    let resolved = crate::config::resolve_asset_path(target);
+    let path = Path::new(&resolved);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
 
     if matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "png" | "jpg" | "jpeg" | "webp") {
@@ -423,7 +425,7 @@ fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
     let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
     let _ = std::fs::create_dir_all(&cache_dir);
 
-    let key = target.to_string();
+    let key = resolved.clone();
     let hash = format!("{:x}", md5_hash(key.as_bytes()));
     let thumb_file = cache_dir.join(format!("web_{}.jpg", &hash[..8]));
 
@@ -625,6 +627,7 @@ impl OmywallGuiApp {
         }
 
         request_background_image_decode(ctx.clone(), thumb_path.to_path_buf());
+        ctx.request_repaint_after(std::time::Duration::from_millis(30));
         None
     }
 }
@@ -634,8 +637,17 @@ fn minimize_gui_window(ctx: &egui::Context) {
     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
 
     std::thread::spawn(|| {
+        let _ = Command::new("hyprctl")
+            .args(["dispatch", "movetoworkspacesilent", "special:omywall,title:OMYWALL"])
+            .output();
+        let _ = Command::new("hyprctl")
+            .args(["dispatch", "minimize"])
+            .output();
+        let _ = Command::new("swaymsg")
+            .args(["[title=\"OMYWALL\"]", "move", "scratchpad"])
+            .output();
         let _ = Command::new("xdotool")
-            .args(["search", "--onlyvisible", "--class", "omywall", "windowminimize"])
+            .args(["search", "--class", "omywall", "windowminimize"])
             .output();
         let _ = Command::new("wmctrl")
             .args(["-r", "OMYWALL", "-b", "add,hidden"])
@@ -1356,15 +1368,7 @@ impl eframe::App for OmywallGuiApp {
                             for bm in &bookmarks {
                                 ui.group(|ui| {
                                     ui.horizontal(|ui| {
-                                        let target_url = if bm.url.starts_with("assets/") {
-                                            std::env::current_dir()
-                                                .unwrap_or_default()
-                                                .join(&bm.url)
-                                                .to_string_lossy()
-                                                .to_string()
-                                        } else {
-                                            bm.url.clone()
-                                        };
+                                        let target_url = crate::config::resolve_asset_path(&bm.url);
 
                                         if let Some(thumb_path) = get_web_thumbnail_path(&target_url) {
                                             if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
