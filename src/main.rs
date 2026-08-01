@@ -4,6 +4,7 @@ mod gui;
 mod ipc;
 mod logger;
 mod tui;
+mod web_engine;
 mod workspace;
 
 use clap::{Parser, Subcommand};

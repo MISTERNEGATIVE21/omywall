@@ -5,11 +5,11 @@ use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::logger::{log_error, log_info, log_memory_diagnostic};
+use crate::logger::{log_info, log_memory_diagnostic};
 
 pub struct WallpaperEngine {
     mpv_process: Arc<Mutex<Option<Child>>>,
-    web_process: Arc<Mutex<Option<Child>>>,
+    web_engine: Arc<crate::web_engine::WebEngineManager>,
     widget_process: Arc<Mutex<Option<Child>>>,
     current_wallpaper: Arc<Mutex<Option<String>>>,
     is_paused: Arc<Mutex<bool>>,
@@ -43,15 +43,15 @@ pub fn find_mpvpaper_binary() -> Option<PathBuf> {
         }
     }
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/user"));
-    let candidates = vec![
-        home.join(".local/bin/mpvpaper"),
+    let candidates = [
+        home.join(".local").join("bin").join("mpvpaper"),
         PathBuf::from("/usr/bin/mpvpaper"),
         PathBuf::from("/usr/local/bin/mpvpaper"),
         PathBuf::from("/bin/mpvpaper"),
     ];
     for c in candidates {
         if c.exists() {
-            return Some(c);
+            return Some(c.clone());
         }
     }
     None
@@ -113,7 +113,7 @@ impl WallpaperEngine {
 
         let engine = Self {
             mpv_process: Arc::new(Mutex::new(None)),
-            web_process: Arc::new(Mutex::new(None)),
+            web_engine: Arc::new(crate::web_engine::WebEngineManager::new()),
             widget_process: Arc::new(Mutex::new(None)),
             current_wallpaper: Arc::new(Mutex::new(None)),
             is_paused: Arc::new(Mutex::new(false)),
@@ -157,7 +157,7 @@ impl WallpaperEngine {
         });
 
         if !is_alive {
-            self.stop_web_engine_internal();
+            self.web_engine.stop();
             if self.socket_path.exists() {
                 let _ = std::fs::remove_file(&self.socket_path);
             }
@@ -292,109 +292,19 @@ impl WallpaperEngine {
         }
 
         self.stop_mpv_internal();
-        self.stop_web_engine_internal();
+        self.web_engine.apply_web_wallpaper(trimmed)?;
 
-        let target_url = if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.starts_with("file://") {
-            trimmed.to_string()
-        } else if Path::new(trimmed).exists() {
-            let canon = std::fs::canonicalize(trimmed).unwrap_or_else(|_| PathBuf::from(trimmed));
-            format!("file://{}", canon.to_string_lossy())
-        } else {
-            format!("https://{}", trimmed)
-        };
+        let mut curr = self.current_wallpaper.lock().unwrap();
+        *curr = Some(trimmed.to_string());
+        let mut p = self.is_paused.lock().unwrap();
+        *p = false;
+        let mut st = self.user_stopped.lock().unwrap();
+        *st = false;
 
-        log_info(&format!("Engine: Setting Web Wallpaper target URL: {}", target_url));
-
-        let is_website = target_url.contains(".html")
-            || target_url.contains(".htm")
-            || target_url.contains(".js")
-            || target_url.starts_with("http://")
-            || target_url.starts_with("https://")
-            || (!target_url.ends_with(".mp4") && !target_url.ends_with(".mkv") && !target_url.ends_with(".webm") && !target_url.ends_with(".m3u8"));
-
-        if is_website {
-            let _ = Command::new("hyprctl")
-                .args(["keyword", "windowrulev2", "background, class:^(omywall-wallpaper)$"])
-                .output();
-            let _ = Command::new("hyprctl")
-                .args(["keyword", "windowrulev2", "nofocus, class:^(omywall-wallpaper)$"])
-                .output();
-            let _ = Command::new("hyprctl")
-                .args(["keyword", "windowrulev2", "pin, class:^(omywall-wallpaper)$"])
-                .output();
-            let _ = Command::new("hyprctl")
-                .args(["keyword", "windowrulev2", "float, class:^(omywall-wallpaper)$"])
-                .output();
-            let _ = Command::new("hyprctl")
-                .args(["keyword", "windowrulev2", "size 100% 100%, class:^(omywall-wallpaper)$"])
-                .output();
-
-            if let Some(bin) = find_web_browser_binary() {
-                log_info(&format!("Engine: Spawning Web Browser engine '{}' for URL {}", bin.display(), target_url));
-                let bin_name = bin.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
-
-                let child = if bin_name.contains("electron") {
-                    let runner_path = PathBuf::from("/tmp/omywall_web_runner.js");
-                    let runner_code = r#"
-const { app, BrowserWindow } = require('electron');
-app.whenReady().then(() => {
-    const win = new BrowserWindow({
-        width: 1920,
-        height: 1080,
-        frame: false,
-        transparent: true,
-        skipTaskbar: true,
-        webPreferences: { nodeIntegration: false }
-    });
-    win.setMenu(null);
-    win.maximize();
-    win.loadURL(process.argv[2] || 'https://clock.zone');
-});
-"#;
-                    let _ = std::fs::write(&runner_path, runner_code);
-                    Command::new(&bin)
-                        .args([
-                            runner_path.to_string_lossy().as_ref(),
-                            &target_url,
-                            "--class=omywall-wallpaper",
-                        ])
-                        .spawn()
-                } else {
-                    let app_arg = format!("--app={}", target_url);
-                    Command::new(&bin)
-                        .args([
-                            &app_arg,
-                            "--class=omywall-wallpaper",
-                            "--no-first-run",
-                            "--disable-infobars",
-                            "--user-data-dir=/tmp/omywall-chrome-profile",
-                            "--autoplay-policy=no-user-gesture-required",
-                        ])
-                        .spawn()
-                };
-
-                if let Ok(c) = child {
-                    let mut proc_guard = self.web_process.lock().unwrap();
-                    *proc_guard = Some(c);
-
-                    let mut curr = self.current_wallpaper.lock().unwrap();
-                    *curr = Some(trimmed.to_string());
-                    let mut p = self.is_paused.lock().unwrap();
-                    *p = false;
-                    let mut st = self.user_stopped.lock().unwrap();
-                    *st = false;
-                    return Ok(());
-                } else if let Err(ref e) = child {
-                    log_error(&format!("Engine: Failed to spawn web browser binary: {}", e));
-                }
-            }
-
-            self.set_wallpaper_url_mpv(&target_url)
-        } else {
-            self.set_wallpaper_url_mpv(&target_url)
-        }
+        Ok(())
     }
 
+    #[allow(dead_code)]
     fn set_wallpaper_url_mpv(&self, url: &str) -> Result<(), String> {
         let is_mpv_alive = {
             let mut mpv_guard = self.mpv_process.lock().unwrap();
@@ -418,12 +328,7 @@ app.whenReady().then(() => {
         Ok(())
     }
 
-    fn stop_web_engine_internal(&self) {
-        let mut proc_guard = self.web_process.lock().unwrap();
-        if let Some(mut child) = proc_guard.take() {
-            let _ = child.kill();
-        }
-    }
+
 
     fn stop_mpv_internal(&self) {
         if self.socket_path.exists() {
@@ -508,7 +413,7 @@ app.whenReady().then(() => {
         let mut p = self.is_paused.lock().unwrap();
         *p = false;
 
-        self.stop_web_engine_internal();
+        self.web_engine.stop();
         self.stop_widget_internal();
         self.stop_mpv_internal();
 

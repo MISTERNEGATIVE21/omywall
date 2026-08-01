@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# OMYWALL Quick Launcher & Wallpaper Selector Script
+# Triggered via Super+Alt+Space keybinding
+
+if command -v rofi &> /dev/null; then
+    MENU_CMD="rofi -dmenu -p 🌌 OMYWALL -i"
+elif command -v wofi &> /dev/null; then
+    MENU_CMD="wofi --dmenu --prompt 🌌 OMYWALL -i"
+elif command -v fuzzel &> /dev/null; then
+    MENU_CMD="fuzzel -d -p 🌌 OMYWALL: "
+else
+    omywall gui &
+    exit 0
+fi
+
+# Fetch list of available wallpapers from daemon
+WALLPAPERS=$(omywall list 2>/dev/null | grep -E '\.(mp4|mkv|webm|gif|html|htm|png|jpg)$' || true)
+
+MENU_OPTIONS="🖥 Open OMYWALL Control GUI\n💻 Open OMYWALL Terminal UI (TUI)\n🌐 Load Web / HTML Stream URL\n⏹ Stop Wallpaper Engine\n---------------------------------------"
+
+if [ -n "$WALLPAPERS" ]; then
+    FMT_WALLS=$(echo "$WALLPAPERS" | while read -r p; do
+        filename=$(basename "$p")
+        echo "🖼 $filename | $p"
+    done)
+    MENU_OPTIONS="$MENU_OPTIONS\n$FMT_WALLS"
+fi
+
+SELECTED=$(echo -e "$MENU_OPTIONS" | $MENU_CMD)
+
+if [ -z "$SELECTED" ]; then
+    exit 0
+fi
+
+if [[ "$SELECTED" == *"Open OMYWALL Control GUI"* ]]; then
+    omywall gui &
+elif [[ "$SELECTED" == *"Open OMYWALL Terminal UI"* ]]; then
+    kitty -e omywall tui 2>/dev/null || alacritty -e omywall tui 2>/dev/null || foot omywall tui 2>/dev/null || xterm -e omywall tui &
+elif [[ "$SELECTED" == *"Load Web / HTML Stream URL"* ]]; then
+    if command -v rofi &> /dev/null; then
+        TARGET_URL=$(rofi -dmenu -p "Enter Web / Stream URL (https://... or file://...):")
+    elif command -v wofi &> /dev/null; then
+        TARGET_URL=$(wofi --dmenu --prompt "Enter Web / Stream URL:")
+    fi
+    if [ -n "$TARGET_URL" ]; then
+        omywall set-url "$TARGET_URL"
+    fi
+elif [[ "$SELECTED" == *"Stop Wallpaper Engine"* ]]; then
+    omywall clear
+elif [[ "$SELECTED" == *" | "* ]]; then
+    FILE_PATH=$(echo "$SELECTED" | awk -F' | ' '{print $2}')
+    omywall set "$FILE_PATH"
+fi

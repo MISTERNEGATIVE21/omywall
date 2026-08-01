@@ -41,6 +41,21 @@ if [ -d "assets" ]; then
     cp -r assets/* "$ASSETS_DEST/" 2>/dev/null || true
 fi
 
+echo "Installing quick launcher script to $BIN_DIR/omywall-picker..."
+if [ -f "scripts/omywall-picker" ]; then
+    install -m 755 "scripts/omywall-picker" "$BIN_DIR/omywall-picker"
+fi
+
+HYPR_CONF="$HOME/.config/hypr/hyprland.conf"
+if [ -f "$HYPR_CONF" ]; then
+    if ! grep -q "omywall-picker" "$HYPR_CONF"; then
+        echo "" >> "$HYPR_CONF"
+        echo "# OMYWALL Wallpaper Engine Quick Launcher (Super+Alt+Space)" >> "$HYPR_CONF"
+        echo "bind = SUPER ALT, SPACE, exec, omywall-picker" >> "$HYPR_CONF"
+        echo "Registered Super+Alt+Space keybinding in $HYPR_CONF"
+    fi
+fi
+
 if command -v update-desktop-database &> /dev/null; then
     update-desktop-database "$DESKTOP_DIR" &> /dev/null || true
 fi
