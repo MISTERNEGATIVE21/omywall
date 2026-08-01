@@ -17,14 +17,12 @@ cargo build --release
 echo "Installing binary to $BIN_DIR/omywall..."
 install -m 755 "target/release/omywall" "$BIN_DIR/omywall"
 
-echo "Creating omarchy-wall command alias..."
-ln -sf "$BIN_DIR/omywall" "$BIN_DIR/omarchy-wall"
+echo "Removing legacy omarchy-wall binary aliases and desktop residue..."
+rm -f "$BIN_DIR/omarchy-wall" "$DESKTOP_DIR/omarchy-wall.desktop" "$ICON_PNG_DIR/omarchy-wall.png" "$ICON_SVG_DIR/omarchy-wall.svg"
 
 echo "Installing desktop application entry..."
 if [ -f "omywall.desktop" ]; then
     cp "omywall.desktop" "$DESKTOP_DIR/omywall.desktop"
-elif [ -f "omarchy-wall.desktop" ]; then
-    cp "omarchy-wall.desktop" "$DESKTOP_DIR/omywall.desktop"
 fi
 
 echo "Installing application icons..."
@@ -47,7 +45,7 @@ fi
 echo ""
 echo "=========================================================="
 echo "✅ OMYWALL Wallpaper Engine successfully installed!"
-echo "   Binary:  $BIN_DIR/omywall (alias: $BIN_DIR/omarchy-wall)"
+echo "   Binary:  $BIN_DIR/omywall"
 echo "   Desktop: $DESKTOP_DIR/omywall.desktop"
 echo "   Icon:    $ICON_SVG_DIR/omywall.svg"
 echo "=========================================================="
