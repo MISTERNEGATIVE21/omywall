@@ -1384,7 +1384,11 @@ impl eframe::App for OmywallGuiApp {
                                         if let Some(thumb_path) = get_web_thumbnail_path(&target_url) {
                                             if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
                                                 ui.add(egui::Image::new(tex).max_size(egui::vec2(70.0, 40.0)).rounding(4.0));
+                                            } else {
+                                                ctx.request_repaint_after(std::time::Duration::from_millis(150));
                                             }
+                                        } else {
+                                            ctx.request_repaint_after(std::time::Duration::from_millis(150));
                                         }
 
                                         ui.vertical(|ui| {
@@ -1519,7 +1523,25 @@ impl eframe::App for OmywallGuiApp {
                                                 if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
                                                     if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
                                                         ui.add(egui::Image::new(tex).max_size(egui::vec2(194.0, 95.0)).rounding(4.0));
+                                                    } else {
+                                                        ctx.request_repaint_after(std::time::Duration::from_millis(150));
+                                                        egui::Frame::none()
+                                                            .fill(egui::Color32::from_rgb(14, 18, 28))
+                                                            .rounding(4.0)
+                                                            .show(ui, |ui| {
+                                                                ui.set_width(194.0);
+                                                                ui.set_height(95.0);
+                                                            });
                                                     }
+                                                } else {
+                                                    ctx.request_repaint_after(std::time::Duration::from_millis(150));
+                                                    egui::Frame::none()
+                                                        .fill(egui::Color32::from_rgb(14, 18, 28))
+                                                        .rounding(4.0)
+                                                        .show(ui, |ui| {
+                                                            ui.set_width(194.0);
+                                                            ui.set_height(95.0);
+                                                        });
                                                 }
                                                 ui.add_space(4.0);
                                                 ui.horizontal(|ui| {
@@ -1598,7 +1620,11 @@ impl eframe::App for OmywallGuiApp {
                                             if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
                                                 if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
                                                     ui.add(egui::Image::new(tex).max_size(egui::vec2(60.0, 36.0)).rounding(4.0));
+                                                } else {
+                                                    ctx.request_repaint_after(std::time::Duration::from_millis(150));
                                                 }
+                                            } else {
+                                                ctx.request_repaint_after(std::time::Duration::from_millis(150));
                                             }
 
                                             ui.label(egui::RichText::new(format!("[{}]", ext)).color(badge_color).strong().small());
