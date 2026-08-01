@@ -12,6 +12,14 @@ static PENDING_THUMBS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 static FAILED_THUMBS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 static DECODED_IMAGES: Mutex<Option<HashMap<PathBuf, egui::ColorImage>>> = Mutex::new(None);
 static PENDING_DECODES: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
+static UPDATED_THUMBS: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
+
+fn notify_thumb_updated(path: PathBuf) {
+    if let Ok(mut guard) = UPDATED_THUMBS.lock() {
+        let set = guard.get_or_insert_with(HashSet::new);
+        set.insert(path);
+    }
+}
 
 fn is_thumb_pending(key: &str) -> bool {
     if let Ok(guard) = PENDING_THUMBS.lock() {
@@ -378,6 +386,7 @@ fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
             }
 
             set_thumb_pending(&input_str, false);
+            notify_thumb_updated(PathBuf::from(&thumb_str));
         });
     }
 
@@ -610,6 +619,14 @@ impl OmywallGuiApp {
     }
 
     fn get_cached_texture(&mut self, ctx: &egui::Context, thumb_path: &Path) -> Option<&egui::TextureHandle> {
+        if let Ok(mut guard) = UPDATED_THUMBS.lock() {
+            if let Some(set) = guard.as_mut() {
+                if set.remove(thumb_path) {
+                    self.texture_cache.remove(thumb_path);
+                }
+            }
+        }
+
         if self.texture_cache.len() > 500 {
             self.texture_cache.clear();
         }
