@@ -49,6 +49,10 @@ pub struct Config {
     pub wallpaper_dir: PathBuf,
     pub socket_path: PathBuf,
     pub hwdec: String,
+    #[serde(default)]
+    pub gpu_device: Option<String>,
+    #[serde(default = "default_fps")]
+    pub target_fps: u32,
     pub volume: i64,
     pub mute: bool,
     pub loop_file: String,
@@ -57,7 +61,6 @@ pub struct Config {
     pub slideshow_interval: u64,
     pub slideshow_shuffle: bool,
     pub default_wallpaper: Option<PathBuf>,
-    pub workspace_wallpapers: HashMap<String, String>,
     #[serde(default = "default_opacity")]
     pub opacity: f32,
     #[serde(default)]
@@ -66,44 +69,52 @@ pub struct Config {
     pub widget_url: Option<String>,
     #[serde(default)]
     pub monitor_wallpapers: HashMap<String, String>,
-    #[serde(default = "default_mode")]
-    pub mode: String,
     #[serde(default = "default_web_bookmarks")]
     pub saved_web_wallpapers: Vec<WebBookmark>,
     #[serde(default)]
     pub autostart: bool,
     #[serde(default)]
-    pub workspace_isolate: bool,
-    #[serde(default)]
     pub hyprlock: HyprlockConfig,
-}
-
-fn default_mode() -> String {
-    "workspace".to_string()
 }
 
 fn default_opacity() -> f32 {
     1.0
 }
 
+fn default_fps() -> u32 {
+    60
+}
+
 fn default_web_bookmarks() -> Vec<WebBookmark> {
     vec![
         WebBookmark {
+            title: "3D Cyber Hyperspace Tunnel".to_string(),
+            url: "assets/web_wallpapers/cyber_tunnel_3d.html".to_string(),
+            category: "3D WebGL / Canvas".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "3D Synthwave Horizon".to_string(),
+            url: "assets/web_wallpapers/neon_synthwave_3d.html".to_string(),
+            category: "3D Synthwave".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "3D Cosmic Nebula Vortex".to_string(),
+            url: "assets/web_wallpapers/cosmic_nebula_3d.html".to_string(),
+            category: "3D Space Particles".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "3D Solar Energy Fluid".to_string(),
+            url: "assets/web_wallpapers/solar_fluid_3d.html".to_string(),
+            category: "3D Fluid Dynamics".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
             title: "Matrix Digital Rain".to_string(),
             url: "assets/web_wallpapers/matrix_rain.html".to_string(),
-            category: "Canvas Animation".to_string(),
-            is_demo: true,
-        },
-        WebBookmark {
-            title: "Cyber Neon Clock".to_string(),
-            url: "assets/web_wallpapers/cyber_clock.html".to_string(),
-            category: "Digital Clock".to_string(),
-            is_demo: true,
-        },
-        WebBookmark {
-            title: "Clock Zone Live".to_string(),
-            url: "https://clock.zone".to_string(),
-            category: "Live Web Stream".to_string(),
+            category: "Cyberpunk Rain".to_string(),
             is_demo: true,
         },
     ]
@@ -119,15 +130,12 @@ impl Default for Config {
             .unwrap_or_else(|_| PathBuf::from("/tmp"));
         let socket_path = runtime_dir.join("omywall.sock");
 
-        let mut workspace_wallpapers = HashMap::new();
-        for i in 1..=10 {
-            workspace_wallpapers.insert(i.to_string(), String::new());
-        }
-
         Self {
             wallpaper_dir: default_wall_dir,
             socket_path,
             hwdec: "auto".to_string(),
+            gpu_device: None,
+            target_fps: 60,
             volume: 0,
             mute: true,
             loop_file: "inf".to_string(),
@@ -136,15 +144,12 @@ impl Default for Config {
             slideshow_interval: 300,
             slideshow_shuffle: false,
             default_wallpaper: None,
-            workspace_wallpapers,
             opacity: 1.0,
             enable_widgets: false,
             widget_url: None,
             monitor_wallpapers: HashMap::new(),
-            mode: "workspace".to_string(),
             saved_web_wallpapers: default_web_bookmarks(),
             autostart: Self::is_autostart_enabled(),
-            workspace_isolate: false,
             hyprlock: HyprlockConfig::default(),
         }
     }
@@ -210,8 +215,8 @@ impl Config {
             let desktop_content = r#"[Desktop Entry]
 Type=Application
 Name=OMYWALL Wallpaper Engine
-GenericName=Live Video, Stream & Workspace Wallpaper Engine
-Comment=Ultra-Lightweight Hardware-Accelerated Video, Stream & Workspace Wallpaper Engine
+GenericName=Live Video, Stream & Desktop Wallpaper Engine
+Comment=Ultra-Lightweight Hardware-Accelerated Video, Stream & Desktop Wallpaper Engine
 Exec=omywall daemon
 Icon=omywall
 Terminal=false
@@ -241,28 +246,6 @@ X-GNOME-Autostart-enabled=true
     pub fn remove_web_bookmark(&mut self, url: &str) {
         self.saved_web_wallpapers.retain(|b| b.url != url);
         let _ = self.save();
-    }
-
-    pub fn get_workspace_wallpaper(&self, ws: &str) -> Option<&String> {
-        let clean_id = ws
-            .trim_start_matches("workspace_")
-            .trim_start_matches("Workspace ")
-            .trim();
-        let candidates = [
-            ws.to_string(),
-            clean_id.to_string(),
-            format!("Workspace {}", clean_id),
-            format!("workspace {}", clean_id),
-        ];
-
-        for key in &candidates {
-            if let Some(path) = self.workspace_wallpapers.get(key) {
-                if !path.trim().is_empty() {
-                    return Some(path);
-                }
-            }
-        }
-        None
     }
 
     pub fn get_monitor_wallpaper(&self, mon: &str) -> Option<&String> {
@@ -412,4 +395,78 @@ pub fn resolve_asset_path(url: &str) -> String {
     }
 
     trimmed.to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GpuInfo {
+    pub name: String,
+    pub vendor: String,
+    pub device_path: Option<String>,
+    pub is_primary: bool,
+}
+
+pub fn detect_system_gpus() -> Vec<GpuInfo> {
+    let mut gpus = Vec::new();
+
+    if let Ok(output) = std::process::Command::new("lspci").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.contains("VGA compatible controller") || line.contains("3D controller") || line.contains("Display controller") {
+                let name = if let Some(pos) = line.find(": ") {
+                    line[pos + 2..].to_string()
+                } else {
+                    line.to_string()
+                };
+
+                let vendor = if name.to_lowercase().contains("nvidia") {
+                    "NVIDIA".to_string()
+                } else if name.to_lowercase().contains("amd") || name.to_lowercase().contains("radeon") {
+                    "AMD".to_string()
+                } else if name.to_lowercase().contains("intel") {
+                    "Intel".to_string()
+                } else {
+                    "Generic".to_string()
+                };
+
+                gpus.push(GpuInfo {
+                    name,
+                    vendor,
+                    device_path: None,
+                    is_primary: gpus.is_empty(),
+                });
+            }
+        }
+    }
+
+    if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
+        let mut idx = 0;
+        for entry in entries.flatten() {
+            let filename = entry.file_name().to_string_lossy().to_string();
+            if filename.starts_with("renderD") {
+                let dev_path = format!("/dev/dri/{}", filename);
+                if idx < gpus.len() {
+                    gpus[idx].device_path = Some(dev_path);
+                } else {
+                    gpus.push(GpuInfo {
+                        name: format!("GPU Render Node ({})", filename),
+                        vendor: "DRM/KMS".to_string(),
+                        device_path: Some(dev_path),
+                        is_primary: gpus.is_empty(),
+                    });
+                }
+                idx += 1;
+            }
+        }
+    }
+
+    if gpus.is_empty() {
+        gpus.push(GpuInfo {
+            name: "Auto-Detected Graphics Processing Unit".to_string(),
+            vendor: "Auto".to_string(),
+            device_path: None,
+            is_primary: true,
+        });
+    }
+
+    gpus
 }

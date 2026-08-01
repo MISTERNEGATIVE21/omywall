@@ -11,7 +11,6 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Terminal,
 };
-use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -22,7 +21,6 @@ use crate::ipc::{send_ipc_request, DaemonStatus, IpcRequest, IpcResponse};
 enum InputMode {
     Normal,
     Search,
-    SetWorkspace,
     SetMonitor,
     SetUrl,
 }
@@ -116,18 +114,10 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
 
     let mut search_query = String::new();
     let mut url_query = String::new();
-    let mut ws_query = String::new();
+    let mut input_query = String::new();
     let mut mode = InputMode::Normal;
     let mut status_msg = String::from("Connected to OMYWALL Wallpaper Engine");
-    let mut ws_mappings: HashMap<String, String> = HashMap::new();
     let mut last_poll = Instant::now();
-
-    // Fetch initial workspace mappings
-    if let Ok(IpcResponse::WorkspaceMappings { mappings, .. }) =
-        send_ipc_request(&config.socket_path, &IpcRequest::GetWorkspaceMappings).await
-    {
-        ws_mappings = mappings;
-    }
 
     loop {
         let filtered_wallpapers: Vec<&PathBuf> = wallpapers
@@ -167,7 +157,6 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                 let mode_str = match mode {
                     InputMode::Normal => "NORMAL MODE",
                     InputMode::Search => "SEARCH FILTER MODE",
-                    InputMode::SetWorkspace => "MAP WORKSPACE MODE",
                     InputMode::SetMonitor => "MAP MONITOR MODE",
                     InputMode::SetUrl => "WEB STREAM URL MODE",
                 };
@@ -185,7 +174,7 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
-                        "Video, GIF & Workspace Wallpapers",
+                        "Video, Stream & Desktop Wallpapers",
                         Style::default().fg(Color::DarkGray),
                     ),
                 ]))
@@ -201,7 +190,7 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                     .constraints([Constraint::Percentage(55), Constraint::Percentage(45)].as_ref())
                     .split(chunks[1]);
 
-                // Left Panel: Wallpaper List with Workspace Badges
+                // Left Panel: Wallpaper List
                 let items: Vec<ListItem> = filtered_wallpapers
                     .iter()
                     .enumerate()
@@ -211,26 +200,10 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                             .and_then(|n| n.to_str())
                             .unwrap_or("Unknown");
 
-                        let path_str = path.to_string_lossy().to_string();
-
                         let is_active = current_wall_str
                             .as_ref()
                             .map(|curr| Path::new(curr) == *path)
                             .unwrap_or(false);
-
-                        let mut mapped_ws = Vec::new();
-                        for (ws_id, target) in &ws_mappings {
-                            if target == &path_str {
-                                mapped_ws.push(ws_id.clone());
-                            }
-                        }
-                        mapped_ws.sort();
-
-                        let ws_badge = if !mapped_ws.is_empty() {
-                            format!(" [WS {}]", mapped_ws.join(","))
-                        } else {
-                            "".to_string()
-                        };
 
                         let active_indicator = if is_active { " [ACTIVE ▶]" } else { "" };
 
@@ -245,7 +218,6 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                         ListItem::new(Line::from(vec![
                             Span::styled(format!("{:2}. ", idx + 1), Style::default().fg(Color::DarkGray)),
                             Span::styled(filename, style),
-                            Span::styled(ws_badge, Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
                             Span::styled(active_indicator, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                         ]))
                     })
@@ -253,8 +225,7 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
 
                 let list_title = match mode {
                     InputMode::Search => format!(" Wallpapers (Search: {}) ", search_query),
-                    InputMode::SetWorkspace => format!(" Select Wallpaper -> Enter WS Number (1-10): {} ", ws_query),
-                    InputMode::SetMonitor => format!(" Select Wallpaper -> Enter Monitor Name (eDP-1/HDMI-A-1/0): {} ", ws_query),
+                    InputMode::SetMonitor => format!(" Select Wallpaper -> Enter Monitor Name (eDP-1/HDMI-A-1/0): {} ", input_query),
                     InputMode::SetUrl => format!(" Enter Stream Web URL: {} ", url_query),
                     _ => format!(" Wallpapers ({}) ", filtered_wallpapers.len()),
                 };
@@ -264,7 +235,6 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(match mode {
                         InputMode::Search => Color::Yellow,
-                        InputMode::SetWorkspace => Color::Magenta,
                         InputMode::SetMonitor => Color::LightCyan,
                         InputMode::SetUrl => Color::Cyan,
                         InputMode::Normal => Color::Blue,
@@ -282,7 +252,7 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
 
                 f.render_stateful_widget(list, body_chunks[0], &mut list_state);
 
-                // Right Panel Split (Status Card + Workspaces Mapping Card)
+                // Right Panel Split (Status Card + Help Legend)
                 let right_chunks = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([Constraint::Percentage(55), Constraint::Percentage(45)].as_ref())
@@ -300,20 +270,11 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
 
                     vec![
                         Line::from(vec![
-                            Span::styled("Active Mode: ", Style::default().fg(Color::DarkGray)),
-                            Span::styled(st.mode.to_uppercase(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                        ]),
-                        Line::from(vec![
                             Span::styled("Active Wallpaper: ", Style::default().fg(Color::DarkGray)),
                             Span::styled(curr_name, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                         ]),
                         Line::from(vec![
-                            Span::styled("Focused Workspace: ", Style::default().fg(Color::DarkGray)),
-                            Span::styled(
-                                st.active_workspace.clone().unwrap_or_else(|| "None".to_string()),
-                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                            ),
-                            Span::styled(" | Mon: ", Style::default().fg(Color::DarkGray)),
+                            Span::styled("Active Monitor: ", Style::default().fg(Color::DarkGray)),
                             Span::styled(
                                 st.active_monitor.clone().unwrap_or_else(|| "None".to_string()),
                                 Style::default().fg(Color::LightCyan),
@@ -329,6 +290,10 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                         Line::from(vec![
                             Span::styled("HW Accel / Screen: ", Style::default().fg(Color::DarkGray)),
                             Span::styled(format!("{} (Screen {})", st.hwdec, st.screen_id), Style::default().fg(Color::LightBlue)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("Volume / Opacity: ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(format!("{}% / {:.0}%", st.volume, st.opacity * 100.0), Style::default().fg(Color::Yellow)),
                         ]),
                     ]
                 } else {
@@ -347,10 +312,9 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                 // Help & Bindings Legend
                 let help_text = vec![
                     Line::from(vec![Span::styled("Enter ", Style::default().fg(Color::Yellow)), Span::raw("▶ Apply selected wallpaper")]),
-                    Line::from(vec![Span::styled("t / Tab", Style::default().fg(Color::Yellow)), Span::raw("▶ Toggle Mode (Workspace <-> Screen)")]),
                     Line::from(vec![Span::styled("c     ", Style::default().fg(Color::Yellow)), Span::raw("▶ Cycle live wallpapers sequentially")]),
-                    Line::from(vec![Span::styled("w     ", Style::default().fg(Color::Yellow)), Span::raw("▶ Map wallpaper to Workspace (1-10)")]),
                     Line::from(vec![Span::styled("M     ", Style::default().fg(Color::Yellow)), Span::raw("▶ Map wallpaper to Monitor (eDP-1, etc.)")]),
+                    Line::from(vec![Span::styled("u     ", Style::default().fg(Color::Yellow)), Span::raw("▶ Stream Web / HTML URL")]),
                     Line::from(vec![Span::styled("[ / ] ", Style::default().fg(Color::Yellow)), Span::raw("▶ Opacity Down / Up")]),
                     Line::from(vec![Span::styled("p     ", Style::default().fg(Color::Yellow)), Span::raw("▶ Toggle Pause / Resume")]),
                     Line::from(vec![Span::styled("s     ", Style::default().fg(Color::Yellow)), Span::raw("▶ Toggle Auto-Slideshow")]),
@@ -380,43 +344,6 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::Char(c) => {
                             search_query.push(c);
-                        }
-                        _ => {}
-                    },
-                    InputMode::SetWorkspace => match key.code {
-                        KeyCode::Esc => {
-                            mode = InputMode::Normal;
-                            ws_query.clear();
-                        }
-                        KeyCode::Enter => {
-                            if !ws_query.trim().is_empty() {
-                                if let Some(idx) = list_state.selected() {
-                                    if let Some(selected_path) = filtered_wallpapers.get(idx) {
-                                        let ws = ws_query.trim().to_string();
-                                        let path_str = selected_path.to_string_lossy().to_string();
-                                        let req = IpcRequest::SetWorkspaceWallpaper {
-                                            workspace: ws.clone(),
-                                            path: path_str.clone(),
-                                        };
-                                        if let Ok(IpcResponse::Ok { message }) =
-                                            send_ipc_request(&config.socket_path, &req).await
-                                        {
-                                            status_msg = message;
-                                            ws_mappings.insert(ws, path_str);
-                                        }
-                                    }
-                                }
-                            }
-                            mode = InputMode::Normal;
-                            ws_query.clear();
-                        }
-                        KeyCode::Backspace => {
-                            ws_query.pop();
-                        }
-                        KeyCode::Char(c) => {
-                            if c.is_ascii_digit() || c.is_alphanumeric() {
-                                ws_query.push(c);
-                            }
                         }
                         _ => {}
                     },
@@ -450,13 +377,13 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                     InputMode::SetMonitor => match key.code {
                         KeyCode::Esc => {
                             mode = InputMode::Normal;
-                            ws_query.clear();
+                            input_query.clear();
                         }
                         KeyCode::Enter => {
-                            if !ws_query.trim().is_empty() {
+                            if !input_query.trim().is_empty() {
                                 if let Some(idx) = list_state.selected() {
                                     if let Some(selected_path) = filtered_wallpapers.get(idx) {
-                                        let mon = ws_query.trim().to_string();
+                                        let mon = input_query.trim().to_string();
                                         let path_str = selected_path.to_string_lossy().to_string();
                                         let req = IpcRequest::SetMonitorWallpaper {
                                             monitor: mon.clone(),
@@ -471,13 +398,13 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                                 }
                             }
                             mode = InputMode::Normal;
-                            ws_query.clear();
+                            input_query.clear();
                         }
                         KeyCode::Backspace => {
-                            ws_query.pop();
+                            input_query.pop();
                         }
                         KeyCode::Char(c) => {
-                            ws_query.push(c);
+                            input_query.push(c);
                         }
                         _ => {}
                     },
@@ -487,9 +414,6 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                         }
                         KeyCode::Char('/') => {
                             mode = InputMode::Search;
-                        }
-                        KeyCode::Char('w') => {
-                            mode = InputMode::SetWorkspace;
                         }
                         KeyCode::Char('M') => {
                             mode = InputMode::SetMonitor;
@@ -564,10 +488,6 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                             };
                             let _ = send_ipc_request(&config.socket_path, &req).await;
                         }
-                        KeyCode::Char('t') | KeyCode::Tab => {
-                            let req = IpcRequest::ToggleMode;
-                            let _ = send_ipc_request(&config.socket_path, &req).await;
-                        }
                         KeyCode::Char('c') => {
                             let req = IpcRequest::CycleLiveWallpaper;
                             let _ = send_ipc_request(&config.socket_path, &req).await;
@@ -609,11 +529,6 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
             last_poll = Instant::now();
             if let Ok(IpcResponse::Status(st)) = send_ipc_request(&config.socket_path, &IpcRequest::GetStatus).await {
                 daemon_status = Some(st);
-            }
-            if let Ok(IpcResponse::WorkspaceMappings { mappings, .. }) =
-                send_ipc_request(&config.socket_path, &IpcRequest::GetWorkspaceMappings).await
-            {
-                ws_mappings = mappings;
             }
         }
     }

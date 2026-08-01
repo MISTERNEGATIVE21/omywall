@@ -10,6 +10,8 @@ use crate::logger::get_log_path;
 
 static PENDING_THUMBS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 static FAILED_THUMBS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+static DECODED_IMAGES: Mutex<Option<HashMap<PathBuf, egui::ColorImage>>> = Mutex::new(None);
+static PENDING_DECODES: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
 
 fn is_thumb_pending(key: &str) -> bool {
     if let Ok(guard) = PENDING_THUMBS.lock() {
@@ -31,22 +33,36 @@ fn set_thumb_pending(key: &str, pending: bool) {
     }
 }
 
-#[allow(dead_code)]
-fn is_thumb_failed(key: &str) -> bool {
-    if let Ok(guard) = FAILED_THUMBS.lock() {
-        if let Some(ref set) = *guard {
-            return set.contains(key);
+fn request_background_image_decode(ctx: egui::Context, path: PathBuf) {
+    {
+        if let Ok(mut pending) = PENDING_DECODES.lock() {
+            let set = pending.get_or_insert_with(HashSet::new);
+            if set.contains(&path) {
+                return;
+            }
+            set.insert(path.clone());
         }
     }
-    false
-}
 
-#[allow(dead_code)]
-fn set_thumb_failed(key: &str) {
-    if let Ok(mut guard) = FAILED_THUMBS.lock() {
-        let set = guard.get_or_insert_with(HashSet::new);
-        set.insert(key.to_string());
-    }
+    std::thread::spawn(move || {
+        if let Ok(img) = image::open(&path) {
+            let rgba = img.to_rgba8();
+            let pixels = rgba.as_raw().clone();
+            let color_img = egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], &pixels);
+
+            if let Ok(mut decoded) = DECODED_IMAGES.lock() {
+                let map = decoded.get_or_insert_with(HashMap::new);
+                map.insert(path.clone(), color_img);
+            }
+            ctx.request_repaint();
+        }
+
+        if let Ok(mut pending) = PENDING_DECODES.lock() {
+            if let Some(set) = pending.as_mut() {
+                set.remove(&path);
+            }
+        }
+    });
 }
 
 pub fn run_gui(config: Config) -> Result<(), eframe::Error> {
@@ -83,10 +99,8 @@ enum ViewMode {
 struct OmywallGuiApp {
     config: Config,
     status: Arc<Mutex<Option<DaemonStatus>>>,
-    workspace_mappings: Arc<Mutex<HashMap<String, String>>>,
     wallpapers: Vec<PathBuf>,
     selected_wallpaper: Option<PathBuf>,
-    selected_workspace: String,
     search_filter: String,
     category_filter: CategoryFilter,
     view_mode: ViewMode,
@@ -104,6 +118,7 @@ struct OmywallGuiApp {
     show_doctor: bool,
     show_logs: bool,
     show_hyprlock: bool,
+    show_gpu_settings: bool,
     show_inspector: bool,
     textures_loaded_this_frame: usize,
     texture_cache: HashMap<PathBuf, Option<egui::TextureHandle>>,
@@ -412,63 +427,14 @@ fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
     let hash = format!("{:x}", md5_hash(key.as_bytes()));
     let thumb_file = cache_dir.join(format!("web_{}.jpg", &hash[..8]));
 
-    if thumb_file.exists() {
-        return Some(thumb_file);
+    if !thumb_file.exists() {
+        generate_web_fallback_image(&thumb_file);
     }
 
-    if is_thumb_failed(&key) || is_thumb_pending(&key) {
-        return None;
-    }
-
-    set_thumb_pending(&key, true);
-    let thumb_str = thumb_file.to_string_lossy().to_string();
-
-    let abs_url = if target.starts_with("assets/") || (!target.starts_with("http://") && !target.starts_with("https://") && !target.starts_with("file://")) {
-        let p = PathBuf::from(target);
-        if let Ok(canon) = std::fs::canonicalize(&p) {
-            format!("file://{}", canon.to_string_lossy())
-        } else {
-            let cwd = std::env::current_dir().unwrap_or_default();
-            format!("file://{}", cwd.join(target).to_string_lossy())
-        }
-    } else {
-        target.to_string()
-    };
-
-    let target_url_key = key.clone();
-
-    std::thread::spawn(move || {
-        let browsers = ["chromium", "google-chrome-stable", "google-chrome", "brave", "electron"];
-        let mut success = false;
-
-        for b in &browsers {
-            let res = Command::new(b)
-                .args([
-                    "--headless",
-                    "--no-sandbox",
-                    "--disable-gpu",
-                    &format!("--screenshot={}", thumb_str),
-                    "--window-size=1280,720",
-                    &abs_url,
-                ])
-                .output();
-
-            if res.is_ok() && Path::new(&thumb_str).exists() {
-                success = true;
-                break;
-            }
-        }
-
-        if !success || !Path::new(&thumb_str).exists() {
-            generate_web_fallback_image(Path::new(&thumb_str));
-        }
-
-        set_thumb_pending(&target_url_key, false);
-    });
-
-    None
+    Some(thumb_file)
 }
 
+#[allow(dead_code)]
 fn load_egui_texture(ctx: &egui::Context, path: &Path) -> Option<egui::TextureHandle> {
     let img = image::open(path).ok()?;
     let rgba = img.to_rgba8();
@@ -494,20 +460,17 @@ fn get_file_size_str(path: &Path) -> String {
 }
 
 impl OmywallGuiApp {
-    fn new(config: Config) -> Self {
+    pub fn new(config: Config) -> Self {
         let wallpapers = Self::scan_wallpapers(&config.wallpaper_dir);
         let selected_wallpaper = wallpapers.first().cloned();
         let status = Arc::new(Mutex::new(None));
-        let workspace_mappings = Arc::new(Mutex::new(config.workspace_wallpapers.clone()));
         let autostart_enabled = Config::is_autostart_enabled();
 
         let app = Self {
             config: config.clone(),
             status,
-            workspace_mappings,
             wallpapers,
             selected_wallpaper,
-            selected_workspace: "1".to_string(),
             search_filter: String::new(),
             category_filter: CategoryFilter::All,
             view_mode: ViewMode::Grid,
@@ -523,6 +486,7 @@ impl OmywallGuiApp {
             show_doctor: false,
             show_logs: false,
             show_hyprlock: false,
+            show_gpu_settings: false,
             show_inspector: true,
             textures_loaded_this_frame: 0,
             texture_cache: HashMap::new(),
@@ -530,15 +494,15 @@ impl OmywallGuiApp {
         };
 
         app.fetch_or_spawn_daemon();
-        app.fetch_workspace_mappings();
         app
     }
 
     fn scan_wallpapers(dir: &Path) -> Vec<PathBuf> {
         let mut files = Vec::new();
+        let mut seen = HashSet::new();
         let valid_exts = ["mkv", "mp4", "webm", "avi", "mov", "gif", "html", "htm", "js", "m4v", "flv", "wmv", "png", "jpg", "jpeg", "webp"];
 
-        fn walk_dir(d: &Path, depth: usize, files: &mut Vec<PathBuf>, valid_exts: &[&str]) {
+        fn walk_dir(d: &Path, depth: usize, files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, valid_exts: &[&str]) {
             if depth > 4 {
                 return;
             }
@@ -549,19 +513,19 @@ impl OmywallGuiApp {
                         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                             if valid_exts.contains(&ext.to_lowercase().as_str()) {
                                 let canon = std::fs::canonicalize(&path).unwrap_or(path);
-                                if !files.contains(&canon) {
+                                if seen.insert(canon.clone()) {
                                     files.push(canon);
                                 }
                             }
                         }
                     } else if path.is_dir() {
-                        walk_dir(&path, depth + 1, files, valid_exts);
+                        walk_dir(&path, depth + 1, files, seen, valid_exts);
                     }
                 }
             }
         }
 
-        walk_dir(dir, 0, &mut files, &valid_exts);
+        walk_dir(dir, 0, &mut files, &mut seen, &valid_exts);
 
         if let Some(home) = dirs::home_dir() {
             let candidate_dirs = [
@@ -579,7 +543,7 @@ impl OmywallGuiApp {
 
             for c_dir in &candidate_dirs {
                 if c_dir.exists() {
-                    walk_dir(c_dir, 0, &mut files, &valid_exts);
+                    walk_dir(c_dir, 0, &mut files, &mut seen, &valid_exts);
                 }
             }
         }
@@ -591,7 +555,6 @@ impl OmywallGuiApp {
     fn poll_daemon_status(&self) {
         let socket = self.config.socket_path.clone();
         let status_arc = self.status.clone();
-        let mappings_arc = self.workspace_mappings.clone();
 
         tokio::spawn(async move {
             if let Ok(IpcResponse::Status(st)) = send_ipc_request(&socket, &IpcRequest::GetStatus).await {
@@ -600,14 +563,6 @@ impl OmywallGuiApp {
                 }
             } else if let Ok(mut guard) = status_arc.lock() {
                 *guard = None;
-            }
-
-            if let Ok(IpcResponse::WorkspaceMappings { mappings, .. }) =
-                send_ipc_request(&socket, &IpcRequest::GetWorkspaceMappings).await
-            {
-                if let Ok(mut guard) = mappings_arc.lock() {
-                    *guard = mappings;
-                }
             }
         });
     }
@@ -629,38 +584,15 @@ impl OmywallGuiApp {
         });
     }
 
-    fn fetch_workspace_mappings(&self) {
-        let socket = self.config.socket_path.clone();
-        let mappings_arc = self.workspace_mappings.clone();
-
-        tokio::spawn(async move {
-            if let Ok(IpcResponse::WorkspaceMappings { mappings, .. }) =
-                send_ipc_request(&socket, &IpcRequest::GetWorkspaceMappings).await
-            {
-                if let Ok(mut guard) = mappings_arc.lock() {
-                    *guard = mappings;
-                }
-            }
-        });
-    }
-
     fn send_request(&self, req: IpcRequest) {
         let socket = self.config.socket_path.clone();
         let status_arc = self.status.clone();
-        let mappings_arc = self.workspace_mappings.clone();
 
         tokio::spawn(async move {
             let resp = send_ipc_request(&socket, &req).await;
             if let Ok(IpcResponse::Status(st)) = send_ipc_request(&socket, &IpcRequest::GetStatus).await {
                 if let Ok(mut guard) = status_arc.lock() {
                     *guard = Some(st);
-                }
-            }
-            if let Ok(IpcResponse::WorkspaceMappings { mappings, .. }) =
-                send_ipc_request(&socket, &IpcRequest::GetWorkspaceMappings).await
-            {
-                if let Ok(mut guard) = mappings_arc.lock() {
-                    *guard = mappings;
                 }
             }
             if let Ok(IpcResponse::Err { message }) = resp {
@@ -670,20 +602,30 @@ impl OmywallGuiApp {
     }
 
     fn get_cached_texture(&mut self, ctx: &egui::Context, thumb_path: &Path) -> Option<&egui::TextureHandle> {
-        if self.texture_cache.len() > 300 {
+        if self.texture_cache.len() > 500 {
             self.texture_cache.clear();
         }
-        if !self.texture_cache.contains_key(thumb_path) {
-            if self.textures_loaded_this_frame < 2 {
-                self.textures_loaded_this_frame += 1;
-                let tex = load_egui_texture(ctx, thumb_path);
-                self.texture_cache.insert(thumb_path.to_path_buf(), tex);
-            } else {
-                ctx.request_repaint_after(std::time::Duration::from_millis(30));
-                return None;
+
+        if self.texture_cache.contains_key(thumb_path) {
+            return self.texture_cache.get(thumb_path).and_then(|t| t.as_ref());
+        }
+
+        let mut decoded_img = None;
+        if let Ok(mut decoded) = DECODED_IMAGES.lock() {
+            if let Some(map) = decoded.as_mut() {
+                decoded_img = map.remove(thumb_path);
             }
         }
-        self.texture_cache.get(thumb_path).and_then(|t| t.as_ref())
+
+        if let Some(color_img) = decoded_img {
+            let name = thumb_path.to_string_lossy().to_string();
+            let tex = ctx.load_texture(name, color_img, egui::TextureOptions::LINEAR);
+            self.texture_cache.insert(thumb_path.to_path_buf(), Some(tex));
+            return self.texture_cache.get(thumb_path).and_then(|t| t.as_ref());
+        }
+
+        request_background_image_decode(ctx.clone(), thumb_path.to_path_buf());
+        None
     }
 }
 
@@ -722,10 +664,13 @@ impl eframe::App for OmywallGuiApp {
 
         let current_status = self.status.lock().ok().and_then(|s| s.clone());
         let current_wall = current_status.as_ref().and_then(|s| s.current_wallpaper.clone());
-        let active_ws = current_status.as_ref().and_then(|s| s.active_workspace.clone());
-        let current_mode = current_status.as_ref().map(|st| st.mode.clone()).unwrap_or_else(|| "workspace".into());
         let is_paused = current_status.as_ref().map(|st| st.is_paused).unwrap_or(false);
-        let mappings = self.workspace_mappings.lock().ok().map(|m| m.clone()).unwrap_or_default();
+
+        if self.selected_wallpaper.is_none() {
+            if let Some(ref wall) = current_wall {
+                self.selected_wallpaper = Some(PathBuf::from(wall));
+            }
+        }
 
         // 1. TOP HEADER PANEL
         egui::TopBottomPanel::top("top_header").show(ctx, |ui| {
@@ -756,32 +701,6 @@ impl eframe::App for OmywallGuiApp {
 
                     let is_online = current_status.is_some();
                     if is_online {
-                        let isolate_active = current_status.as_ref().map(|st| st.workspace_isolate).unwrap_or(self.config.workspace_isolate);
-                        let isolate_label = if isolate_active {
-                            "🗔 WORKSPACE ISOLATION ON 🟢"
-                        } else {
-                            "🗔 WORKSPACE ISOLATION OFF ⚪"
-                        };
-                        let isolate_color = if isolate_active {
-                            egui::Color32::from_rgb(0, 255, 160)
-                        } else {
-                            egui::Color32::from_rgb(170, 185, 210)
-                        };
-                        if ui.button(egui::RichText::new(isolate_label).color(isolate_color).strong().small()).clicked() {
-                            pending_action = Some(IpcRequest::ToggleWorkspaceIsolate);
-                            pending_msg = Some("Toggled workspace isolation mode".into());
-                        }
-
-                        let mode_label = if current_mode == "monitor" || current_mode == "screen" {
-                            "🖥 SCREEN MODE"
-                        } else {
-                            "🗔 WORKSPACE MODE"
-                        };
-                        if ui.button(egui::RichText::new(mode_label).color(egui::Color32::from_rgb(255, 190, 50)).strong().small()).clicked() {
-                            pending_action = Some(IpcRequest::ToggleMode);
-                            pending_msg = Some("Toggled wallpaper mode".into());
-                        }
-
                         egui::Frame::none()
                             .fill(egui::Color32::from_rgb(10, 45, 25))
                             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 255, 140)))
@@ -817,6 +736,9 @@ impl eframe::App for OmywallGuiApp {
                     if ui.selectable_label(self.show_hyprlock, "🔒 Screensaver").clicked() {
                         self.show_hyprlock = !self.show_hyprlock;
                     }
+                    if ui.selectable_label(self.show_gpu_settings, "🎮 GPU Hardware").clicked() {
+                        self.show_gpu_settings = !self.show_gpu_settings;
+                    }
                     if ui.selectable_label(self.show_doctor, "🛠 System Doctor").clicked() {
                         self.show_doctor = !self.show_doctor;
                     }
@@ -824,97 +746,6 @@ impl eframe::App for OmywallGuiApp {
                         self.show_logs = !self.show_logs;
                     }
                 });
-            });
-
-            ui.add_space(6.0);
-            ui.separator();
-            ui.add_space(6.0);
-
-            // 2. WORKSPACE QUICK MATRIX BAR (1..10)
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(6.0, 4.0);
-                ui.label(egui::RichText::new("WORKSPACES:").color(egui::Color32::from_rgb(140, 160, 190)).strong().small());
-                ui.add_space(4.0);
-
-                for ws_id in 1..=10 {
-                    let ws_str = ws_id.to_string();
-                    let is_live_focused = active_ws.as_ref() == Some(&ws_str);
-                    let is_selected_tab = self.selected_workspace == ws_str;
-                    let mapped_wall = mappings.get(&ws_str).cloned().unwrap_or_default();
-                    let has_mapping = !mapped_wall.is_empty();
-
-                    let mapped_filename = if has_mapping {
-                        Path::new(&mapped_wall)
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or(&mapped_wall)
-                            .to_string()
-                    } else {
-                        "Unassigned / Desktop Default".to_string()
-                    };
-
-                    let (btn_bg, stroke_color, text_color, badge_symbol) = if is_live_focused {
-                        (
-                            egui::Color32::from_rgb(10, 55, 35),
-                            egui::Stroke::new(1.5, egui::Color32::from_rgb(0, 255, 160)),
-                            egui::Color32::from_rgb(0, 255, 160),
-                            "🟢",
-                        )
-                    } else if is_selected_tab {
-                        (
-                            egui::Color32::from_rgb(30, 45, 75),
-                            egui::Stroke::new(1.5, egui::Color32::from_rgb(0, 220, 255)),
-                            egui::Color32::from_rgb(0, 220, 255),
-                            "📌",
-                        )
-                    } else if has_mapping {
-                        (
-                            egui::Color32::from_rgb(20, 28, 44),
-                            egui::Stroke::new(1.0, egui::Color32::from_rgb(140, 90, 240)),
-                            egui::Color32::from_rgb(200, 215, 245),
-                            "🗔",
-                        )
-                    } else {
-                        (
-                            egui::Color32::from_rgb(16, 19, 28),
-                            egui::Stroke::new(1.0, egui::Color32::from_rgb(35, 42, 60)),
-                            egui::Color32::from_rgb(120, 135, 155),
-                            "",
-                        )
-                    };
-
-                    let label_text = if badge_symbol.is_empty() {
-                        format!("WS {}", ws_str)
-                    } else {
-                        format!("{} {}", badge_symbol, ws_str)
-                    };
-
-                    let response = egui::Frame::none()
-                        .fill(btn_bg)
-                        .stroke(stroke_color)
-                        .rounding(6.0)
-                        .inner_margin(egui::Margin::symmetric(10.0, 5.0))
-                        .show(ui, |ui| {
-                            ui.label(egui::RichText::new(&label_text).color(text_color).strong().size(12.0));
-                        })
-                        .response
-                        .on_hover_ui(|ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(format!("Workspace {}", ws_str)).strong().size(13.0));
-                                if is_live_focused {
-                                    ui.label(egui::RichText::new("🟢 ACTIVE FOCUS").color(egui::Color32::from_rgb(0, 255, 160)).small().strong());
-                                }
-                            });
-                            ui.separator();
-                            ui.label(egui::RichText::new(format!("Assigned: {}", mapped_filename)).color(egui::Color32::from_rgb(180, 195, 220)).small());
-                            ui.label(egui::RichText::new("Click to switch desktop workspace").color(egui::Color32::from_rgb(120, 135, 155)).small());
-                        });
-
-                    if response.interact(egui::Sense::click()).clicked() {
-                        self.selected_workspace = ws_str.clone();
-                        pending_action = Some(IpcRequest::SwitchWorkspace { workspace: ws_str });
-                    }
-                }
             });
             ui.add_space(6.0);
         });
@@ -933,6 +764,141 @@ impl eframe::App for OmywallGuiApp {
                 });
             });
         });
+
+        if self.show_gpu_settings {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading(
+                            egui::RichText::new("🎮 GPU Hardware Acceleration & Graphics Selector")
+                                .color(egui::Color32::from_rgb(0, 240, 255))
+                                .strong(),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("❌ Close").clicked() {
+                                self.show_gpu_settings = false;
+                            }
+                        });
+                    });
+                    ui.add_space(6.0);
+
+                    let gpus = crate::config::detect_system_gpus();
+
+                    ui.label(egui::RichText::new("🔍 Detected System Graphics Processing Units (GPUs):").strong().color(egui::Color32::from_rgb(255, 190, 50)));
+                    ui.add_space(4.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(10.0, 6.0);
+                        for gpu in &gpus {
+                            let (badge_color, border_color) = match gpu.vendor.as_str() {
+                                "NVIDIA" => (egui::Color32::from_rgb(10, 40, 20), egui::Color32::from_rgb(118, 185, 0)),
+                                "AMD" => (egui::Color32::from_rgb(40, 10, 15), egui::Color32::from_rgb(237, 28, 36)),
+                                "Intel" => (egui::Color32::from_rgb(10, 25, 45), egui::Color32::from_rgb(0, 199, 255)),
+                                _ => (egui::Color32::from_rgb(25, 28, 40), egui::Color32::from_rgb(140, 155, 180)),
+                            };
+
+                            egui::Frame::none()
+                                .fill(badge_color)
+                                .stroke(egui::Stroke::new(1.2, border_color))
+                                .rounding(6.0)
+                                .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new(&gpu.vendor).strong().color(border_color));
+                                        ui.label(egui::RichText::new(&gpu.name).strong().size(12.0));
+                                        if let Some(ref dev) = gpu.device_path {
+                                            ui.label(egui::RichText::new(format!("[{}]", dev)).color(egui::Color32::from_rgb(180, 195, 215)).small());
+                                        }
+                                    });
+                                });
+                        }
+                    });
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+
+                    ui.columns(2, |cols| {
+                        cols[0].vertical(|ui| {
+                            ui.label(egui::RichText::new("⚡ Hardware Video Decoder Driver:").strong().color(egui::Color32::from_rgb(0, 240, 255)));
+                            ui.add_space(4.0);
+                            let curr_hwdec = self.config.hwdec.clone();
+                            for &(mode_id, mode_label, desc) in &[
+                                ("auto", "Auto-Detect (Recommended)", "Automatic GPU acceleration detection"),
+                                ("vaapi", "VA-API (Intel / AMD GPU)", "Linux VA-API Hardware Video Acceleration"),
+                                ("nvdec", "NVDEC (NVIDIA CUDA GPU)", "NVIDIA NVDEC Hardware Decoder"),
+                                ("nvdec-copy", "NVDEC-Copy", "NVIDIA NVDEC with System Memory Copy"),
+                                ("vulkan", "Vulkan Video", "Modern Vulkan Hardware Video Decoder"),
+                                ("vdpau", "VDPAU (Legacy)", "NVIDIA VDPAU Video Acceleration"),
+                                ("no", "CPU (Software Only)", "Software decoding using CPU cores"),
+                            ] {
+                                if ui.radio(curr_hwdec == mode_id, mode_label).on_hover_text(desc).clicked() {
+                                    self.config.hwdec = mode_id.to_string();
+                                    let _ = self.config.save();
+                                    pending_action = Some(IpcRequest::SetHwdec { hwdec: mode_id.to_string() });
+                                    pending_msg = Some(format!("Hardware decoder set to {}", mode_label));
+                                }
+                            }
+                        });
+
+                        cols[1].vertical(|ui| {
+                            ui.label(egui::RichText::new("🎯 Target GPU Render Node:").strong().color(egui::Color32::from_rgb(0, 255, 160)));
+                            ui.add_space(4.0);
+                            let curr_dev = self.config.gpu_device.clone();
+
+                            if ui.radio(curr_dev.is_none(), "Auto-Select GPU (Default)").clicked() {
+                                self.config.gpu_device = None;
+                                let _ = self.config.save();
+                                pending_action = Some(IpcRequest::SetGpuDevice { gpu_device: None });
+                                pending_msg = Some("GPU target set to Auto-Select".into());
+                            }
+
+                            for gpu in &gpus {
+                                if let Some(ref dev) = gpu.device_path {
+                                    let is_sel = curr_dev.as_ref() == Some(dev);
+                                    if ui.radio(is_sel, format!("{} ({})", gpu.vendor, dev)).clicked() {
+                                        self.config.gpu_device = Some(dev.clone());
+                                        let _ = self.config.save();
+                                        pending_action = Some(IpcRequest::SetGpuDevice { gpu_device: Some(dev.clone()) });
+                                        pending_msg = Some(format!("GPU target set to {}", dev));
+                                    }
+                                }
+                            }
+                        });
+                    });
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+
+                    ui.label(egui::RichText::new("🎞️ Target Frame Rate (FPS) Limit & Refresh Rate Control:").strong().color(egui::Color32::from_rgb(255, 180, 50)));
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Quick Presets:").small().color(egui::Color32::from_rgb(170, 185, 205)));
+                        for &fps in &[30, 60, 90, 120, 144, 240] {
+                            let label = format!("{} FPS", fps);
+                            let is_curr = self.config.target_fps == fps;
+                            if ui.selectable_label(is_curr, label).clicked() {
+                                self.config.target_fps = fps;
+                                let _ = self.config.save();
+                                pending_action = Some(IpcRequest::SetTargetFps { fps });
+                                pending_msg = Some(format!("Target rendering FPS set to {} FPS", fps));
+                            }
+                        }
+                    });
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Custom FPS Limit:").small());
+                        let mut fps_val = self.config.target_fps;
+                        if ui.add(egui::Slider::new(&mut fps_val, 15..=240).suffix(" FPS")).changed() {
+                            self.config.target_fps = fps_val;
+                            let _ = self.config.save();
+                            pending_action = Some(IpcRequest::SetTargetFps { fps: fps_val });
+                            pending_msg = Some(format!("Target rendering FPS set to {} FPS", fps_val));
+                        }
+                    });
+                });
+            });
+        }
 
 
 
@@ -1020,24 +986,6 @@ impl eframe::App for OmywallGuiApp {
 
                         ui.add_space(8.0);
                         ui.group(|ui| {
-                            ui.label(egui::RichText::new("🗔 Quick Workspace Assignment").strong().small());
-                            ui.add_space(4.0);
-                            ui.horizontal_wrapped(|ui| {
-                                for ws_num in 1..=10 {
-                                    let ws_str = ws_num.to_string();
-                                    if ui.button(format!("WS {}", ws_num)).clicked() {
-                                        pending_action = Some(IpcRequest::SetWorkspaceWallpaper {
-                                            workspace: ws_str.clone(),
-                                            path: path_str.clone(),
-                                        });
-                                        pending_msg = Some(format!("Assigned {} to Workspace {}", filename, ws_num));
-                                    }
-                                }
-                            });
-                        });
-
-                        ui.add_space(8.0);
-                        ui.group(|ui| {
                             ui.label(egui::RichText::new("🎛 Active Playback Controls").strong().small());
                             ui.add_space(4.0);
 
@@ -1068,6 +1016,16 @@ impl eframe::App for OmywallGuiApp {
                                 ui.label("✨ Opacity:");
                                 if ui.add(egui::Slider::new(&mut self.opacity_slider, 0.0..=1.0)).changed() {
                                     pending_action = Some(IpcRequest::SetOpacity { opacity: self.opacity_slider });
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("🎞 Target FPS:");
+                                let mut fps_val = self.config.target_fps;
+                                if ui.add(egui::Slider::new(&mut fps_val, 15..=240).suffix(" FPS")).changed() {
+                                    self.config.target_fps = fps_val;
+                                    let _ = self.config.save();
+                                    pending_action = Some(IpcRequest::SetTargetFps { fps: fps_val });
+                                    pending_msg = Some(format!("Target rendering FPS set to {} FPS", fps_val));
                                 }
                             });
                         });
@@ -1430,8 +1388,14 @@ impl eframe::App for OmywallGuiApp {
                                                 }
                                             }
                                             if ui.button(egui::RichText::new("▶ Launch Web Wallpaper").color(egui::Color32::from_rgb(0, 255, 150)).strong()).clicked() {
+                                                self.selected_wallpaper = Some(PathBuf::from(&target_url));
+                                                self.show_inspector = true;
                                                 pending_action = Some(IpcRequest::SetWallpaper { path: target_url.clone() });
                                                 pending_msg = Some(format!("Launched web wallpaper: {}", bm.title));
+                                            }
+                                            if ui.button(egui::RichText::new("👁 Preview").color(egui::Color32::from_rgb(0, 220, 255)).small()).clicked() {
+                                                self.selected_wallpaper = Some(PathBuf::from(&target_url));
+                                                self.show_inspector = true;
                                             }
                                         });
                                     });
@@ -1578,8 +1542,14 @@ impl eframe::App for OmywallGuiApp {
                                                 ui.add_space(4.0);
                                                 ui.horizontal(|ui| {
                                                     if ui.button(egui::RichText::new("▶ Apply").color(egui::Color32::from_rgb(0, 255, 150)).strong().small()).clicked() {
+                                                        self.selected_wallpaper = Some(path.clone());
+                                                        self.show_inspector = true;
                                                         pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
                                                         pending_msg = Some(format!("Applied wallpaper: {}", filename));
+                                                    }
+                                                    if ui.button(egui::RichText::new("👁 Preview").color(egui::Color32::from_rgb(0, 220, 255)).small()).clicked() {
+                                                        self.selected_wallpaper = Some(path.clone());
+                                                        self.show_inspector = true;
                                                     }
                                                     if is_active {
                                                         ui.label(egui::RichText::new("● LIVE").color(egui::Color32::from_rgb(255, 190, 50)).small().strong());
@@ -1590,10 +1560,13 @@ impl eframe::App for OmywallGuiApp {
 
                                     let card_interact = frame_res.response.interact(egui::Sense::click());
                                     if card_interact.double_clicked() {
+                                        self.selected_wallpaper = Some(path.clone());
+                                        self.show_inspector = true;
                                         pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
                                         pending_msg = Some(format!("Applied wallpaper: {}", filename));
                                     } else if card_interact.clicked() {
                                         self.selected_wallpaper = Some(path.clone());
+                                        self.show_inspector = true;
                                     }
                                 }
                             });
@@ -1603,14 +1576,6 @@ impl eframe::App for OmywallGuiApp {
                                 let path_str = path.to_string_lossy().to_string();
                                 let is_active = current_wall.as_ref().map(|curr| Path::new(curr) == path).unwrap_or(false);
                                 let is_selected = self.selected_wallpaper.as_ref() == Some(path);
-
-                                let mut mapped_ws = Vec::new();
-                                for (ws_key, ws_target) in &mappings {
-                                    if ws_target == &path_str {
-                                        mapped_ws.push(ws_key.clone());
-                                    }
-                                }
-                                mapped_ws.sort();
 
                                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_uppercase();
                                 let card_bg = if is_selected {
@@ -1665,11 +1630,14 @@ impl eframe::App for OmywallGuiApp {
 
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                                 if ui.button(egui::RichText::new("▶ Apply").color(egui::Color32::from_rgb(0, 255, 150)).strong().small()).clicked() {
+                                                    self.selected_wallpaper = Some(path.clone());
+                                                    self.show_inspector = true;
                                                     pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
                                                     pending_msg = Some(format!("Applied wallpaper: {}", filename));
                                                 }
-                                                if !mapped_ws.is_empty() {
-                                                    ui.label(egui::RichText::new(format!("WS: {}", mapped_ws.join(","))).color(egui::Color32::from_rgb(180, 110, 255)).small().strong());
+                                                if ui.button(egui::RichText::new("👁 Preview").color(egui::Color32::from_rgb(0, 220, 255)).small()).clicked() {
+                                                    self.selected_wallpaper = Some(path.clone());
+                                                    self.show_inspector = true;
                                                 }
                                             });
                                         });
@@ -1678,10 +1646,13 @@ impl eframe::App for OmywallGuiApp {
 
                                 let interact = card_resp.interact(egui::Sense::click());
                                 if interact.double_clicked() {
+                                    self.selected_wallpaper = Some(path.clone());
+                                    self.show_inspector = true;
                                     pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
                                     pending_msg = Some(format!("Applied wallpaper: {}", filename));
                                 } else if interact.clicked() {
                                     self.selected_wallpaper = Some(path.clone());
+                                    self.show_inspector = true;
                                 }
                                 ui.add_space(4.0);
                             }

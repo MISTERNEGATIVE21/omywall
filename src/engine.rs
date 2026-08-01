@@ -15,6 +15,8 @@ pub struct WallpaperEngine {
     is_paused: Arc<Mutex<bool>>,
     user_stopped: Arc<Mutex<bool>>,
     hwdec: Arc<Mutex<String>>,
+    gpu_device: Arc<Mutex<Option<String>>>,
+    target_fps: Arc<Mutex<u32>>,
     volume: Arc<Mutex<i64>>,
     mute: Arc<Mutex<bool>>,
     screen_id: Arc<Mutex<i64>>,
@@ -107,7 +109,7 @@ pub fn find_web_browser_binary() -> Option<PathBuf> {
 }
 
 impl WallpaperEngine {
-    pub fn new(hwdec: &str, volume: i64, mute: bool, window_id: u64, screen_id: i64) -> Result<Self, String> {
+    pub fn new(hwdec: &str, gpu_device: Option<String>, target_fps: u32, volume: i64, mute: bool, window_id: u64, screen_id: i64) -> Result<Self, String> {
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
         let socket_path = PathBuf::from(runtime_dir).join("omywall-mpv.sock");
 
@@ -119,6 +121,8 @@ impl WallpaperEngine {
             is_paused: Arc::new(Mutex::new(false)),
             user_stopped: Arc::new(Mutex::new(false)),
             hwdec: Arc::new(Mutex::new(hwdec.to_string())),
+            gpu_device: Arc::new(Mutex::new(gpu_device)),
+            target_fps: Arc::new(Mutex::new(target_fps)),
             volume: Arc::new(Mutex::new(volume)),
             mute: Arc::new(Mutex::new(mute)),
             screen_id: Arc::new(Mutex::new(screen_id)),
@@ -150,7 +154,7 @@ impl WallpaperEngine {
         Ok(())
     }
 
-    fn ensure_mpv_running(&self, initial_file: Option<&str>, _target_workspace: Option<&str>) -> Result<(), String> {
+    fn ensure_mpv_running(&self, initial_file: Option<&str>) -> Result<(), String> {
         let mut mpv_guard = self.mpv_process.lock().unwrap();
         let is_alive = mpv_guard.as_mut().map_or(false, |child| {
             child.try_wait().ok().flatten().is_none()
@@ -163,6 +167,8 @@ impl WallpaperEngine {
             }
 
             let hwdec = self.hwdec.lock().unwrap().clone();
+            let gpu_device = self.gpu_device.lock().unwrap().clone();
+            let fps = *self.target_fps.lock().unwrap();
             let volume = *self.volume.lock().unwrap();
             let mute = *self.mute.lock().unwrap();
             let socket_str = self.socket_path.to_string_lossy().to_string();
@@ -173,13 +179,23 @@ impl WallpaperEngine {
             }
 
             let mpvpaper_bin = mpvpaper_path.unwrap();
-            let mpv_opts = format!(
+            let mut mpv_opts = format!(
                 "--input-ipc-server={} --loop-file=inf --image-display-duration=inf --no-osc --no-osd-bar --hwdec={} --volume={} --mute={} --panscan=1.0",
                 socket_str,
                 hwdec,
                 volume,
                 if mute { "yes" } else { "no" }
             );
+
+            if fps > 0 {
+                mpv_opts.push_str(&format!(" --override-display-fps={}", fps));
+            }
+
+            if let Some(ref dev) = gpu_device {
+                if !dev.trim().is_empty() {
+                    mpv_opts.push_str(&format!(" --gpu-device={} --vo=gpu", dev));
+                }
+            }
 
             let video_target = initial_file.unwrap_or("");
             let mut mpvpaper_args = vec![
@@ -220,7 +236,7 @@ impl WallpaperEngine {
         Ok(())
     }
 
-    pub fn set_wallpaper_for_workspace(&self, path: &Path, workspace: Option<&str>) -> Result<(), String> {
+    pub fn set_wallpaper(&self, path: &Path) -> Result<(), String> {
         let raw_str = path.to_string_lossy().to_string();
 
         if raw_str.starts_with("http://") || raw_str.starts_with("https://") {
@@ -265,10 +281,10 @@ impl WallpaperEngine {
             if res.is_ok() {
                 let _ = self.send_mpv_command(serde_json::json!(["set_property", "pause", false]));
             } else {
-                self.ensure_mpv_running(Some(&path_str), workspace)?;
+                self.ensure_mpv_running(Some(&path_str))?;
             }
         } else {
-            self.ensure_mpv_running(Some(&path_str), workspace)?;
+            self.ensure_mpv_running(Some(&path_str))?;
         }
 
         let mut curr = self.current_wallpaper.lock().unwrap();
@@ -279,10 +295,6 @@ impl WallpaperEngine {
         *pause_guard = false;
 
         Ok(())
-    }
-
-    pub fn set_wallpaper(&self, path: &Path) -> Result<(), String> {
-        self.set_wallpaper_for_workspace(path, None)
     }
 
     pub fn set_url(&self, url: &str) -> Result<(), String> {
@@ -315,7 +327,7 @@ impl WallpaperEngine {
             let _ = self.send_mpv_command(serde_json::json!(["loadfile", url, "replace"]));
             let _ = self.send_mpv_command(serde_json::json!(["set_property", "pause", false]));
         } else {
-            self.ensure_mpv_running(Some(url), None)?;
+            self.ensure_mpv_running(Some(url))?;
         }
 
         let mut curr = self.current_wallpaper.lock().unwrap();
@@ -424,19 +436,6 @@ impl WallpaperEngine {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub fn pause_for_unassigned_workspace(&self) -> Result<(), String> {
-        if self.socket_path.exists() {
-            let _ = self.send_mpv_command(serde_json::json!(["set_property", "pause", true]));
-        }
-        let mut p = self.is_paused.lock().unwrap();
-        *p = true;
-        let mut curr = self.current_wallpaper.lock().unwrap();
-        *curr = None;
-        log_info("Engine: Paused for unassigned workspace.");
-        Ok(())
-    }
-
     pub fn pause(&self) -> Result<(), String> {
         let mut p = self.is_paused.lock().unwrap();
         *p = true;
@@ -458,11 +457,11 @@ impl WallpaperEngine {
             let res = self.send_mpv_command(serde_json::json!(["set_property", "pause", false]));
             if res.is_err() {
                 if let Some(curr) = self.current_wallpaper.lock().unwrap().clone() {
-                    let _ = self.set_wallpaper_for_workspace(Path::new(&curr), None);
+                    let _ = self.set_wallpaper(Path::new(&curr));
                 }
             }
         } else if let Some(curr) = self.current_wallpaper.lock().unwrap().clone() {
-            let _ = self.set_wallpaper_for_workspace(Path::new(&curr), None);
+            let _ = self.set_wallpaper(Path::new(&curr));
         }
         log_info("Engine: Playback resumed.");
         Ok(())
@@ -525,6 +524,29 @@ impl WallpaperEngine {
         let mut h = self.hwdec.lock().unwrap();
         *h = hwdec.to_string();
         Ok(())
+    }
+
+    pub fn set_gpu_device(&mut self, gpu_device: Option<String>) -> Result<(), String> {
+        let mut dev = self.gpu_device.lock().unwrap();
+        *dev = gpu_device;
+        Ok(())
+    }
+
+    pub fn gpu_device(&self) -> Option<String> {
+        self.gpu_device.lock().unwrap().clone()
+    }
+
+    pub fn set_target_fps(&mut self, fps: u32) -> Result<(), String> {
+        if self.socket_path.exists() {
+            let _ = self.send_mpv_command(serde_json::json!(["set_property", "override-display-fps", fps]));
+        }
+        let mut f = self.target_fps.lock().unwrap();
+        *f = fps;
+        Ok(())
+    }
+
+    pub fn target_fps(&self) -> u32 {
+        *self.target_fps.lock().unwrap()
     }
 
     pub fn set_screen(&mut self, screen_id: i64) -> Result<(), String> {

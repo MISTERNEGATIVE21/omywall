@@ -38,36 +38,85 @@ impl WebEngineManager {
             }
         };
 
-        log_info(&format!("WebEngine: Applying background web wallpaper -> {}", target_url));
+        log_info(&format!("WebEngine: Applying background wlr-layer-shell web wallpaper -> {}", target_url));
 
-        // Inject Wayland / Hyprland window rules for background layer placement
-        let _ = Command::new("hyprctl")
-            .args(["keyword", "windowrulev2", "background, class:^(omywall-web-wallpaper)$"])
-            .output();
-        let _ = Command::new("hyprctl")
-            .args(["keyword", "windowrulev2", "pin, class:^(omywall-web-wallpaper)$"])
-            .output();
-        let _ = Command::new("hyprctl")
-            .args(["keyword", "windowrulev2", "fullscreen, class:^(omywall-web-wallpaper)$"])
-            .output();
-        let _ = Command::new("hyprctl")
-            .args(["keyword", "windowrulev2", "nofocus, class:^(omywall-web-wallpaper)$"])
-            .output();
-        let _ = Command::new("hyprctl")
-            .args(["keyword", "windowrulev2", "noblur, class:^(omywall-web-wallpaper)$"])
-            .output();
-        let _ = Command::new("hyprctl")
-            .args(["keyword", "windowrulev2", "size 100% 100%, class:^(omywall-web-wallpaper)$"])
-            .output();
-        let _ = Command::new("hyprctl")
-            .args(["keyword", "windowrulev2", "move 0 0, class:^(omywall-web-wallpaper)$"])
-            .output();
+        // Primary native Wayland wlr-layer-shell Web Engine (GTK Layer Shell + WebKit2)
+        let py_runner_path = PathBuf::from("/tmp/omywall_web_layer.py");
+        let py_runner_code = r#"import sys
+import os
+import gi
 
-        let runner_path = PathBuf::from("/tmp/omywall_web_app.js");
-        let runner_code = r#"
+try:
+    gi.require_version('Gtk', '3.0')
+    gi.require_version('GtkLayerShell', '0.1')
+    try:
+        gi.require_version('WebKit2', '4.1')
+    except:
+        gi.require_version('WebKit2', '4.0')
+    from gi.repository import Gtk, GtkLayerShell, WebKit2
+except Exception as e:
+    sys.stderr.write(f"GtkLayerShell/WebKit2 import error: {e}\n")
+    sys.exit(1)
+
+target_url = sys.argv[1]
+
+window = Gtk.Window()
+GtkLayerShell.init_for_window(window)
+GtkLayerShell.set_layer(window, GtkLayerShell.Layer.BACKGROUND)
+GtkLayerShell.set_anchor(window, GtkLayerShell.Edge.TOP, True)
+GtkLayerShell.set_anchor(window, GtkLayerShell.Edge.BOTTOM, True)
+GtkLayerShell.set_anchor(window, GtkLayerShell.Edge.LEFT, True)
+GtkLayerShell.set_anchor(window, GtkLayerShell.Edge.RIGHT, True)
+GtkLayerShell.set_exclusive_zone(window, -1)
+
+webview = WebKit2.WebView()
+settings = webview.get_settings()
+settings.set_enable_developer_extras(False)
+settings.set_enable_webgl(True)
+settings.set_enable_media_stream(True)
+settings.set_enable_mediasource(True)
+settings.set_enable_html5_local_storage(True)
+settings.set_media_playback_requires_user_gesture(False)
+settings.set_allow_file_access_from_file_urls(True)
+
+webview.load_uri(target_url)
+window.add(webview)
+window.show_all()
+Gtk.main()
+"#;
+        let _ = std::fs::write(&py_runner_path, py_runner_code);
+
+        // Try spawning python3 GtkLayerShell web wallpaper runner first
+        if let Ok(child) = Command::new("python3")
+            .args([py_runner_path.to_string_lossy().as_ref(), &target_url])
+            .spawn()
+        {
+            // Wait briefly to confirm python script didn't exit with error
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            let mut test_child = child;
+            match test_child.try_wait() {
+                Ok(Some(status)) => {
+                    log_error(&format!("WebEngine: GTK Layer Shell runner exited with status {:?}. Falling back to Electron...", status));
+                }
+                Ok(None) => {
+                    log_info("WebEngine: Successfully launched native wlr-layer-shell WebKit background wallpaper surface");
+                    let mut guard = self.web_child.lock().unwrap();
+                    *guard = Some(test_child);
+                    let mut url_guard = self.current_url.lock().unwrap();
+                    *url_guard = Some(target_url);
+                    return Ok(());
+                }
+                Err(_) => {}
+            }
+        }
+
+        // Secondary fallback: Electron runner with Wayland Ozone flags
+        let electron_runner_path = PathBuf::from("/tmp/omywall_web_app.js");
+        let electron_runner_code = r#"
 const { app, BrowserWindow } = require('electron');
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
-app.commandLine.appendSwitch('enable-features', 'UseOzonePlatform');
+app.commandLine.appendSwitch('enable-features', 'UseOzonePlatform,WaylandWindowDecorations');
+app.commandLine.appendSwitch('ozone-platform', 'wayland');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-gpu-vsync');
 
@@ -92,17 +141,17 @@ app.whenReady().then(() => {
     win.loadURL(process.argv[2]);
 });
 "#;
-        let _ = std::fs::write(&runner_path, runner_code);
+        let _ = std::fs::write(&electron_runner_path, electron_runner_code);
 
         let browser_bin = crate::engine::find_web_browser_binary();
         if let Some(bin) = browser_bin {
             let bin_name = bin.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
-            log_info(&format!("WebEngine: Spawning binary '{}' for URL {}", bin.display(), target_url));
+            log_info(&format!("WebEngine: Spawning fallback Electron binary '{}' for URL {}", bin.display(), target_url));
 
             let child = if bin_name.contains("electron") {
                 Command::new(&bin)
                     .args([
-                        runner_path.to_string_lossy().as_ref(),
+                        electron_runner_path.to_string_lossy().as_ref(),
                         &target_url,
                         "--class=omywall-web-wallpaper",
                     ])
@@ -136,7 +185,7 @@ app.whenReady().then(() => {
             }
         }
 
-        Err("WebEngine Exception: No suitable web browser or Electron binary found".into())
+        Err("WebEngine Exception: Neither GtkLayerShell nor suitable Electron binary is available".into())
     }
 
     pub fn stop(&self) {
@@ -145,6 +194,7 @@ app.whenReady().then(() => {
             let _ = child.kill();
             let _ = child.wait();
         }
+        let _ = Command::new("pkill").args(["-9", "-f", "omywall_web_layer.py"]).status();
         let _ = Command::new("pkill").args(["-9", "-f", "omywall-web-wallpaper"]).status();
         let mut url_guard = self.current_url.lock().unwrap();
         *url_guard = None;

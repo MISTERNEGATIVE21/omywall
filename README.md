@@ -2,7 +2,7 @@
 
 ![OMYWALL Logo](assets/omarchy-wall.svg)
 
-**OMYWALL (`omywall`)** is an ultra-lightweight, hardware-accelerated live video, web stream, and workspace wallpaper engine for Linux Wayland compositors. Built with Rust, `wlr-layer-shell` (`mpvpaper`), `libmpv`, `Ratatui`, and `egui`, it renders high-performance desktop background video and web wallpapers with minimal CPU (~1-3%) and RAM overhead.
+**OMYWALL (`omywall`)** is an ultra-lightweight, hardware-accelerated live video, web stream, and desktop wallpaper engine for Linux Wayland compositors. Built with Rust, native `wlr-layer-shell` (`mpvpaper` & `GTK Layer Shell` + `WebKit2`), `libmpv`, `Ratatui`, and `egui`, it renders high-performance desktop background videos and live web wallpapers natively behind all windows on every workspace with minimal CPU (~1-3%) and RAM overhead.
 
 > [!NOTE]
 > **Maintainer:** MisterNegative ([misternegative21@gmail.com](mailto:misternegative21@gmail.com))
@@ -26,12 +26,11 @@
 
 ## ✨ Key Features & Capabilities
 
-- 🎥 **Wayland `wlr-layer-shell` Backend**: Video wallpapers attach natively to the desktop `background` layer using `mpvpaper`. Never spawns floating or fullscreen overlay windows above active apps.
-- 🗔 **Automatic WM Workspace Sync**: Real-time IPC event listeners for Hyprland, Sway, and i3 sockets. Switching workspaces (`SUPER + 1..10`) automatically transitions wallpaper presets.
-- 🖥 **Dual Playback Modes**: Instant toggle between **Workspace Mode** (per-workspace wallpapers) and **Active Screen Mode** (per-monitor output wallpapers).
-- 🌐 **Web Streams & Live HTML Widgets**: Stream YouTube/HLS live feeds or overlay interactive HTML5 canvas animations and WebGL widgets directly on your desktop background.
+- 🎥 **Wayland `wlr-layer-shell` Video Backend**: Video wallpapers attach natively to the desktop `background` layer using `mpvpaper`. Never spawns floating or fullscreen overlay windows above active apps.
+- 🌐 **Native `wlr-layer-shell` Web Engine**: Websites, YouTube feeds, HTML5 WebGL animations, and widgets render as true `wlr-layer-shell` background surfaces using `GTK Layer Shell` and `WebKit2` (with Electron/Ozone Wayland fallback). No compositor window rules required!
+- 🖥 **Per-Monitor Output Mappings**: Assign wallpapers globally or per monitor output (`eDP-1`, `HDMI-A-1`).
 - 🛠 **System Doctor & Diagnostic Center**: Built-in dependency scanner and 1-click multi-distro package installer (`yay`, `paru`, `pacman`, `apt`, `dnf`, `zypper`, `nix`).
-- 🎨 **Cyber-Cosmic Graphical UI**: High-tech `egui` desktop control panel with wallpaper hero previews, 1-click workspace matrix, and slideshow controls.
+- 🎨 **Cyber-Cosmic Graphical UI**: High-tech `egui` desktop control panel with wallpaper hero previews, media inspector, and slideshow controls.
 - ⌨️ **Keyboard-Driven Terminal UI**: Fast, lightweight `Ratatui` TUI for CLI aficionados.
 
 ---
@@ -41,7 +40,6 @@
 Configuration is stored in human-readable TOML format at `~/.config/omywall/config.toml`. `omywall` automatically creates and updates this file.
 
 ```toml
-mode = "workspace" # Active mode: "workspace" or "monitor"
 wallpaper_dir = "/home/user/Pictures/Wallpapers"
 socket_path = "/run/user/1000/omywall.sock" # Unix IPC Daemon Socket Path
 hwdec = "auto" # GPU Acceleration: "auto", "vaapi", "nvdec", "no"
@@ -53,28 +51,22 @@ slideshow_interval = 300 # Slideshow rotation interval in seconds
 slideshow_shuffle = false # Randomize slideshow order
 autostart = false # Autostart background daemon on system boot
 
-# Workspace-to-Wallpaper Mappings (Workspace ID -> File path or Web URL)
-[workspace_wallpapers]
-"1" = "/home/user/Pictures/Wallpapers/cyberpunk.mkv"
-"2" = "https://www.youtube.com/watch?v=5qap5aO4i9A"
-"3" = "/home/user/Pictures/Wallpapers/anime_rain.mp4"
-
 # Monitor-to-Wallpaper Mappings (Monitor Output -> File path or Web URL)
 [monitor_wallpapers]
 "eDP-1" = "/home/user/Pictures/Wallpapers/neon_city.mp4"
-"HDMI-A-1" = "https://clock.zone"
+"HDMI-A-1" = "assets/web_wallpapers/cyber_tunnel_3d.html"
 
 # Saved Interactive Web Wallpapers & HTML5 Widgets
 [[saved_web_wallpapers]]
-title = "Matrix Digital Rain"
-url = "assets/web_wallpapers/matrix_rain.html"
-category = "Canvas Animation"
+title = "3D Cyber Hyperspace Tunnel"
+url = "assets/web_wallpapers/cyber_tunnel_3d.html"
+category = "3D WebGL / Canvas"
 is_demo = true
 
 [[saved_web_wallpapers]]
-title = "Cyber Neon Clock"
-url = "assets/web_wallpapers/cyber_clock.html"
-category = "Digital Clock"
+title = "3D Synthwave Horizon"
+url = "assets/web_wallpapers/neon_synthwave_3d.html"
+category = "3D Synthwave"
 is_demo = true
 ```
 
@@ -91,10 +83,7 @@ Launch `omywall --help` or use any of the subcommands below:
 | `omywall tui` | `t` | Launch Interactive Terminal UI (TUI) |
 | `omywall set <file>` | `s` | Set a local video (`.mkv`, `.mp4`, `.gif`, `.webm`) or image as wallpaper |
 | `omywall set-url <url>` | `u` | Stream web video URL, YouTube stream, or live HTML page |
-| `omywall set-workspace <ws> <file>` | `set-ws` | Assign wallpaper to a specific workspace (e.g. `1`, `2`) |
-| `omywall switch-workspace <ws>` | `switch-ws` | Switch active wallpaper to workspace mapping |
 | `omywall set-monitor <mon> <file>` | `mon` | Assign wallpaper to a specific monitor output (`eDP-1`, `HDMI-A-1`) |
-| `omywall mode [workspace\|screen\|toggle]` | `m` | Toggle between **Workspace Mode** and **Active Screen Mode** |
 | `omywall cycle` | `live`, `toggle-live` | Cycle live video wallpapers sequentially & toggle playback |
 | `omywall clear` | `c` | Stop wallpaper playback and clear background |
 | `omywall pause` | - | Pause video wallpaper playback |
@@ -120,10 +109,9 @@ Launch via `omywall tui`:
 | Key | Action |
 | :--- | :--- |
 | `Enter` | Apply selected wallpaper |
-| `t` / `Tab` | Toggle Mode (**Workspace Mode** ↔ **Active Screen Mode**) |
 | `c` | Cycle live wallpapers sequentially |
-| `w` | Open prompt to map selected wallpaper to Workspace (1-10) |
 | `M` | Open prompt to map selected wallpaper to Monitor output |
+| `u` | Stream Web / HTML URL |
 | `/` | Filter wallpaper library by search |
 | `p` | Toggle Pause / Resume playback |
 | `s` | Toggle Auto-Slideshow mode |
@@ -139,6 +127,7 @@ Launch via `omywall tui`:
 
 ### Essential Dependencies
 - `mpvpaper` (Primary Wayland `wlr-layer-shell` video wallpaper engine)
+- `gtk-layer-shell` & `webkit2gtk` / `python3-gobject` (Native Wayland `wlr-layer-shell` web wallpaper engine)
 - `mpv` (Hardware-accelerated video player backend)
 - `ffmpeg` (Video thumbnailing & media processing)
 - `libnotify` / `notify-send` (Desktop notifications)
@@ -161,11 +150,6 @@ bash install.sh
 ```ini
 # Start OMYWALL Daemon on boot
 exec-once = omywall daemon
-
-# Keybindings for workspace switching (auto-detected by OMYWALL IPC socket)
-bind = SUPER, 1, workspace, 1
-bind = SUPER, 2, workspace, 2
-bind = SUPER, 3, workspace, 3
 ```
 
 ### Sway / i3 (`~/.config/sway/config`)
@@ -181,6 +165,7 @@ exec omywall daemon
 `OMYWALL` stands on the shoulders of these incredible open-source projects:
 
 - **[mpvpaper](https://github.com/GhostKey/mpvpaper)** by GhostKey / Alex-D — The core Wayland `wlr-layer-shell` video wallpaper renderer.
+- **[gtk-layer-shell](https://github.com/wmww/gtk-layer-shell)** — Wayland `wlr-layer-shell` library for GTK & WebKit desktop components.
 - **[mpv](https://mpv.io/)** — Powerful hardware-accelerated media player engine.
 - **[FFmpeg](https://ffmpeg.org/)** — Industry-standard multimedia framework for thumbnailing and decoding.
 - **[Ratatui](https://ratatui.rs/)** — Terminal UI framework for Rust.

@@ -5,7 +5,6 @@ mod ipc;
 mod logger;
 mod tui;
 mod web_engine;
-mod workspace;
 
 use clap::{Parser, Subcommand};
 use std::fs;
@@ -22,7 +21,7 @@ use logger::{get_log_path, init_logging, log_error, log_info};
 
 #[derive(Parser)]
 #[command(name = "omywall")]
-#[command(about = "OMYWALL - Universal Hardware-Accelerated Video, Stream & Workspace Wallpaper Engine", long_about = None)]
+#[command(about = "OMYWALL - Universal Hardware-Accelerated Video, Stream & Desktop Wallpaper Engine", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -50,27 +49,6 @@ enum Commands {
     SetUrl {
         /// Web URL or YouTube link
         url: String,
-    },
-    /// Assign wallpaper to a workspace (alias: set-ws)
-    SetWorkspace {
-        workspace: String,
-        path: String,
-    },
-    /// Switch wallpaper to workspace mapping (alias: switch-ws)
-    SwitchWorkspace {
-        workspace: String,
-    },
-    /// Workspace wallpaper manager (alias: ws, w)
-    #[command(alias = "ws", alias = "w")]
-    Workspace {
-        #[command(subcommand)]
-        sub: Option<WorkspaceSubcommands>,
-        /// Workspace ID/Name (quick shorthand)
-        #[arg(global = true)]
-        workspace_id: Option<String>,
-        /// Wallpaper path or URL (quick shorthand)
-        #[arg(global = true)]
-        wallpaper_target: Option<String>,
     },
     /// Stop active wallpaper playback / clear screen (alias: c)
     #[command(alias = "c")]
@@ -114,12 +92,6 @@ enum Commands {
         #[arg(short, long)]
         disable: bool,
     },
-    /// Toggle or set wallpaper mode: workspace vs screen/monitor (alias: m, mode)
-    #[command(alias = "m")]
-    Mode {
-        /// Mode to set ("workspace", "screen", "monitor", "toggle")
-        mode: Option<String>,
-    },
     /// Manage autostart on system boot (alias: auto)
     #[command(alias = "auto")]
     Autostart {
@@ -142,25 +114,6 @@ enum Commands {
     Stop,
 }
 
-#[derive(Subcommand)]
-enum WorkspaceSubcommands {
-    /// List all workspace wallpaper mappings
-    List,
-    /// Map a video, GIF, or Web URL to a workspace
-    Set {
-        workspace: String,
-        path: String,
-    },
-    /// Clear workspace wallpaper mapping
-    Clear {
-        workspace: String,
-    },
-    /// Switch active wallpaper to workspace mapping
-    Switch {
-        workspace: String,
-    },
-}
-
 struct SlideshowState {
     active: bool,
     interval_secs: u64,
@@ -169,7 +122,7 @@ struct SlideshowState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Ignore SIGCHLD signals so spawned child processes (Electron) exit cleanly without signaling MPV/Rust process
+    // Ignore SIGCHLD signals so spawned child processes exit cleanly without signaling MPV/Rust process
     unsafe {
         libc::signal(libc::SIGCHLD, libc::SIG_IGN);
     }
@@ -257,14 +210,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Clear) => {
             send_ipc_cmd(&cfg.socket_path, IpcRequest::StopWallpaper).await;
         }
-        Some(Commands::SetWorkspace { workspace, path }) => {
-            let req = IpcRequest::SetWorkspaceWallpaper { workspace, path };
-            send_ipc_cmd(&cfg.socket_path, req).await;
-        }
-        Some(Commands::SwitchWorkspace { workspace }) => {
-            let req = IpcRequest::SwitchWorkspace { workspace };
-            send_ipc_cmd(&cfg.socket_path, req).await;
-        }
         Some(Commands::SetMonitor { monitor, path }) => {
             let req = IpcRequest::SetMonitorWallpaper { monitor, path };
             send_ipc_cmd(&cfg.socket_path, req).await;
@@ -276,34 +221,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::SetWidget { url, disable }) => {
             let req = IpcRequest::SetWidget { url, enabled: !disable };
             send_ipc_cmd(&cfg.socket_path, req).await;
-        }
-        Some(Commands::Workspace { sub, workspace_id, wallpaper_target }) => {
-            if let Some(sub_cmd) = sub {
-                match sub_cmd {
-                    WorkspaceSubcommands::List => {
-                        handle_ws_list(&cfg.socket_path).await;
-                    }
-                    WorkspaceSubcommands::Set { workspace, path } => {
-                        send_ipc_cmd(&cfg.socket_path, IpcRequest::SetWorkspaceWallpaper { workspace, path }).await;
-                    }
-                    WorkspaceSubcommands::Clear { workspace } => {
-                        send_ipc_cmd(&cfg.socket_path, IpcRequest::SetWorkspaceWallpaper { workspace, path: "".to_string() }).await;
-                    }
-                    WorkspaceSubcommands::Switch { workspace } => {
-                        send_ipc_cmd(&cfg.socket_path, IpcRequest::SwitchWorkspace { workspace }).await;
-                    }
-                }
-            } else if let (Some(ws), Some(target)) = (workspace_id.clone(), wallpaper_target) {
-                send_ipc_cmd(&cfg.socket_path, IpcRequest::SetWorkspaceWallpaper { workspace: ws, path: target }).await;
-            } else if let Some(ws) = workspace_id {
-                if ws == "list" || ws == "ls" {
-                    handle_ws_list(&cfg.socket_path).await;
-                } else {
-                    send_ipc_cmd(&cfg.socket_path, IpcRequest::SwitchWorkspace { workspace: ws }).await;
-                }
-            } else {
-                handle_ws_list(&cfg.socket_path).await;
-            }
         }
         Some(Commands::Pause) => {
             send_ipc_cmd(&cfg.socket_path, IpcRequest::Pause).await;
@@ -330,14 +247,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::StopSlideshow) => {
             send_ipc_cmd(&cfg.socket_path, IpcRequest::StopSlideshow).await;
         }
-        Some(Commands::Mode { mode }) => {
-            let req = match mode {
-                Some(m) if m.eq_ignore_ascii_case("toggle") || m.trim().is_empty() => IpcRequest::ToggleMode,
-                Some(m) => IpcRequest::SetMode { mode: m },
-                None => IpcRequest::ToggleMode,
-            };
-            send_ipc_cmd(&cfg.socket_path, req).await;
-        }
         Some(Commands::Autostart { enable, disable }) => {
             if enable {
                 match Config::set_autostart(true) {
@@ -361,9 +270,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match send_ipc_request(&cfg.socket_path, &IpcRequest::GetStatus).await {
                 Ok(IpcResponse::Status(st)) => {
                     println!("--- OMYWALL Wallpaper Engine Status ---");
-                    println!("Active Mode:       {}", st.mode.to_uppercase());
                     println!("Current Wallpaper: {}", st.current_wallpaper.unwrap_or_else(|| "None Selected".into()));
-                    println!("Active Workspace:  {}", st.active_workspace.unwrap_or_else(|| "None".into()));
                     println!("Active Monitor:    {}", st.active_monitor.unwrap_or_else(|| "None".into()));
                     println!("Playback:          {}", if st.is_paused { "Paused ⏸" } else { "Playing ▶" });
                     println!("Slideshow Mode:    {}", if st.slideshow_active { format!("Active (Interval: {}s)", st.slideshow_interval) } else { "Disabled".into() });
@@ -384,24 +291,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
-}
-
-async fn handle_ws_list(socket_path: &Path) {
-    match send_ipc_request(socket_path, &IpcRequest::GetWorkspaceMappings).await {
-        Ok(IpcResponse::WorkspaceMappings { mappings, active_workspace }) => {
-            println!("--- OMYWALL Workspace Mappings ---");
-            println!("Focused Workspace: {}", active_workspace.unwrap_or_else(|| "None".into()));
-            let mut keys: Vec<&String> = mappings.keys().collect();
-            keys.sort();
-            for k in keys {
-                let val = mappings.get(k).unwrap();
-                let display_val = if val.is_empty() { "No wallpaper assigned" } else { val };
-                println!("Workspace {:<3} => {}", k, display_val);
-            }
-        }
-        Ok(other) => println!("Response: {:?}", other),
-        Err(e) => eprintln!("Daemon error: {}", e),
-    }
 }
 
 async fn send_ipc_cmd(socket_path: &Path, req: IpcRequest) {
@@ -439,7 +328,6 @@ fn acquire_instance_lock(name: &str) -> Option<std::fs::File> {
 }
 
 async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> {
-
     log_info("Starting OMYWALL Wallpaper Engine Daemon...");
 
     if !cfg.wallpaper_dir.exists() {
@@ -450,6 +338,8 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
 
     let engine = Arc::new(Mutex::new(WallpaperEngine::new(
         &cfg.hwdec,
+        cfg.gpu_device.clone(),
+        cfg.target_fps,
         cfg.volume,
         cfg.mute,
         cfg.window_id,
@@ -457,7 +347,6 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
     )?));
 
     let wallpaper_files = Arc::new(Mutex::new(scan_wallpapers(&cfg.wallpaper_dir)));
-    let active_workspace = Arc::new(Mutex::new(None::<String>));
     let active_monitor = Arc::new(Mutex::new(None::<String>));
     let cycle_index = Arc::new(Mutex::new(None::<usize>));
 
@@ -520,19 +409,6 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
     let listener = UnixListener::bind(&cfg.socket_path)?;
     log_info(&format!("OMYWALL Wallpaper Engine listening on socket: {}", cfg.socket_path.display()));
 
-    // Auto-detect Hyprland/Sway/i3 Workspace focus events after socket listener is bound
-    workspace::start_workspace_listener(cfg.socket_path.clone()).await;
-
-    // Query initial active workspace & monitor from Hyprland
-    let initial_ws = std::process::Command::new("hyprctl")
-        .arg("activeworkspace")
-        .output()
-        .ok()
-        .and_then(|out| {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            stdout.split_whitespace().nth(2).map(|s| s.to_string())
-        });
-
     let initial_mon = std::process::Command::new("hyprctl")
         .arg("monitors")
         .output()
@@ -548,10 +424,6 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
             })
         });
 
-    if let Some(ref ws) = initial_ws {
-        let mut active_ws_guard = active_workspace.lock().unwrap();
-        *active_ws_guard = Some(ws.clone());
-    }
     if let Some(ref mon) = initial_mon {
         let mut active_mon_guard = active_monitor.lock().unwrap();
         *active_mon_guard = Some(mon.clone());
@@ -560,7 +432,7 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
     {
         let cfg_guard = config_arc.lock().unwrap();
         let eng = engine.lock().unwrap();
-        apply_current_mode_wallpaper(&cfg_guard, &eng, initial_ws.as_deref(), initial_mon.as_deref());
+        apply_active_wallpaper(&cfg_guard, &eng, initial_mon.as_deref());
     }
 
     loop {
@@ -575,7 +447,6 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
         let engine = engine.clone();
         let wallpaper_files = wallpaper_files.clone();
         let slideshow_state = slideshow_state.clone();
-        let active_ws_arc = active_workspace.clone();
         let active_mon_arc = active_monitor.clone();
         let cycle_idx_arc = cycle_index.clone();
         let config_arc = config_arc.clone();
@@ -657,133 +528,16 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                         Err(e) => IpcResponse::Err { message: e },
                     }
                 }
-                IpcRequest::SetWorkspaceWallpaper { workspace, path } => {
-                    let mut cfg_guard = config_arc.lock().unwrap();
-                    if path.trim().is_empty() {
-                        cfg_guard.workspace_wallpapers.remove(&workspace);
-                        let clean_id = workspace.trim_start_matches("workspace_").trim_start_matches("Workspace ").trim().to_string();
-                        cfg_guard.workspace_wallpapers.remove(&clean_id);
-                        cfg_guard.workspace_wallpapers.remove(&format!("Workspace {}", clean_id));
-                        let _ = cfg_guard.save();
-                        let ws_guard = active_ws_arc.lock().unwrap();
-                        let mon_guard = active_mon_arc.lock().unwrap();
-                        let eng = engine.lock().unwrap();
-                        apply_current_mode_wallpaper(&cfg_guard, &eng, ws_guard.as_deref(), mon_guard.as_deref());
-                        log_info(&format!("IPC: Cleared Workspace {} wallpaper mapping", workspace));
-                        IpcResponse::Ok {
-                            message: format!("Cleared Workspace {} mapping", workspace),
-                        }
-                    } else {
-                        cfg_guard.workspace_wallpapers.insert(workspace.clone(), path.clone());
-                        let _ = cfg_guard.save();
-                        let ws_guard = active_ws_arc.lock().unwrap();
-                        let mon_guard = active_mon_arc.lock().unwrap();
-                        let eng = engine.lock().unwrap();
-                        apply_current_mode_wallpaper(&cfg_guard, &eng, ws_guard.as_deref(), mon_guard.as_deref());
-                        log_info(&format!("IPC: Mapped Workspace {} to '{}'", workspace, path));
-                        IpcResponse::Ok {
-                            message: format!("Workspace {} mapped to '{}'", workspace, path),
-                        }
-                    }
-                }
-                IpcRequest::SwitchWorkspace { workspace } => {
-                    {
-                        let mut active_guard = active_ws_arc.lock().unwrap();
-                        *active_guard = Some(workspace.clone());
-                    }
-                    let cfg_guard = config_arc.lock().unwrap();
-                    let mon_guard = active_mon_arc.lock().unwrap();
-                    let eng = engine.lock().unwrap();
-                    apply_current_mode_wallpaper(&cfg_guard, &eng, Some(&workspace), mon_guard.as_deref());
-                    IpcResponse::Ok {
-                        message: format!("Switched to Workspace {}", workspace),
-                    }
-                }
-                IpcRequest::SwitchWorkspaceAndMonitor { workspace, monitor } => {
-                    if !workspace.is_empty() {
-                        let mut active_ws_guard = active_ws_arc.lock().unwrap();
-                        *active_ws_guard = Some(workspace.clone());
-                    }
-                    if !monitor.is_empty() {
-                        let mut active_mon_guard = active_mon_arc.lock().unwrap();
-                        *active_mon_guard = Some(monitor.clone());
-                    }
-
-                    let cfg_guard = config_arc.lock().unwrap();
-                    let ws_guard = active_ws_arc.lock().unwrap();
-                    let mon_guard = active_mon_arc.lock().unwrap();
-                    let eng = engine.lock().unwrap();
-
-                    apply_current_mode_wallpaper(&cfg_guard, &eng, ws_guard.as_deref(), mon_guard.as_deref());
-
-                    IpcResponse::Ok {
-                        message: format!("Active Screen: Monitor '{}', Workspace '{}'", monitor, workspace),
-                    }
-                }
                 IpcRequest::SwitchMonitor { monitor } => {
                     {
                         let mut active_guard = active_mon_arc.lock().unwrap();
                         *active_guard = Some(monitor.clone());
                     }
                     let cfg_guard = config_arc.lock().unwrap();
-                    let ws_guard = active_ws_arc.lock().unwrap();
                     let eng = engine.lock().unwrap();
-                    apply_current_mode_wallpaper(&cfg_guard, &eng, ws_guard.as_deref(), Some(&monitor));
+                    apply_active_wallpaper(&cfg_guard, &eng, Some(&monitor));
                     IpcResponse::Ok {
                         message: format!("Switched to Monitor {}", monitor),
-                    }
-                }
-                IpcRequest::GetWorkspaceMappings => {
-                    let active_guard = active_ws_arc.lock().unwrap();
-                    let cfg_guard = config_arc.lock().unwrap();
-                    IpcResponse::WorkspaceMappings {
-                        mappings: cfg_guard.workspace_wallpapers.clone(),
-                        active_workspace: active_guard.clone(),
-                    }
-                }
-                IpcRequest::SetMode { mode } => {
-                    let mut cfg_guard = config_arc.lock().unwrap();
-                    cfg_guard.mode = mode.clone();
-                    let _ = cfg_guard.save();
-
-                    let ws_guard = active_ws_arc.lock().unwrap();
-                    let mon_guard = active_mon_arc.lock().unwrap();
-                    let eng = engine.lock().unwrap();
-                    apply_current_mode_wallpaper(&cfg_guard, &eng, ws_guard.as_deref(), mon_guard.as_deref());
-
-                    log_info(&format!("IPC: Set Wallpaper mode to '{}'", mode));
-                    IpcResponse::Ok {
-                        message: format!("Wallpaper mode set to '{}'", mode),
-                    }
-                }
-                IpcRequest::ToggleMode => {
-                    let mut cfg_guard = config_arc.lock().unwrap();
-                    let new_mode = if cfg_guard.mode == "monitor" || cfg_guard.mode == "screen" {
-                        "workspace".to_string()
-                    } else {
-                        "monitor".to_string()
-                    };
-                    cfg_guard.mode = new_mode.clone();
-                    let _ = cfg_guard.save();
-
-                    let ws_guard = active_ws_arc.lock().unwrap();
-                    let mon_guard = active_mon_arc.lock().unwrap();
-                    let eng = engine.lock().unwrap();
-                    apply_current_mode_wallpaper(&cfg_guard, &eng, ws_guard.as_deref(), mon_guard.as_deref());
-
-                    log_info(&format!("IPC: Toggled Wallpaper mode to '{}'", new_mode));
-                    IpcResponse::Ok {
-                        message: format!("Wallpaper mode toggled to '{}'", new_mode),
-                    }
-                }
-                IpcRequest::GetMode => {
-                    let cfg_guard = config_arc.lock().unwrap();
-                    let ws_guard = active_ws_arc.lock().unwrap();
-                    let mon_guard = active_mon_arc.lock().unwrap();
-                    IpcResponse::ModeInfo {
-                        mode: cfg_guard.mode.clone(),
-                        active_workspace: ws_guard.clone(),
-                        active_monitor: mon_guard.clone(),
                     }
                 }
                 IpcRequest::CycleLiveWallpaper => {
@@ -942,10 +696,37 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                     }
                 }
                 IpcRequest::SetHwdec { hwdec } => {
+                    let mut cfg_guard = config_arc.lock().unwrap();
+                    cfg_guard.hwdec = hwdec.clone();
+                    let _ = cfg_guard.save();
                     let mut eng = engine.lock().unwrap();
                     match eng.set_hwdec(&hwdec) {
                         Ok(_) => IpcResponse::Ok {
                             message: format!("Hardware decoder set to {}", hwdec),
+                        },
+                        Err(e) => IpcResponse::Err { message: e },
+                    }
+                }
+                IpcRequest::SetGpuDevice { gpu_device } => {
+                    let mut cfg_guard = config_arc.lock().unwrap();
+                    cfg_guard.gpu_device = gpu_device.clone();
+                    let _ = cfg_guard.save();
+                    let mut eng = engine.lock().unwrap();
+                    match eng.set_gpu_device(gpu_device.clone()) {
+                        Ok(_) => IpcResponse::Ok {
+                            message: format!("GPU device target set to {:?}", gpu_device),
+                        },
+                        Err(e) => IpcResponse::Err { message: e },
+                    }
+                }
+                IpcRequest::SetTargetFps { fps } => {
+                    let mut cfg_guard = config_arc.lock().unwrap();
+                    cfg_guard.target_fps = fps;
+                    let _ = cfg_guard.save();
+                    let mut eng = engine.lock().unwrap();
+                    match eng.set_target_fps(fps) {
+                        Ok(_) => IpcResponse::Ok {
+                            message: format!("Target rendering FPS set to {} FPS", fps),
                         },
                         Err(e) => IpcResponse::Err { message: e },
                     }
@@ -964,10 +745,9 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                     if path.trim().is_empty() {
                         cfg_guard.monitor_wallpapers.remove(&monitor);
                         let _ = cfg_guard.save();
-                        let ws_guard = active_ws_arc.lock().unwrap();
                         let mon_guard = active_mon_arc.lock().unwrap();
                         let eng = engine.lock().unwrap();
-                        apply_current_mode_wallpaper(&cfg_guard, &eng, ws_guard.as_deref(), mon_guard.as_deref());
+                        apply_active_wallpaper(&cfg_guard, &eng, mon_guard.as_deref());
                         log_info(&format!("IPC: Cleared Monitor {} wallpaper mapping", monitor));
                         IpcResponse::Ok {
                             message: format!("Cleared Monitor {} mapping", monitor),
@@ -975,10 +755,9 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                     } else {
                         cfg_guard.monitor_wallpapers.insert(monitor.clone(), path.clone());
                         let _ = cfg_guard.save();
-                        let ws_guard = active_ws_arc.lock().unwrap();
                         let mon_guard = active_mon_arc.lock().unwrap();
                         let eng = engine.lock().unwrap();
-                        apply_current_mode_wallpaper(&cfg_guard, &eng, ws_guard.as_deref(), mon_guard.as_deref());
+                        apply_active_wallpaper(&cfg_guard, &eng, mon_guard.as_deref());
                         log_info(&format!("IPC: Mapped Monitor {} to '{}'", monitor, path));
                         IpcResponse::Ok {
                             message: format!("Monitor {} mapped to '{}'", monitor, path),
@@ -1016,37 +795,23 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                         Err(e) => IpcResponse::Err { message: e },
                     }
                 }
-                IpcRequest::ToggleWorkspaceIsolate => {
-                    let eng = engine.lock().unwrap();
-                    let mut cfg_guard = config_arc.lock().unwrap();
-                    cfg_guard.workspace_isolate = !cfg_guard.workspace_isolate;
-                    let new_state = cfg_guard.workspace_isolate;
-                    let _ = cfg_guard.save();
-                    let ws_guard = active_ws_arc.lock().unwrap();
-                    let mon_guard = active_mon_arc.lock().unwrap();
-                    apply_current_mode_wallpaper(&cfg_guard, &eng, ws_guard.as_deref(), mon_guard.as_deref());
-                    IpcResponse::Ok {
-                        message: format!("Workspace isolation: {}", if new_state { "ENABLED 🟢" } else { "DISABLED 🔴" }),
-                    }
-                }
                 IpcRequest::GetStatus => {
                     let eng = engine.lock().unwrap();
                     let files = wallpaper_files.lock().unwrap();
                     let st = slideshow_state.lock().unwrap();
-                    let ws_guard = active_ws_arc.lock().unwrap();
                     let mon_guard = active_mon_arc.lock().unwrap();
                     let (w_enabled, w_url) = eng.get_widget_info();
                     let cfg_guard = config_arc.lock().unwrap();
 
                     let status = DaemonStatus {
                         current_wallpaper: eng.current_wallpaper(),
-                        active_workspace: ws_guard.clone(),
                         active_monitor: mon_guard.clone(),
-                        mode: cfg_guard.mode.clone(),
                         is_paused: eng.is_paused().unwrap_or(false),
                         volume: eng.volume(),
                         is_muted: eng.is_muted(),
                         hwdec: eng.hwdec(),
+                        gpu_device: eng.gpu_device(),
+                        target_fps: eng.target_fps(),
                         screen_id: eng.screen_id(),
                         slideshow_active: st.active,
                         slideshow_interval: st.interval_secs,
@@ -1055,7 +820,6 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                         widget_enabled: w_enabled,
                         widget_url: w_url,
                         monitor_wallpapers: cfg_guard.monitor_wallpapers.clone(),
-                        workspace_isolate: cfg_guard.workspace_isolate,
                         total_wallpapers: files.len(),
                     };
                     IpcResponse::Status(status)
@@ -1084,47 +848,35 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
     }
 }
 
-fn apply_current_mode_wallpaper(
+fn apply_active_wallpaper(
     config: &Config,
     engine: &WallpaperEngine,
-    active_ws: Option<&str>,
     active_mon: Option<&str>,
 ) {
     if engine.is_user_stopped() {
         return;
     }
 
-    let mode = config.mode.to_lowercase();
     let mut target_path: Option<String> = None;
-
-    if mode == "workspace" || mode == "ws" {
-        if let Some(ws) = active_ws {
-            if let Some(target) = config.get_workspace_wallpaper(ws) {
-                target_path = Some(target.clone());
-            }
-        }
-    } else if mode == "monitor" || mode == "screen" {
-        if let Some(mon) = active_mon {
-            if let Some(target) = config.get_monitor_wallpaper(mon) {
-                target_path = Some(target.clone());
-            }
+    if let Some(mon) = active_mon {
+        if let Some(target) = config.get_monitor_wallpaper(mon) {
+            target_path = Some(target.clone());
         }
     }
 
     if let Some(path_str) = target_path {
         if !path_str.trim().is_empty() {
-            let ws_target = active_ws.map(|w| w.trim_start_matches("workspace_").trim_start_matches("Workspace ").trim());
             if path_str.starts_with("http://") || path_str.starts_with("https://") {
                 let _ = engine.set_url(&path_str);
             } else {
-                let _ = engine.set_wallpaper_for_workspace(Path::new(&path_str), ws_target);
+                let _ = engine.set_wallpaper(Path::new(&path_str));
             }
             return;
         }
     }
 
     if let Some(ref def) = config.default_wallpaper {
-        let _ = engine.set_wallpaper_for_workspace(def, None);
+        let _ = engine.set_wallpaper(def);
     }
 }
 
