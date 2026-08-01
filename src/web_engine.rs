@@ -77,6 +77,14 @@ settings.set_enable_mediasource(True)
 settings.set_enable_html5_local_storage(True)
 settings.set_media_playback_requires_user_gesture(False)
 settings.set_allow_file_access_from_file_urls(True)
+try:
+    settings.set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.ALWAYS)
+except Exception:
+    pass
+try:
+    settings.set_enable_accelerated_2d_canvas(True)
+except Exception:
+    pass
 
 webview.load_uri(target_url)
 window.add(webview)
@@ -89,6 +97,7 @@ Gtk.main()
         let mut py_cmd = Command::new("python3");
         py_cmd.args([py_runner_path.to_string_lossy().as_ref(), &target_url]);
         py_cmd.env("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+        py_cmd.env("WEBKIT_DISABLE_COMPOSITING_MODE", "0");
         py_cmd.env("LIBGL_ALWAYS_SOFTWARE", "0");
 
         let is_nvidia = crate::config::detect_system_gpus().iter().any(|g| g.vendor == "NVIDIA");
@@ -97,6 +106,7 @@ Gtk.main()
             py_cmd.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
             py_cmd.env("__VK_LAYER_NV_optimus", "NVIDIA_only");
             py_cmd.env("CUDA_VISIBLE_DEVICES", "0");
+            py_cmd.env("DRI_PRIME", "1");
         }
 
         if let Ok(child) = py_cmd.spawn()
@@ -120,14 +130,19 @@ Gtk.main()
             }
         }
 
-        // Secondary fallback: Electron runner with Wayland Ozone flags
+        // Secondary fallback: Electron runner with Wayland Ozone flags & NVIDIA GPU flags
         let electron_runner_path = PathBuf::from("/tmp/omywall_web_app.js");
         let electron_runner_code = r#"
 const { app, BrowserWindow } = require('electron');
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
-app.commandLine.appendSwitch('enable-features', 'UseOzonePlatform,WaylandWindowDecorations');
+app.commandLine.appendSwitch('enable-features', 'UseOzonePlatform,WaylandWindowDecorations,CanvasOopRasterization');
 app.commandLine.appendSwitch('ozone-platform', 'wayland');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('enable-webgl');
+app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('disable-gpu-vsync');
 
 app.whenReady().then(() => {
@@ -158,26 +173,36 @@ app.whenReady().then(() => {
             let bin_name = bin.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
             log_info(&format!("WebEngine: Spawning fallback Electron binary '{}' for URL {}", bin.display(), target_url));
 
+            let mut elec_cmd = Command::new(&bin);
+            if is_nvidia {
+                elec_cmd.env("__NV_PRIME_RENDER_OFFLOAD", "1");
+                elec_cmd.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
+                elec_cmd.env("__VK_LAYER_NV_optimus", "NVIDIA_only");
+                elec_cmd.env("CUDA_VISIBLE_DEVICES", "0");
+            }
+
             let child = if bin_name.contains("electron") {
-                Command::new(&bin)
-                    .args([
-                        electron_runner_path.to_string_lossy().as_ref(),
-                        &target_url,
-                        "--class=omywall-web-wallpaper",
-                    ])
-                    .spawn()
+                elec_cmd.args([
+                    electron_runner_path.to_string_lossy().as_ref(),
+                    &target_url,
+                    "--class=omywall-web-wallpaper",
+                    "--ignore-gpu-blocklist",
+                    "--enable-gpu-rasterization",
+                    "--enable-webgl",
+                ]).spawn()
             } else {
                 let app_arg = format!("--app={}", target_url);
-                Command::new(&bin)
-                    .args([
-                        &app_arg,
-                        "--class=omywall-web-wallpaper",
-                        "--no-first-run",
-                        "--disable-infobars",
-                        "--user-data-dir=/tmp/omywall-chrome-profile",
-                        "--autoplay-policy=no-user-gesture-required",
-                    ])
-                    .spawn()
+                elec_cmd.args([
+                    &app_arg,
+                    "--class=omywall-web-wallpaper",
+                    "--no-first-run",
+                    "--disable-infobars",
+                    "--user-data-dir=/tmp/omywall-chrome-profile",
+                    "--autoplay-policy=no-user-gesture-required",
+                    "--ignore-gpu-blocklist",
+                    "--enable-gpu-rasterization",
+                    "--enable-webgl",
+                ]).spawn()
             };
 
             match child {
