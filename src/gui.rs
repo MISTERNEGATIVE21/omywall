@@ -102,6 +102,8 @@ struct OmywallGuiApp {
     show_doctor: bool,
     show_logs: bool,
     show_hyprlock: bool,
+    show_inspector: bool,
+    textures_loaded_this_frame: usize,
     texture_cache: HashMap<PathBuf, Option<egui::TextureHandle>>,
     last_poll_instant: std::time::Instant,
 }
@@ -519,6 +521,8 @@ impl OmywallGuiApp {
             show_doctor: false,
             show_logs: false,
             show_hyprlock: false,
+            show_inspector: true,
+            textures_loaded_this_frame: 0,
             texture_cache: HashMap::new(),
             last_poll_instant: std::time::Instant::now(),
         };
@@ -668,8 +672,14 @@ impl OmywallGuiApp {
             self.texture_cache.clear();
         }
         if !self.texture_cache.contains_key(thumb_path) {
-            let tex = load_egui_texture(ctx, thumb_path);
-            self.texture_cache.insert(thumb_path.to_path_buf(), tex);
+            if self.textures_loaded_this_frame < 2 {
+                self.textures_loaded_this_frame += 1;
+                let tex = load_egui_texture(ctx, thumb_path);
+                self.texture_cache.insert(thumb_path.to_path_buf(), tex);
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(30));
+                return None;
+            }
         }
         self.texture_cache.get(thumb_path).and_then(|t| t.as_ref())
     }
@@ -677,6 +687,7 @@ impl OmywallGuiApp {
 
 impl eframe::App for OmywallGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.textures_loaded_this_frame = 0;
         if self.last_poll_instant.elapsed() > std::time::Duration::from_millis(2500) {
             self.last_poll_instant = std::time::Instant::now();
             self.poll_daemon_status();
@@ -764,6 +775,13 @@ impl eframe::App for OmywallGuiApp {
                             });
                     }
 
+                    if ui.button(egui::RichText::new("📥 Minimize to Tray").color(egui::Color32::from_rgb(0, 240, 255)).strong().small()).clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        pending_msg = Some("Minimized OMYWALL window to system tray".into());
+                    }
+                    if ui.selectable_label(self.show_inspector, "🔍 Media Inspector").clicked() {
+                        self.show_inspector = !self.show_inspector;
+                    }
                     if ui.selectable_label(self.show_hyprlock, "🔒 Screensaver").clicked() {
                         self.show_hyprlock = !self.show_hyprlock;
                     }
@@ -1053,6 +1071,151 @@ impl eframe::App for OmywallGuiApp {
                     }
                 }
             });
+
+        if self.show_inspector {
+            egui::SidePanel::right("control_inspector_panel")
+                .resizable(true)
+                .default_width(310.0)
+                .min_width(260.0)
+                .max_width(450.0)
+                .show(ctx, |ui| {
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.heading(
+                            egui::RichText::new("🔍 Media Control Inspector")
+                                .color(egui::Color32::from_rgb(0, 240, 255))
+                                .strong(),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("❌").clicked() {
+                                self.show_inspector = false;
+                            }
+                        });
+                    });
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(6.0);
+
+                    if let Some(ref sel_path) = self.selected_wallpaper.clone() {
+                        let filename = sel_path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown");
+                        let path_str = sel_path.to_string_lossy().to_string();
+                        let ext = sel_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_uppercase();
+                        let is_active = current_wall.as_ref().map(|curr| Path::new(curr) == sel_path).unwrap_or(false);
+
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("🖥 Live Inspection Preview").strong().color(egui::Color32::from_rgb(255, 190, 50)));
+                            if is_active {
+                                ui.label(egui::RichText::new("● LIVE NOW").color(egui::Color32::from_rgb(0, 255, 150)).small().strong());
+                            } else {
+                                ui.label(egui::RichText::new("⏹ INACTIVE").color(egui::Color32::from_rgb(140, 155, 180)).small());
+                            }
+                        });
+                        ui.add_space(4.0);
+
+                        egui::Frame::none()
+                            .fill(egui::Color32::from_rgb(14, 18, 28))
+                            .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(0, 225, 255)))
+                            .rounding(8.0)
+                            .inner_margin(egui::Margin::same(6.0))
+                            .show(ui, |ui| {
+                                ui.vertical_centered(|ui| {
+                                    if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
+                                        if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
+                                            ui.add(egui::Image::new(tex).max_size(egui::vec2(280.0, 150.0)).rounding(6.0));
+                                        } else {
+                                            ui.set_height(140.0);
+                                            ui.centered_and_justified(|ui| {
+                                                ui.label(egui::RichText::new("⏳ Rendering Preview...").color(egui::Color32::from_rgb(0, 200, 255)).small());
+                                            });
+                                        }
+                                    } else {
+                                        ui.set_height(140.0);
+                                        ui.centered_and_justified(|ui| {
+                                            ui.label(egui::RichText::new("⏳ Generating Preview...").color(egui::Color32::from_rgb(0, 200, 255)).small());
+                                        });
+                                    }
+                                });
+                            });
+
+                        ui.add_space(8.0);
+                        ui.group(|ui| {
+                            ui.label(egui::RichText::new("📋 Media Attributes").strong().small());
+                            ui.add_space(4.0);
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Title:").strong().small());
+                                ui.label(egui::RichText::new(filename).color(egui::Color32::from_rgb(0, 240, 255)).small().strong());
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Format:").strong().small());
+                                ui.label(egui::RichText::new(&ext).color(egui::Color32::from_rgb(0, 255, 160)).small().strong());
+                                ui.label(egui::RichText::new("Size:").strong().small());
+                                ui.label(egui::RichText::new(get_file_size_str(sel_path)).color(egui::Color32::from_rgb(180, 195, 215)).small());
+                            });
+                            ui.label(egui::RichText::new(format!("Path: {}", path_str)).color(egui::Color32::from_rgb(130, 145, 170)).small());
+                        });
+
+                        ui.add_space(8.0);
+                        ui.group(|ui| {
+                            ui.label(egui::RichText::new("🗔 Quick Workspace Assignment").strong().small());
+                            ui.add_space(4.0);
+                            ui.horizontal_wrapped(|ui| {
+                                for ws_num in 1..=10 {
+                                    let ws_str = ws_num.to_string();
+                                    if ui.button(format!("WS {}", ws_num)).clicked() {
+                                        pending_action = Some(IpcRequest::SetWorkspaceWallpaper {
+                                            workspace: ws_str.clone(),
+                                            path: path_str.clone(),
+                                        });
+                                        pending_msg = Some(format!("Assigned {} to Workspace {}", filename, ws_num));
+                                    }
+                                }
+                            });
+                        });
+
+                        ui.add_space(8.0);
+                        ui.group(|ui| {
+                            ui.label(egui::RichText::new("🎛 Active Playback Controls").strong().small());
+                            ui.add_space(4.0);
+
+                            ui.horizontal(|ui| {
+                                if ui.button(egui::RichText::new("▶ Apply to Current").color(egui::Color32::from_rgb(0, 255, 150)).strong()).clicked() {
+                                    pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
+                                    pending_msg = Some(format!("Applied wallpaper: {}", filename));
+                                }
+                                let pause_label = if is_paused { "▶ Resume" } else { "⏸ Pause" };
+                                if ui.button(pause_label).clicked() {
+                                    pending_action = Some(IpcRequest::TogglePause);
+                                    pending_msg = Some("Toggled playback pause state".into());
+                                }
+                                if ui.button(egui::RichText::new("🛑 Stop").color(egui::Color32::from_rgb(255, 90, 90))).clicked() {
+                                    pending_action = Some(IpcRequest::StopWallpaper);
+                                    pending_msg = Some("Stopped active wallpaper engine".into());
+                                }
+                            });
+
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                ui.label("🔊 Vol:");
+                                if ui.add(egui::Slider::new(&mut self.volume_slider, 0..=100).suffix("%")).changed() {
+                                    pending_action = Some(IpcRequest::SetVolume { volume: self.volume_slider });
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("✨ Opacity:");
+                                if ui.add(egui::Slider::new(&mut self.opacity_slider, 0.0..=1.0)).changed() {
+                                    pending_action = Some(IpcRequest::SetOpacity { opacity: self.opacity_slider });
+                                }
+                            });
+                        });
+                    } else {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(40.0);
+                            ui.label(egui::RichText::new("👆 Select Any Wallpaper").color(egui::Color32::from_rgb(0, 240, 255)).strong());
+                            ui.label(egui::RichText::new("Click card in gallery to inspect parameters").color(egui::Color32::from_rgb(140, 160, 190)).small());
+                        });
+                    }
+                });
+        }
 
         // 5. CENTRAL PANEL: WALLPAPER GALLERY GRID & SAVED WEB WALLPAPER BOOKMARKS
         egui::CentralPanel::default().show(ctx, |ui| {
