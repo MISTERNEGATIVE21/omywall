@@ -97,7 +97,9 @@ struct OmywallGuiApp {
     opacity_slider: f32,
     autostart_enabled: bool,
     status_message: String,
+    #[allow(dead_code)]
     slideshow_interval_secs: u64,
+    #[allow(dead_code)]
     slideshow_shuffle: bool,
     show_doctor: bool,
     show_logs: bool,
@@ -757,8 +759,24 @@ impl eframe::App for OmywallGuiApp {
 
                     let is_online = current_status.is_some();
                     if is_online {
+                        let isolate_active = current_status.as_ref().map(|st| st.workspace_isolate).unwrap_or(self.config.workspace_isolate);
+                        let isolate_label = if isolate_active {
+                            "🗔 WORKSPACE ISOLATION ON 🟢"
+                        } else {
+                            "🗔 WORKSPACE ISOLATION OFF ⚪"
+                        };
+                        let isolate_color = if isolate_active {
+                            egui::Color32::from_rgb(0, 255, 160)
+                        } else {
+                            egui::Color32::from_rgb(170, 185, 210)
+                        };
+                        if ui.button(egui::RichText::new(isolate_label).color(isolate_color).strong().small()).clicked() {
+                            pending_action = Some(IpcRequest::ToggleWorkspaceIsolate);
+                            pending_msg = Some("Toggled workspace isolation mode".into());
+                        }
+
                         let mode_label = if current_mode == "monitor" || current_mode == "screen" {
-                            "🖥 ACTIVE SCREEN MODE"
+                            "🖥 SCREEN MODE"
                         } else {
                             "🗔 WORKSPACE MODE"
                         };
@@ -919,175 +937,7 @@ impl eframe::App for OmywallGuiApp {
             });
         });
 
-        // 4. CONTROL INSPECTOR PANEL
-        egui::SidePanel::right("control_panel")
-            .resizable(false)
-            .exact_width(340.0)
-            .show(ctx, |ui| {
-                ui.add_space(8.0);
-                ui.heading("⚙ Control Inspector");
-                ui.add_space(8.0);
 
-                let selected_opt = self.selected_wallpaper.clone();
-                if let Some(ref selected) = selected_opt {
-                    let filename = selected.file_name().and_then(|n| n.to_str()).unwrap_or("Selected");
-                    let path_str = selected.to_string_lossy().to_string();
-                    let size_str = get_file_size_str(selected);
-
-                    ui.group(|ui| {
-                        ui.vertical_centered(|ui| {
-                            if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
-                                if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
-                                    ui.add(egui::Image::new(tex).max_size(egui::vec2(290.0, 155.0)).rounding(6.0));
-                                    ui.add_space(6.0);
-                                }
-                            }
-
-                            ui.label(egui::RichText::new(filename).color(egui::Color32::from_rgb(0, 225, 255)).strong().size(15.0));
-                            ui.label(egui::RichText::new(format!("Size: {}  •  Format: {}", size_str, selected.extension().and_then(|e| e.to_str()).unwrap_or("").to_uppercase())).color(egui::Color32::from_rgb(140, 155, 175)).small());
-
-                            ui.add_space(8.0);
-                            if ui.button(egui::RichText::new("▶ Apply to Desktop Background").color(egui::Color32::from_rgb(0, 255, 150)).strong()).clicked() {
-                                pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
-                                pending_msg = Some(format!("Applied wallpaper: {}", filename));
-                            }
-                        });
-                    });
-
-                    ui.add_space(10.0);
-                    ui.label(egui::RichText::new("1-Click Workspace Matrix:").strong().small());
-                    ui.horizontal_wrapped(|ui| {
-                        for ws_idx in 1..=10 {
-                            let ws_str = ws_idx.to_string();
-                            let is_mapped_to_this_ws = mappings.get(&ws_str) == Some(&path_str);
-                            let btn_text = format!("WS {}", ws_str);
-
-                            let btn_color = if is_mapped_to_this_ws {
-                                egui::Color32::from_rgb(0, 240, 140)
-                            } else {
-                                egui::Color32::from_rgb(180, 195, 215)
-                            };
-
-                            if ui.button(egui::RichText::new(&btn_text).color(btn_color).strong()).clicked() {
-                                if is_mapped_to_this_ws {
-                                    pending_action = Some(IpcRequest::SetWorkspaceWallpaper { workspace: ws_str.clone(), path: "".into() });
-                                    pending_msg = Some(format!("Cleared Workspace {} mapping", ws_str));
-                                } else {
-                                    pending_action = Some(IpcRequest::SetWorkspaceWallpaper { workspace: ws_str.clone(), path: path_str.clone() });
-                                    pending_msg = Some(format!("Mapped {} to Workspace {}", filename, ws_str));
-                                }
-                            }
-                        }
-                    });
-                } else {
-                    egui::Frame::none()
-                        .fill(egui::Color32::from_rgb(18, 22, 34))
-                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(35, 45, 65)))
-                        .rounding(6.0)
-                        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
-                        .show(ui, |ui| {
-                            ui.label(egui::RichText::new("🖼 Gallery Selection").strong().color(egui::Color32::from_rgb(0, 220, 255)));
-                            ui.add_space(4.0);
-                            ui.label(egui::RichText::new("Select a wallpaper from the gallery grid to inspect file specs, apply instantly, or bind to workspaces.").color(egui::Color32::from_rgb(140, 155, 180)).small());
-                        });
-                }
-
-                ui.add_space(12.0);
-                ui.separator();
-                ui.add_space(8.0);
-
-                ui.label(egui::RichText::new("🌐 Web URL & Widget Loader").strong());
-                ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.web_url_input).hint_text("https://... or file://..."));
-                    if ui.button("▶ Load Web").clicked() {
-                        let url = self.web_url_input.clone();
-                        pending_action = Some(IpcRequest::SetWallpaper { path: url.clone() });
-                        pending_msg = Some(format!("Loaded web wallpaper: {}", url));
-                    }
-                });
-
-                ui.add_space(12.0);
-                ui.separator();
-                ui.add_space(8.0);
-
-                ui.label(egui::RichText::new("Playback & Engine Controls").strong());
-                ui.add_space(6.0);
-
-                ui.horizontal(|ui| {
-                    if ui.button(if is_paused { "▶ Resume" } else { "⏸ Pause" }).clicked() {
-                        pending_action = Some(IpcRequest::TogglePause);
-                    }
-                    if ui.button("⏹ Stop / Clear").clicked() {
-                        pending_action = Some(IpcRequest::StopWallpaper);
-                        pending_msg = Some("Stopped active wallpaper playback".into());
-                    }
-                });
-
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    ui.label("Volume:");
-                    if ui.add(egui::Slider::new(&mut self.volume_slider, 0..=100).suffix("%")).changed() {
-                        pending_action = Some(IpcRequest::SetVolume { volume: self.volume_slider });
-                    }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Opacity:");
-                    if ui.add(egui::Slider::new(&mut self.opacity_slider, 0.0..=1.0)).changed() {
-                        pending_action = Some(IpcRequest::SetOpacity { opacity: self.opacity_slider });
-                    }
-                });
-
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.label("Hardware Dec:");
-                    let mut hwdec = current_status.as_ref().map(|s| s.hwdec.clone()).unwrap_or_else(|| "auto".to_string());
-                    egui::ComboBox::from_id_salt("hwdec_combo")
-                        .selected_text(&hwdec)
-                        .show_ui(ui, |ui| {
-                            if ui.selectable_value(&mut hwdec, "auto".to_string(), "auto (GPU)").clicked() {
-                                pending_action = Some(IpcRequest::SetHwdec { hwdec: "auto".into() });
-                            }
-                            if ui.selectable_value(&mut hwdec, "vaapi".to_string(), "vaapi (Intel/AMD)").clicked() {
-                                pending_action = Some(IpcRequest::SetHwdec { hwdec: "vaapi".into() });
-                            }
-                            if ui.selectable_value(&mut hwdec, "nvdec".to_string(), "nvdec (NVIDIA)").clicked() {
-                                pending_action = Some(IpcRequest::SetHwdec { hwdec: "nvdec".into() });
-                            }
-                            if ui.selectable_value(&mut hwdec, "no".to_string(), "no (Software)").clicked() {
-                                pending_action = Some(IpcRequest::SetHwdec { hwdec: "no".into() });
-                            }
-                        });
-                });
-
-                ui.add_space(12.0);
-                ui.separator();
-                ui.add_space(8.0);
-
-                ui.label(egui::RichText::new("Automated Slideshow").strong());
-                let slideshow_active = current_status.as_ref().map(|s| s.slideshow_active).unwrap_or(false);
-
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.slideshow_shuffle, "Shuffle");
-                    ui.add(egui::Slider::new(&mut self.slideshow_interval_secs, 10..=3600).prefix("Interval: ").suffix("s"));
-                });
-
-                ui.add_space(4.0);
-                if slideshow_active {
-                    if ui.button("⏹ Stop Slideshow").clicked() {
-                        pending_action = Some(IpcRequest::StopSlideshow);
-                        pending_msg = Some("Stopped automated slideshow".into());
-                    }
-                } else {
-                    if ui.button("▶ Start Slideshow").clicked() {
-                        pending_action = Some(IpcRequest::StartSlideshow {
-                            interval_secs: self.slideshow_interval_secs,
-                            shuffle: self.slideshow_shuffle,
-                        });
-                        pending_msg = Some(format!("Started slideshow ({}s)", self.slideshow_interval_secs));
-                    }
-                }
-            });
 
         if self.show_inspector {
             egui::SidePanel::right("control_inspector_panel")

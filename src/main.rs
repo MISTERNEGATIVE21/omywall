@@ -1015,6 +1015,19 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                         Err(e) => IpcResponse::Err { message: e },
                     }
                 }
+                IpcRequest::ToggleWorkspaceIsolate => {
+                    let eng = engine.lock().unwrap();
+                    let mut cfg_guard = config_arc.lock().unwrap();
+                    cfg_guard.workspace_isolate = !cfg_guard.workspace_isolate;
+                    let new_state = cfg_guard.workspace_isolate;
+                    let _ = cfg_guard.save();
+                    let ws_guard = active_ws_arc.lock().unwrap();
+                    let mon_guard = active_mon_arc.lock().unwrap();
+                    apply_current_mode_wallpaper(&cfg_guard, &eng, ws_guard.as_deref(), mon_guard.as_deref());
+                    IpcResponse::Ok {
+                        message: format!("Workspace isolation: {}", if new_state { "ENABLED 🟢" } else { "DISABLED 🔴" }),
+                    }
+                }
                 IpcRequest::GetStatus => {
                     let eng = engine.lock().unwrap();
                     let files = wallpaper_files.lock().unwrap();
@@ -1041,6 +1054,7 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                         widget_enabled: w_enabled,
                         widget_url: w_url,
                         monitor_wallpapers: cfg_guard.monitor_wallpapers.clone(),
+                        workspace_isolate: cfg_guard.workspace_isolate,
                         total_wallpapers: files.len(),
                     };
                     IpcResponse::Status(status)

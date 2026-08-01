@@ -73,6 +73,8 @@ pub struct Config {
     #[serde(default)]
     pub autostart: bool,
     #[serde(default)]
+    pub workspace_isolate: bool,
+    #[serde(default)]
     pub hyprlock: HyprlockConfig,
 }
 
@@ -142,6 +144,7 @@ impl Default for Config {
             mode: "workspace".to_string(),
             saved_web_wallpapers: default_web_bookmarks(),
             autostart: Self::is_autostart_enabled(),
+            workspace_isolate: false,
             hyprlock: HyprlockConfig::default(),
         }
     }

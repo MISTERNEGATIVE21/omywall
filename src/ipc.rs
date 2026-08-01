@@ -33,6 +33,7 @@ pub enum IpcRequest {
     SetWidget { url: String, enabled: bool },
     SetMode { mode: String },
     ToggleMode,
+    ToggleWorkspaceIsolate,
     GetMode,
     CycleLiveWallpaper,
     GetStatus,
@@ -70,6 +71,7 @@ pub struct DaemonStatus {
     pub widget_enabled: bool,
     pub widget_url: Option<String>,
     pub monitor_wallpapers: HashMap<String, String>,
+    pub workspace_isolate: bool,
     pub total_wallpapers: usize,
 }
 
