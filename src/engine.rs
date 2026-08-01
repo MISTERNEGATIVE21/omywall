@@ -454,6 +454,7 @@ impl WallpaperEngine {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn pause_for_unassigned_workspace(&self) -> Result<(), String> {
         if self.socket_path.exists() {
             let _ = self.send_mpv_command(serde_json::json!(["set_property", "pause", true]));

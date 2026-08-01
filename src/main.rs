@@ -1097,19 +1097,19 @@ fn apply_current_mode_wallpaper(
     }
 
     if let Some(path_str) = target_path {
-        let ws_target = active_ws.map(|w| w.trim_start_matches("workspace_").trim_start_matches("Workspace ").trim());
-        if path_str.starts_with("http://") || path_str.starts_with("https://") {
-            let _ = engine.set_url(&path_str);
-        } else {
-            let _ = engine.set_wallpaper_for_workspace(Path::new(&path_str), ws_target);
+        if !path_str.trim().is_empty() {
+            let ws_target = active_ws.map(|w| w.trim_start_matches("workspace_").trim_start_matches("Workspace ").trim());
+            if path_str.starts_with("http://") || path_str.starts_with("https://") {
+                let _ = engine.set_url(&path_str);
+            } else {
+                let _ = engine.set_wallpaper_for_workspace(Path::new(&path_str), ws_target);
+            }
+            return;
         }
-    } else if mode == "workspace" || mode == "ws" {
-        // Unassigned workspace in workspace mode: pause video wallpaper so each workspace renders separately!
-        let _ = engine.pause_for_unassigned_workspace();
-    } else if let Some(ref def) = config.default_wallpaper {
+    }
+
+    if let Some(ref def) = config.default_wallpaper {
         let _ = engine.set_wallpaper_for_workspace(def, None);
-    } else {
-        let _ = engine.pause_for_unassigned_workspace();
     }
 }
 

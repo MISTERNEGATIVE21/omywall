@@ -685,6 +685,23 @@ impl OmywallGuiApp {
     }
 }
 
+fn minimize_gui_window(ctx: &egui::Context) {
+    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+
+    std::thread::spawn(|| {
+        let _ = Command::new("hyprctl")
+            .args(["dispatch", "movetoworkspacesilent", "special:minimized,title:OMYWALL Wallpaper Engine"])
+            .output();
+        let _ = Command::new("swaymsg")
+            .args(["[title=\"OMYWALL Wallpaper Engine.*\"] move scratchpad"])
+            .output();
+        let _ = Command::new("wmctrl")
+            .args(["-r", "OMYWALL Wallpaper Engine", "-b", "add,hidden"])
+            .output();
+    });
+}
+
 impl eframe::App for OmywallGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.textures_loaded_this_frame = 0;
@@ -776,7 +793,7 @@ impl eframe::App for OmywallGuiApp {
                     }
 
                     if ui.button(egui::RichText::new("📥 Minimize to Tray").color(egui::Color32::from_rgb(0, 240, 255)).strong().small()).clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        minimize_gui_window(ctx);
                         pending_msg = Some("Minimized OMYWALL window to system tray".into());
                     }
                     if ui.selectable_label(self.show_inspector, "🔍 Media Inspector").clicked() {
