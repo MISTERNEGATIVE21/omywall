@@ -109,6 +109,10 @@ enum Commands {
     /// Show current daemon status (alias: st)
     #[command(alias = "st")]
     Status,
+    /// Configure hardware acceleration video decoder (nvdec, cuda, vaapi, vulkan, auto, no)
+    SetHwdec {
+        decoder: String,
+    },
     /// Stop background daemon (alias: k)
     #[command(alias = "k")]
     Stop,
@@ -284,6 +288,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::process::exit(1);
                 }
             }
+        }
+        Some(Commands::SetHwdec { decoder }) => {
+            let mut c = Config::load();
+            c.hwdec = decoder.clone();
+            let _ = c.save();
+            send_ipc_cmd(&cfg.socket_path, IpcRequest::SetHwdec { hwdec: decoder.clone() }).await;
+            println!("✅ Hardware acceleration video decoder set to: {}", decoder);
         }
         Some(Commands::Stop) => {
             send_ipc_cmd(&cfg.socket_path, IpcRequest::QuitDaemon).await;

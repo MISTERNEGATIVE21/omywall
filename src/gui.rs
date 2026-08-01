@@ -835,19 +835,22 @@ impl eframe::App for OmywallGuiApp {
                             ui.add_space(4.0);
                             let curr_hwdec = self.config.hwdec.clone();
                             for &(mode_id, mode_label, desc) in &[
-                                ("auto", "Auto-Detect (Recommended)", "Automatic GPU acceleration detection"),
-                                ("vaapi", "VA-API (Intel / AMD GPU)", "Linux VA-API Hardware Video Acceleration"),
-                                ("nvdec", "NVDEC (NVIDIA CUDA GPU)", "NVIDIA NVDEC Hardware Decoder"),
-                                ("nvdec-copy", "NVDEC-Copy", "NVIDIA NVDEC with System Memory Copy"),
-                                ("vulkan", "Vulkan Video", "Modern Vulkan Hardware Video Decoder"),
-                                ("vdpau", "VDPAU (Legacy)", "NVIDIA VDPAU Video Acceleration"),
-                                ("no", "CPU (Software Only)", "Software decoding using CPU cores"),
+                                ("auto", "⚡ Auto-Detect GPU (Recommended)", "Automatic hardware acceleration detection"),
+                                ("nvdec", "💚 NVIDIA NVDEC (NVIDIA GPU)", "NVIDIA NVDEC Hardware Video Decoder"),
+                                ("nvdec-copy", "💚 NVIDIA NVDEC-Copy", "NVIDIA NVDEC Zero-Copy System Memory Decoder"),
+                                ("cuda", "⚡ NVIDIA CUDA Acceleration", "NVIDIA CUDA Hardware Video Transcoder"),
+                                ("cuda-copy", "⚡ NVIDIA CUDA-Copy", "NVIDIA CUDA Video Transcoder Copy"),
+                                ("vaapi", "🔷 VA-API (Intel / AMD GPU)", "Linux VA-API Hardware Video Acceleration"),
+                                ("vaapi-copy", "🔷 VA-API-Copy", "VA-API Zero-Copy Direct Framebuffer"),
+                                ("vulkan", "🌋 Vulkan Video", "Modern Vulkan Hardware Video Transcoder Decoder"),
+                                ("vdpau", "🎞 VDPAU (Legacy NVIDIA)", "NVIDIA VDPAU Video Acceleration"),
+                                ("no", "⚙️ CPU (Software Only)", "Software video decoding using CPU cores"),
                             ] {
                                 if ui.radio(curr_hwdec == mode_id, mode_label).on_hover_text(desc).clicked() {
                                     self.config.hwdec = mode_id.to_string();
                                     let _ = self.config.save();
                                     pending_action = Some(IpcRequest::SetHwdec { hwdec: mode_id.to_string() });
-                                    pending_msg = Some(format!("Hardware decoder set to {}", mode_label));
+                                    pending_msg = Some(format!("Hardware acceleration decoder set to {}", mode_label));
                                 }
                             }
                         });
@@ -1039,6 +1042,44 @@ impl eframe::App for OmywallGuiApp {
                                     pending_action = Some(IpcRequest::SetTargetFps { fps: fps_val });
                                     pending_msg = Some(format!("Target rendering FPS set to {} FPS", fps_val));
                                 }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("⚡ Decoder:");
+                                let mut selected_hwdec = self.config.hwdec.clone();
+                                egui::ComboBox::from_id_salt("hwdec_selector_inspector")
+                                    .selected_text(match selected_hwdec.as_str() {
+                                        "nvdec" => "💚 NVIDIA NVDEC",
+                                        "nvdec-copy" => "💚 NVIDIA NVDEC Copy",
+                                        "cuda" => "⚡ NVIDIA CUDA",
+                                        "cuda-copy" => "⚡ NVIDIA CUDA Copy",
+                                        "vaapi" => "🔷 VA-API (Intel/AMD)",
+                                        "vaapi-copy" => "🔷 VA-API Copy",
+                                        "vulkan" => "🌋 Vulkan Video",
+                                        "vdpau" => "🎞 VDPAU (Legacy)",
+                                        "no" => "⚙️ CPU Software Only",
+                                        _ => "⚡ Auto-Detect GPU",
+                                    })
+                                    .show_ui(ui, |ui| {
+                                        for &(val, label) in &[
+                                            ("auto", "⚡ Auto-Detect GPU"),
+                                            ("nvdec", "💚 NVIDIA NVDEC"),
+                                            ("nvdec-copy", "💚 NVIDIA NVDEC Copy"),
+                                            ("cuda", "⚡ NVIDIA CUDA Transcoder"),
+                                            ("cuda-copy", "⚡ NVIDIA CUDA Copy"),
+                                            ("vaapi", "🔷 VA-API (Intel/AMD)"),
+                                            ("vaapi-copy", "🔷 VA-API Copy"),
+                                            ("vulkan", "🌋 Vulkan Video"),
+                                            ("vdpau", "🎞 VDPAU Legacy"),
+                                            ("no", "⚙️ CPU Software Only"),
+                                        ] {
+                                            if ui.selectable_value(&mut selected_hwdec, val.to_string(), label).clicked() {
+                                                self.config.hwdec = val.to_string();
+                                                let _ = self.config.save();
+                                                pending_action = Some(IpcRequest::SetHwdec { hwdec: val.to_string() });
+                                                pending_msg = Some(format!("Hardware decoder set to {}", label));
+                                            }
+                                        }
+                                    });
                             });
                         });
                     } else {
