@@ -109,7 +109,7 @@ pub fn find_web_browser_binary() -> Option<PathBuf> {
 impl WallpaperEngine {
     pub fn new(hwdec: &str, volume: i64, mute: bool, window_id: u64, screen_id: i64) -> Result<Self, String> {
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
-        let socket_path = PathBuf::from(runtime_dir).join("omarchy-wall-mpv.sock");
+        let socket_path = PathBuf::from(runtime_dir).join("omywall-mpv.sock");
 
         let engine = Self {
             mpv_process: Arc::new(Mutex::new(None)),
@@ -174,7 +174,7 @@ impl WallpaperEngine {
 
             let mpvpaper_bin = mpvpaper_path.unwrap();
             let mpv_opts = format!(
-                "--input-ipc-server={} --loop-file=inf --no-osc --no-osd-bar --hwdec={} --volume={} --mute={} --panscan=1.0",
+                "--input-ipc-server={} --loop-file=inf --image-display-duration=inf --no-osc --no-osd-bar --hwdec={} --volume={} --mute={} --panscan=1.0",
                 socket_str,
                 hwdec,
                 volume,
@@ -189,6 +189,9 @@ impl WallpaperEngine {
             ];
             if !video_target.is_empty() {
                 mpvpaper_args.push(video_target.to_string());
+            } else {
+                // If no initial video target, pass --no-video or fallback black image
+                mpvpaper_args.push("/dev/null".to_string());
             }
 
             log_info(&format!("Spawning mpvpaper ({}) wlr-layer-shell background process with args: {:?}", mpvpaper_bin.display(), mpvpaper_args));
@@ -200,10 +203,15 @@ impl WallpaperEngine {
 
             *mpv_guard = Some(child);
 
-            // Wait for MPV IPC socket to bind
+            // Wait for MPV IPC socket to bind, with early termination check if process dies
             for _ in 0..30 {
                 if self.socket_path.exists() {
                     break;
+                }
+                if let Some(ref mut c) = *mpv_guard {
+                    if let Ok(Some(status)) = c.try_wait() {
+                        return Err(format!("mpvpaper process exited unexpectedly with status: {:?}", status));
+                    }
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
@@ -229,9 +237,13 @@ impl WallpaperEngine {
         let is_paused = *self.is_paused.lock().unwrap();
         let current_wall = self.current_wallpaper.lock().unwrap().clone();
 
-        // If same wallpaper is already loaded and not user-stopped, preserve playback
+        let is_mpv_alive = {
+            let mut mpv_guard = self.mpv_process.lock().unwrap();
+            mpv_guard.as_mut().map_or(false, |c| c.try_wait().ok().flatten().is_none())
+        };
+
         if let Some(ref curr) = current_wall {
-            if curr == &path_str && !is_user_stopped {
+            if curr == &path_str && !is_user_stopped && is_mpv_alive {
                 if is_paused {
                     let _ = self.resume();
                 }
@@ -239,16 +251,13 @@ impl WallpaperEngine {
             }
         }
 
-        let is_mpv_alive = {
-            let mut mpv_guard = self.mpv_process.lock().unwrap();
-            mpv_guard.as_mut().map_or(false, |c| c.try_wait().ok().flatten().is_none())
-        };
-
         if is_mpv_alive && self.socket_path.exists() {
-            if current_wall.as_deref() != Some(&path_str) {
-                let _ = self.send_mpv_command(serde_json::json!(["loadfile", path_str, "replace"]));
+            let res = self.send_mpv_command(serde_json::json!(["loadfile", path_str, "replace"]));
+            if res.is_ok() {
+                let _ = self.send_mpv_command(serde_json::json!(["set_property", "pause", false]));
+            } else {
+                self.ensure_mpv_running(Some(&path_str), workspace)?;
             }
-            let _ = self.send_mpv_command(serde_json::json!(["set_property", "pause", false]));
         } else {
             self.ensure_mpv_running(Some(&path_str), workspace)?;
         }
@@ -296,6 +305,7 @@ impl WallpaperEngine {
                         "--class=omarchy-wall-wallpaper",
                         "--no-first-run",
                         "--disable-infobars",
+                        "--user-data-dir=/tmp/omywall-chrome-profile",
                         "--autoplay-policy=no-user-gesture-required",
                     ])
                     .spawn();
@@ -314,7 +324,6 @@ impl WallpaperEngine {
                 }
             }
 
-            // Fallback to mpv web streaming
             self.set_wallpaper_url_mpv(&target_url)
         } else {
             self.set_wallpaper_url_mpv(trimmed)
@@ -405,7 +414,7 @@ impl WallpaperEngine {
                 let child = Command::new("electron")
                     .args(["--title=omarchy-wall-widget", target_url])
                     .spawn()
-                    .or_else(|_| Command::new("chromium").args(["--app=".to_string() + target_url]).spawn())
+                    .or_else(|_| Command::new("chromium").args([format!("--app={}", target_url), "--user-data-dir=/tmp/omywall-widget-profile".to_string()]).spawn())
                     .ok();
                 let mut proc_guard = self.widget_process.lock().unwrap();
                 *proc_guard = child;

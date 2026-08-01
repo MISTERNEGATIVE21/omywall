@@ -1,0 +1,19 @@
+pkgbase = omarchy-wall
+	pkgdesc = Ultra-Lightweight Hardware-Accelerated Video, Stream & Workspace Wallpaper Engine for Wayland
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/daurydicaprio/live-wallpaper-for-omarchy-linux
+	arch = x86_64
+	license = MIT
+	makedepends = cargo
+	depends = mpv
+	depends = mpvpaper
+	depends = ffmpeg
+	depends = libnotify
+	depends = jq
+	optdepends = electron: for desktop web streams & widget overlay engine
+	optdepends = hyprland: for automatic workspace IPC event sync
+	source = omarchy-wall-0.1.0.tar.gz::https://github.com/daurydicaprio/live-wallpaper-for-omarchy-linux/archive/refs/tags/v0.1.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = omarchy-wall

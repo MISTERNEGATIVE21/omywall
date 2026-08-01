@@ -14,7 +14,7 @@ use ratatui::{
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::config::Config;
 use crate::ipc::{send_ipc_request, DaemonStatus, IpcRequest, IpcResponse};
@@ -120,6 +120,7 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
     let mut mode = InputMode::Normal;
     let mut status_msg = String::from("Connected to OMYWALL Wallpaper Engine");
     let mut ws_mappings: HashMap<String, String> = HashMap::new();
+    let mut last_poll = Instant::now();
 
     // Fetch initial workspace mappings
     if let Ok(IpcResponse::WorkspaceMappings { mappings, .. }) =
@@ -604,13 +605,16 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
             }
         }
 
-        if let Ok(IpcResponse::Status(st)) = send_ipc_request(&config.socket_path, &IpcRequest::GetStatus).await {
-            daemon_status = Some(st);
-        }
-        if let Ok(IpcResponse::WorkspaceMappings { mappings, .. }) =
-            send_ipc_request(&config.socket_path, &IpcRequest::GetWorkspaceMappings).await
-        {
-            ws_mappings = mappings;
+        if last_poll.elapsed() > Duration::from_secs(2) {
+            last_poll = Instant::now();
+            if let Ok(IpcResponse::Status(st)) = send_ipc_request(&config.socket_path, &IpcRequest::GetStatus).await {
+                daemon_status = Some(st);
+            }
+            if let Ok(IpcResponse::WorkspaceMappings { mappings, .. }) =
+                send_ipc_request(&config.socket_path, &IpcRequest::GetWorkspaceMappings).await
+            {
+                ws_mappings = mappings;
+            }
         }
     }
 

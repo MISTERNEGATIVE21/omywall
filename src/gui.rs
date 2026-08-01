@@ -1,5 +1,5 @@
 use eframe::egui;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -7,6 +7,45 @@ use std::sync::{Arc, Mutex};
 use crate::config::Config;
 use crate::ipc::{send_ipc_request, DaemonStatus, IpcRequest, IpcResponse};
 use crate::logger::get_log_path;
+
+static PENDING_THUMBS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+static FAILED_THUMBS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+fn is_thumb_pending(key: &str) -> bool {
+    if let Ok(guard) = PENDING_THUMBS.lock() {
+        if let Some(ref set) = *guard {
+            return set.contains(key);
+        }
+    }
+    false
+}
+
+fn set_thumb_pending(key: &str, pending: bool) {
+    if let Ok(mut guard) = PENDING_THUMBS.lock() {
+        let set = guard.get_or_insert_with(HashSet::new);
+        if pending {
+            set.insert(key.to_string());
+        } else {
+            set.remove(key);
+        }
+    }
+}
+
+fn is_thumb_failed(key: &str) -> bool {
+    if let Ok(guard) = FAILED_THUMBS.lock() {
+        if let Some(ref set) = *guard {
+            return set.contains(key);
+        }
+    }
+    false
+}
+
+fn set_thumb_failed(key: &str) {
+    if let Ok(mut guard) = FAILED_THUMBS.lock() {
+        let set = guard.get_or_insert_with(HashSet::new);
+        set.insert(key.to_string());
+    }
+}
 
 pub fn run_gui(config: Config) -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -60,7 +99,8 @@ struct OmarchyGuiApp {
     slideshow_shuffle: bool,
     show_doctor: bool,
     show_logs: bool,
-    texture_cache: HashMap<PathBuf, egui::TextureHandle>,
+    show_hyprlock: bool,
+    texture_cache: HashMap<PathBuf, Option<egui::TextureHandle>>,
     last_poll_instant: std::time::Instant,
 }
 
@@ -97,6 +137,21 @@ fn check_tool_installed(cmd: &str) -> bool {
     false
 }
 
+fn get_current_time_str() -> (String, String) {
+    unsafe {
+        let t = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        let time_str = format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec);
+        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        let days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        let m_idx = (tm.tm_mon as usize).min(11);
+        let d_idx = (tm.tm_wday as usize).min(6);
+        let date_str = format!("{}, {} {} {:04}", days[d_idx], months[m_idx], tm.tm_mday, tm.tm_year + 1900);
+        (time_str, date_str)
+    }
+}
+
 fn check_installed_tools() -> Vec<ToolStatus> {
     let tools = vec![
         ("mpvpaper", "mpvpaper", "Primary Wayland video wallpaper renderer (wlr-layer-shell)"),
@@ -106,6 +161,7 @@ fn check_installed_tools() -> Vec<ToolStatus> {
         ("jq", "jq", "JSON processor for IPC & Hyprland events"),
         ("notify-send", "notify-send", "Desktop notification system"),
         ("hyprctl", "hyprctl", "Hyprland compositor controller"),
+        ("hyprlock", "hyprlock", "Wayland GPU-accelerated screen locker & screensaver"),
     ];
 
     tools
@@ -122,15 +178,31 @@ fn check_installed_tools() -> Vec<ToolStatus> {
 }
 
 fn run_installer_script() -> String {
-    let script_path = std::env::current_dir()
+    let cwd_script = std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("scripts")
         .join("install_deps.sh");
 
-    let raw_cmd = if script_path.exists() {
-        format!("bash {}", script_path.display())
+    let exe_script = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|parent| parent.join("scripts").join("install_deps.sh")));
+
+    let script_path = if cwd_script.exists() {
+        Some(cwd_script)
+    } else if let Some(ref ep) = exe_script {
+        if ep.exists() {
+            Some(ep.clone())
+        } else {
+            None
+        }
     } else {
-        "curl -sSL https://raw.githubusercontent.com/Omarchy/Omarchy-Wall/main/scripts/install_deps.sh | bash".to_string()
+        None
+    };
+
+    let raw_cmd = if let Some(sp) = script_path {
+        format!("bash {}", sp.display())
+    } else {
+        "curl -sSL https://raw.githubusercontent.com/MISTERNEGATIVE21/Omarchy-Wall/main/scripts/install_deps.sh | bash".to_string()
     };
 
     let bash_cmd = format!("{}; echo ''; echo 'Done. Press Enter to close...'; read _", raw_cmd);
@@ -150,7 +222,7 @@ fn run_installer_script() -> String {
         }
     }
 
-    // 2. Try known terminal emulators with correct individual arguments
+    // 2. Try known terminal emulators
     let candidates: &[(&str, &[&str])] = &[
         ("ghostty", &["-e", "bash", "-c", &bash_cmd]),
         ("kitty", &["-e", "bash", "-c", &bash_cmd]),
@@ -199,21 +271,36 @@ fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
         return Some(video_path.to_path_buf());
     }
 
+    let key = video_path.to_string_lossy().to_string();
     let stem = video_path.file_stem().and_then(|s| s.to_str()).unwrap_or("thumb");
-    let hash = format!("{:x}", md5_hash(video_path.to_string_lossy().as_bytes()));
+    let hash = format!("{:x}", md5_hash(key.as_bytes()));
     let thumb_file = cache_dir.join(format!("{}_{}.jpg", stem, &hash[..8]));
 
     if thumb_file.exists() {
         return Some(thumb_file);
     }
 
-    let input_str = video_path.to_string_lossy().to_string();
+    if is_thumb_failed(&key) || is_thumb_pending(&key) {
+        return None;
+    }
+
+    set_thumb_pending(&key, true);
+    let input_str = key.clone();
     let thumb_str = thumb_file.to_string_lossy().to_string();
 
     std::thread::spawn(move || {
-        let _ = Command::new("ffmpeg")
+        let mut res = Command::new("ffmpeg")
             .args(["-ss", "00:00:01", "-i", &input_str, "-vframes", "1", "-s", "320x180", "-y", &thumb_str])
             .output();
+        if res.is_err() || !Path::new(&thumb_str).exists() {
+            res = Command::new("ffmpeg")
+                .args(["-i", &input_str, "-vframes", "1", "-s", "320x180", "-y", &thumb_str])
+                .output();
+        }
+        set_thumb_pending(&input_str, false);
+        if res.is_err() || !Path::new(&thumb_str).exists() {
+            set_thumb_failed(&input_str);
+        }
     });
 
     None
@@ -230,15 +317,21 @@ fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
     let cache_dir = PathBuf::from("/tmp/omarchy_thumbs");
     let _ = std::fs::create_dir_all(&cache_dir);
 
-    let hash = format!("{:x}", md5_hash(target.as_bytes()));
+    let key = target.to_string();
+    let hash = format!("{:x}", md5_hash(key.as_bytes()));
     let thumb_file = cache_dir.join(format!("web_{}.jpg", &hash[..8]));
 
     if thumb_file.exists() {
         return Some(thumb_file);
     }
 
+    if is_thumb_failed(&key) || is_thumb_pending(&key) {
+        return None;
+    }
+
+    set_thumb_pending(&key, true);
     let thumb_str = thumb_file.to_string_lossy().to_string();
-    let target_url = target.to_string();
+    let target_url = key.clone();
 
     std::thread::spawn(move || {
         let res = Command::new("chromium")
@@ -250,6 +343,7 @@ fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
                 &target_url,
             ])
             .output();
+
         if res.is_err() || !Path::new(&thumb_str).exists() {
             let title_text = Path::new(&target_url).file_name().and_then(|n| n.to_str()).unwrap_or("Web Stream");
             let svg_content = format!(
@@ -266,6 +360,11 @@ fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
             let _ = Command::new("ffmpeg")
                 .args(["-i", &svg_file.to_string_lossy(), "-y", &thumb_str])
                 .output();
+        }
+
+        set_thumb_pending(&target_url, false);
+        if !Path::new(&thumb_str).exists() {
+            set_thumb_failed(&target_url);
         }
     });
 
@@ -325,6 +424,7 @@ impl OmarchyGuiApp {
             slideshow_shuffle: config.slideshow_shuffle,
             show_doctor: false,
             show_logs: false,
+            show_hyprlock: false,
             texture_cache: HashMap::new(),
             last_poll_instant: std::time::Instant::now(),
         };
@@ -423,7 +523,7 @@ impl OmarchyGuiApp {
                     *guard = Some(st);
                 }
             } else {
-                let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("omarchy-wall"));
+                let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("omywall"));
                 let _ = Command::new(exe).arg("daemon").spawn();
             }
         });
@@ -468,11 +568,19 @@ impl OmarchyGuiApp {
             }
         });
     }
+
+    fn get_cached_texture(&mut self, ctx: &egui::Context, thumb_path: &Path) -> Option<&egui::TextureHandle> {
+        if !self.texture_cache.contains_key(thumb_path) {
+            let tex = load_egui_texture(ctx, thumb_path);
+            self.texture_cache.insert(thumb_path.to_path_buf(), tex);
+        }
+        self.texture_cache.get(thumb_path).and_then(|t| t.as_ref())
+    }
 }
 
 impl eframe::App for OmarchyGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.last_poll_instant.elapsed() > std::time::Duration::from_millis(800) {
+        if self.last_poll_instant.elapsed() > std::time::Duration::from_millis(2500) {
             self.last_poll_instant = std::time::Instant::now();
             self.poll_daemon_status();
         }
@@ -508,7 +616,6 @@ impl eframe::App for OmarchyGuiApp {
                 ui.label(egui::RichText::new("v3.5").color(egui::Color32::from_rgb(160, 100, 255)).small().strong());
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // 1-CLICK AUTOSTART TOGGLE BUTTON
                     let autostart_btn = if self.autostart_enabled {
                         egui::RichText::new("🚀 AUTOSTART ON").color(egui::Color32::from_rgb(0, 255, 160)).strong().small()
                     } else {
@@ -545,7 +652,7 @@ impl eframe::App for OmarchyGuiApp {
                             });
                     } else {
                         if ui.button(egui::RichText::new("▶ Start Daemon").color(egui::Color32::from_rgb(0, 240, 255)).small().strong()).clicked() {
-                            let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("omarchy-wall"));
+                            let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("omywall"));
                             let _ = Command::new(exe).arg("daemon").spawn();
                             self.fetch_or_spawn_daemon();
                         }
@@ -560,6 +667,9 @@ impl eframe::App for OmarchyGuiApp {
                             });
                     }
 
+                    if ui.selectable_label(self.show_hyprlock, "🔒 Screensaver").clicked() {
+                        self.show_hyprlock = !self.show_hyprlock;
+                    }
                     if ui.selectable_label(self.show_doctor, "🛠 System Doctor").clicked() {
                         self.show_doctor = !self.show_doctor;
                     }
@@ -573,7 +683,7 @@ impl eframe::App for OmarchyGuiApp {
             ui.separator();
             ui.add_space(6.0);
 
-            // 2. WORKSPACE QUICK MATRIX BAR (1..10) - Uniform Spacing & Hover Tooltips Fix
+            // 2. WORKSPACE QUICK MATRIX BAR (1..10)
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(6.0, 4.0);
                 ui.label(egui::RichText::new("WORKSPACES:").color(egui::Color32::from_rgb(140, 160, 190)).strong().small());
@@ -677,7 +787,7 @@ impl eframe::App for OmarchyGuiApp {
             });
         });
 
-        // 4. FIXED-WIDTH RIGHT CONTROL INSPECTOR PANEL (340px GLASS PANEL)
+        // 4. CONTROL INSPECTOR PANEL
         egui::SidePanel::right("control_panel")
             .resizable(false)
             .exact_width(340.0)
@@ -694,14 +804,8 @@ impl eframe::App for OmarchyGuiApp {
 
                     ui.group(|ui| {
                         ui.vertical_centered(|ui| {
-                            // Render Hero Thumbnail Preview (Supports Video, Images & Web Wallpapers)
                             if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
-                                if !self.texture_cache.contains_key(&thumb_path) {
-                                    if let Some(tex) = load_egui_texture(ctx, &thumb_path) {
-                                        self.texture_cache.insert(thumb_path.clone(), tex);
-                                    }
-                                }
-                                if let Some(tex) = self.texture_cache.get(&thumb_path) {
+                                if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
                                     ui.add(egui::Image::new(tex).max_size(egui::vec2(290.0, 155.0)).rounding(6.0));
                                     ui.add_space(6.0);
                                 }
@@ -760,7 +864,6 @@ impl eframe::App for OmarchyGuiApp {
                 ui.separator();
                 ui.add_space(8.0);
 
-                // Web Engine URL Loader Section
                 ui.label(egui::RichText::new("🌐 Web URL & Widget Loader").strong());
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut self.web_url_input).hint_text("https://... or file://..."));
@@ -856,7 +959,6 @@ impl eframe::App for OmarchyGuiApp {
 
         // 5. CENTRAL PANEL: WALLPAPER GALLERY GRID & SAVED WEB WALLPAPER BOOKMARKS
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Optional Drawer for System Doctor
             if self.show_doctor {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
@@ -916,7 +1018,6 @@ impl eframe::App for OmarchyGuiApp {
                 ui.add_space(8.0);
             }
 
-            // Optional Drawer for System Logs
             if self.show_logs {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
@@ -940,10 +1041,176 @@ impl eframe::App for OmarchyGuiApp {
                 ui.add_space(10.0);
             }
 
-            // Main Gallery Controls & Format Filter Pills
+            if self.show_hyprlock {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading(
+                            egui::RichText::new("🔒 Hyprlock Screensaver Configurator & Live Preview")
+                                .color(egui::Color32::from_rgb(0, 240, 255))
+                                .strong(),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("❌ Close").clicked() {
+                                self.show_hyprlock = false;
+                            }
+                            if ui.button(egui::RichText::new("⚡ Test Screensaver Now").color(egui::Color32::from_rgb(0, 255, 160)).strong().small()).clicked() {
+                                let _ = self.config.save_hyprlock_conf(current_wall.as_deref());
+                                let _ = Command::new("hyprlock").spawn();
+                                pending_msg = Some("Launched Hyprlock screensaver test".into());
+                            }
+                            if ui.button(egui::RichText::new("💾 Save hyprlock.conf").color(egui::Color32::from_rgb(0, 220, 255)).strong().small()).clicked() {
+                                match self.config.save_hyprlock_conf(current_wall.as_deref()) {
+                                    Ok(path) => {
+                                        let _ = self.config.save();
+                                        pending_msg = Some(format!("Saved screensaver config to {}", path.display()));
+                                    }
+                                    Err(e) => {
+                                        pending_msg = Some(format!("Error saving hyprlock.conf: {}", e));
+                                    }
+                                }
+                            }
+                        });
+                    });
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.add_space(6.0);
+
+                    ui.columns(2, |cols| {
+                        // COLUMN 1: CONFIGURATION CONTROLS
+                        cols[0].vertical(|ui| {
+                            ui.label(egui::RichText::new("⚙ Screensaver Settings").strong().color(egui::Color32::from_rgb(255, 190, 50)));
+                            ui.add_space(6.0);
+
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new("🖼 Background Source:").strong().small());
+                                ui.horizontal(|ui| {
+                                    let is_auto = self.config.hyprlock.background_path.is_empty();
+                                    if ui.radio(is_auto, "Active Desktop Wallpaper").clicked() {
+                                        self.config.hyprlock.background_path.clear();
+                                    }
+                                    if ui.radio(!is_auto, "Custom Image").clicked() {
+                                        if let Some(file) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "webp"]).pick_file() {
+                                            self.config.hyprlock.background_path = file.to_string_lossy().to_string();
+                                        }
+                                    }
+                                });
+                                if !self.config.hyprlock.background_path.is_empty() {
+                                    ui.label(egui::RichText::new(format!("File: {}", self.config.hyprlock.background_path)).color(egui::Color32::from_rgb(140, 155, 175)).small());
+                                }
+                            });
+
+                            ui.add_space(6.0);
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new("✨ Glass Blur Effects:").strong().small());
+                                ui.add(egui::Slider::new(&mut self.config.hyprlock.blur_passes, 0..=6).prefix("Passes: "));
+                                ui.add(egui::Slider::new(&mut self.config.hyprlock.blur_size, 0..=16).prefix("Blur Size: ").suffix("px"));
+                            });
+
+                            ui.add_space(6.0);
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new("⏰ Digital Clock & Typography:").strong().small());
+                                ui.add(egui::Slider::new(&mut self.config.hyprlock.clock_size, 40..=120).prefix("Font Size: ").suffix("pt"));
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label("Color: ");
+                                    for &(color_name, hex) in &[("Cyan", "#00f0ff"), ("Emerald", "#00ff9d"), ("Purple", "#b040ff"), ("Gold", "#ffc107"), ("White", "#ffffff"), ("Pink", "#ff007f")] {
+                                        if ui.selectable_label(self.config.hyprlock.clock_color == hex, color_name).clicked() {
+                                            self.config.hyprlock.clock_color = hex.to_string();
+                                        }
+                                    }
+                                });
+                            });
+
+                            ui.add_space(6.0);
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new("💬 Welcome Message & Accents:").strong().small());
+                                ui.horizontal(|ui| {
+                                    ui.label("Text:");
+                                    ui.add(egui::TextEdit::singleline(&mut self.config.hyprlock.welcome_message).hint_text("Welcome back, $USER!"));
+                                });
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label("Ring Accent:");
+                                    for &(color_name, hex) in &[("Cyan", "#00f0ff"), ("Purple", "#b040ff"), ("Emerald", "#00ff9d"), ("Red", "#ff4444"), ("Gold", "#ffc107")] {
+                                        if ui.selectable_label(self.config.hyprlock.input_field_ring == hex, color_name).clicked() {
+                                            self.config.hyprlock.input_field_ring = hex.to_string();
+                                        }
+                                    }
+                                });
+                            });
+                        });
+
+                        // COLUMN 2: LIVE INTERACTIVE PREVIEW
+                        cols[1].vertical(|ui| {
+                            ui.label(egui::RichText::new("🖥 Live Screensaver Mock-up Preview").strong().color(egui::Color32::from_rgb(0, 240, 255)));
+                            ui.add_space(6.0);
+
+                            let (time_str, date_str) = get_current_time_str();
+                            let user_name = std::env::var("USER").unwrap_or_else(|_| "User".to_string());
+                            let welcome_str = self.config.hyprlock.welcome_message.replace("$USER", &user_name);
+
+                            let preview_bg = if self.config.hyprlock.blur_passes > 0 {
+                                egui::Color32::from_rgb(10, 14, 24)
+                            } else {
+                                egui::Color32::from_rgb(18, 24, 38)
+                            };
+
+                            let ring_color = match self.config.hyprlock.input_field_ring.as_str() {
+                                "#00f0ff" => egui::Color32::from_rgb(0, 240, 255),
+                                "#b040ff" => egui::Color32::from_rgb(176, 64, 255),
+                                "#00ff9d" => egui::Color32::from_rgb(0, 255, 157),
+                                "#ff4444" => egui::Color32::from_rgb(255, 68, 68),
+                                "#ffc107" => egui::Color32::from_rgb(255, 193, 7),
+                                _ => egui::Color32::from_rgb(0, 240, 255),
+                            };
+
+                            let clock_col = match self.config.hyprlock.clock_color.as_str() {
+                                "#00f0ff" => egui::Color32::from_rgb(0, 240, 255),
+                                "#00ff9d" => egui::Color32::from_rgb(0, 255, 157),
+                                "#b040ff" => egui::Color32::from_rgb(176, 64, 255),
+                                "#ffc107" => egui::Color32::from_rgb(255, 193, 7),
+                                "#ff007f" => egui::Color32::from_rgb(255, 0, 127),
+                                _ => egui::Color32::from_rgb(255, 255, 255),
+                            };
+
+                            egui::Frame::none()
+                                .fill(preview_bg)
+                                .stroke(egui::Stroke::new(2.0, ring_color))
+                                .rounding(12.0)
+                                .inner_margin(egui::Margin::same(16.0))
+                                .show(ui, |ui| {
+                                    ui.set_height(260.0);
+                                    ui.vertical_centered(|ui| {
+                                        ui.add_space(15.0);
+
+                                        // Render live clock text
+                                        let font_sz = (self.config.hyprlock.clock_size as f32 * 0.45).clamp(24.0, 52.0);
+                                        ui.label(egui::RichText::new(&time_str).color(clock_col).size(font_sz).strong());
+
+                                        ui.add_space(4.0);
+                                        ui.label(egui::RichText::new(&date_str).color(egui::Color32::from_rgb(200, 215, 235)).size(13.0));
+
+                                        ui.add_space(10.0);
+                                        ui.label(egui::RichText::new(&welcome_str).color(egui::Color32::from_rgb(240, 245, 255)).size(14.0).strong());
+
+                                        ui.add_space(16.0);
+                                        // Render password field box mock-up
+                                        egui::Frame::none()
+                                            .fill(egui::Color32::from_rgb(11, 13, 20))
+                                            .stroke(egui::Stroke::new(2.0, ring_color))
+                                            .rounding(20.0)
+                                            .inner_margin(egui::Margin::symmetric(24.0, 8.0))
+                                            .show(ui, |ui| {
+                                                ui.label(egui::RichText::new("••••••••").color(egui::Color32::from_rgb(180, 195, 215)).size(14.0));
+                                            });
+                                    });
+                                });
+                        });
+                    });
+                });
+                ui.add_space(10.0);
+            }
+
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    // Category Filter Pills
                     if ui.selectable_label(self.category_filter == CategoryFilter::All, format!("All ({})", self.wallpapers.len())).clicked() {
                         self.category_filter = CategoryFilter::All;
                     }
@@ -993,7 +1260,6 @@ impl eframe::App for OmarchyGuiApp {
                 ui.separator();
                 ui.add_space(8.0);
 
-                // SPECIAL TAB: WEB WIDGETS & SAVED ANIMATED WEBSITES LIBRARY
                 if self.category_filter == CategoryFilter::WebWidgets {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
@@ -1018,14 +1284,8 @@ impl eframe::App for OmarchyGuiApp {
                                             bm.url.clone()
                                         };
 
-                                        // Render Web Thumbnail Preview Image
                                         if let Some(thumb_path) = get_web_thumbnail_path(&target_url) {
-                                            if !self.texture_cache.contains_key(&thumb_path) {
-                                                if let Some(tex) = load_egui_texture(ctx, &thumb_path) {
-                                                    self.texture_cache.insert(thumb_path.clone(), tex);
-                                                }
-                                            }
-                                            if let Some(tex) = self.texture_cache.get(&thumb_path) {
+                                            if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
                                                 ui.add(egui::Image::new(tex).max_size(egui::vec2(70.0, 40.0)).rounding(4.0));
                                             }
                                         }
@@ -1056,7 +1316,6 @@ impl eframe::App for OmarchyGuiApp {
                         ui.separator();
                         ui.add_space(8.0);
 
-                        // FORM TO SAVE CUSTOM ANIMATED WEBSITE / HTML WALLPAPER
                         ui.label(egui::RichText::new("➕ Save Custom Animated Website or HTML File").strong());
                         ui.horizontal(|ui| {
                             ui.add(egui::TextEdit::singleline(&mut self.new_web_title).hint_text("Title (e.g. Matrix Canvas)"));
@@ -1077,7 +1336,6 @@ impl eframe::App for OmarchyGuiApp {
                     ui.add_space(10.0);
                 }
 
-                // GENERAL WALLPAPER GALLERY SCROLL AREA
                 if self.wallpapers.is_empty() {
                     ui.vertical_centered(|ui| {
                         ui.add_space(40.0);
@@ -1118,84 +1376,165 @@ impl eframe::App for OmarchyGuiApp {
                             })
                             .collect();
 
-                        for path in filtered {
-                            let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown");
-                            let path_str = path.to_string_lossy().to_string();
-                            let is_active = current_wall.as_ref().map(|curr| Path::new(curr) == path).unwrap_or(false);
-                            let is_selected = self.selected_wallpaper.as_ref() == Some(path);
+                        if self.view_mode == ViewMode::Grid {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
+                                for path in filtered {
+                                    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown");
+                                    let path_str = path.to_string_lossy().to_string();
+                                    let is_active = current_wall.as_ref().map(|curr| Path::new(curr) == path).unwrap_or(false);
+                                    let is_selected = self.selected_wallpaper.as_ref() == Some(path);
 
-                            let mut mapped_ws = Vec::new();
-                            for (ws_key, ws_target) in &mappings {
-                                if ws_target == &path_str {
-                                    mapped_ws.push(ws_key.clone());
+                                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_uppercase();
+                                    let card_bg = if is_selected {
+                                        egui::Color32::from_rgb(30, 48, 75)
+                                    } else if is_active {
+                                        egui::Color32::from_rgb(12, 40, 28)
+                                    } else {
+                                        egui::Color32::from_rgb(22, 27, 42)
+                                    };
+
+                                    let card_stroke = if is_active {
+                                        egui::Stroke::new(1.8, egui::Color32::from_rgb(0, 255, 150))
+                                    } else if is_selected {
+                                        egui::Stroke::new(1.8, egui::Color32::from_rgb(0, 225, 255))
+                                    } else {
+                                        egui::Stroke::new(1.0, egui::Color32::from_rgb(35, 45, 65))
+                                    };
+
+                                    let badge_color = match ext.as_str() {
+                                        "MKV" => egui::Color32::from_rgb(255, 120, 0),
+                                        "MP4" => egui::Color32::from_rgb(0, 180, 240),
+                                        "GIF" => egui::Color32::from_rgb(220, 100, 255),
+                                        "HTML" | "JS" => egui::Color32::from_rgb(255, 200, 0),
+                                        _ => egui::Color32::from_rgb(150, 165, 185),
+                                    };
+
+                                    let frame_res = egui::Frame::none()
+                                        .fill(card_bg)
+                                        .stroke(card_stroke)
+                                        .rounding(8.0)
+                                        .inner_margin(egui::Margin::same(8.0))
+                                        .show(ui, |ui| {
+                                            ui.set_width(210.0);
+                                            ui.set_height(160.0);
+                                            ui.vertical_centered(|ui| {
+                                                if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
+                                                    if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
+                                                        ui.add(egui::Image::new(tex).max_size(egui::vec2(194.0, 95.0)).rounding(4.0));
+                                                    }
+                                                }
+                                                ui.add_space(4.0);
+                                                ui.horizontal(|ui| {
+                                                    ui.label(egui::RichText::new(format!("[{}]", ext)).color(badge_color).strong().small());
+                                                    ui.add(egui::Label::new(egui::RichText::new(filename).strong().small()).truncate());
+                                                });
+                                                ui.add_space(4.0);
+                                                ui.horizontal(|ui| {
+                                                    if ui.button(egui::RichText::new("▶ Apply").color(egui::Color32::from_rgb(0, 255, 150)).strong().small()).clicked() {
+                                                        pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
+                                                        pending_msg = Some(format!("Applied wallpaper: {}", filename));
+                                                    }
+                                                    if is_active {
+                                                        ui.label(egui::RichText::new("● LIVE").color(egui::Color32::from_rgb(255, 190, 50)).small().strong());
+                                                    }
+                                                });
+                                            });
+                                        });
+
+                                    let card_interact = frame_res.response.interact(egui::Sense::click());
+                                    if card_interact.double_clicked() {
+                                        pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
+                                        pending_msg = Some(format!("Applied wallpaper: {}", filename));
+                                    } else if card_interact.clicked() {
+                                        self.selected_wallpaper = Some(path.clone());
+                                    }
                                 }
-                            }
-                            mapped_ws.sort();
+                            });
+                        } else {
+                            for path in filtered {
+                                let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown");
+                                let path_str = path.to_string_lossy().to_string();
+                                let is_active = current_wall.as_ref().map(|curr| Path::new(curr) == path).unwrap_or(false);
+                                let is_selected = self.selected_wallpaper.as_ref() == Some(path);
 
-                            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_uppercase();
-                            let card_bg = if is_selected {
-                                egui::Color32::from_rgb(30, 48, 75)
-                            } else if is_active {
-                                egui::Color32::from_rgb(12, 40, 28)
-                            } else {
-                                egui::Color32::from_rgb(22, 27, 42)
-                            };
+                                let mut mapped_ws = Vec::new();
+                                for (ws_key, ws_target) in &mappings {
+                                    if ws_target == &path_str {
+                                        mapped_ws.push(ws_key.clone());
+                                    }
+                                }
+                                mapped_ws.sort();
 
-                            let card_stroke = if is_active {
-                                egui::Stroke::new(1.8, egui::Color32::from_rgb(0, 255, 150))
-                            } else if is_selected {
-                                egui::Stroke::new(1.8, egui::Color32::from_rgb(0, 225, 255))
-                            } else {
-                                egui::Stroke::new(1.0, egui::Color32::from_rgb(35, 45, 65))
-                            };
+                                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_uppercase();
+                                let card_bg = if is_selected {
+                                    egui::Color32::from_rgb(30, 48, 75)
+                                } else if is_active {
+                                    egui::Color32::from_rgb(12, 40, 28)
+                                } else {
+                                    egui::Color32::from_rgb(22, 27, 42)
+                                };
 
-                            let card_resp = egui::Frame::none()
-                                .fill(card_bg)
-                                .stroke(card_stroke)
-                                .rounding(6.0)
-                                .inner_margin(egui::Margin::symmetric(10.0, 8.0))
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
-                                            if !self.texture_cache.contains_key(&thumb_path) {
-                                                if let Some(tex) = load_egui_texture(ctx, &thumb_path) {
-                                                    self.texture_cache.insert(thumb_path.clone(), tex);
+                                let card_stroke = if is_active {
+                                    egui::Stroke::new(1.8, egui::Color32::from_rgb(0, 255, 150))
+                                } else if is_selected {
+                                    egui::Stroke::new(1.8, egui::Color32::from_rgb(0, 225, 255))
+                                } else {
+                                    egui::Stroke::new(1.0, egui::Color32::from_rgb(35, 45, 65))
+                                };
+
+                                let badge_color = match ext.as_str() {
+                                    "MKV" => egui::Color32::from_rgb(255, 120, 0),
+                                    "MP4" => egui::Color32::from_rgb(0, 180, 240),
+                                    "GIF" => egui::Color32::from_rgb(220, 100, 255),
+                                    "HTML" | "JS" => egui::Color32::from_rgb(255, 200, 0),
+                                    _ => egui::Color32::from_rgb(150, 165, 185),
+                                };
+
+                                let card_resp = egui::Frame::none()
+                                    .fill(card_bg)
+                                    .stroke(card_stroke)
+                                    .rounding(6.0)
+                                    .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
+                                                if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
+                                                    ui.add(egui::Image::new(tex).max_size(egui::vec2(60.0, 36.0)).rounding(4.0));
                                                 }
                                             }
-                                            if let Some(tex) = self.texture_cache.get(&thumb_path) {
-                                                ui.add(egui::Image::new(tex).max_size(egui::vec2(60.0, 36.0)).rounding(4.0));
+
+                                            ui.label(egui::RichText::new(format!("[{}]", ext)).color(badge_color).strong().small());
+
+                                            if is_active {
+                                                ui.label(egui::RichText::new(filename).color(egui::Color32::from_rgb(0, 255, 150)).strong());
+                                                ui.label(egui::RichText::new("● LIVE").color(egui::Color32::from_rgb(255, 190, 50)).small().strong());
+                                            } else {
+                                                ui.label(filename);
                                             }
-                                        }
 
-                                        let badge_color = match ext.as_str() {
-                                            "MKV" => egui::Color32::from_rgb(255, 120, 0),
-                                            "MP4" => egui::Color32::from_rgb(0, 180, 240),
-                                            "GIF" => egui::Color32::from_rgb(220, 100, 255),
-                                            "HTML" | "JS" => egui::Color32::from_rgb(255, 200, 0),
-                                            _ => egui::Color32::from_rgb(150, 165, 185),
-                                        };
-                                        ui.label(egui::RichText::new(format!("[{}]", ext)).color(badge_color).strong().small());
-
-                                        if is_active {
-                                            ui.label(egui::RichText::new(filename).color(egui::Color32::from_rgb(0, 255, 150)).strong());
-                                            ui.label(egui::RichText::new("● LIVE").color(egui::Color32::from_rgb(255, 190, 50)).small().strong());
-                                        } else {
-                                            ui.label(filename);
-                                        }
-
-                                        if !mapped_ws.is_empty() {
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                ui.label(egui::RichText::new(format!("WS: {}", mapped_ws.join(","))).color(egui::Color32::from_rgb(180, 110, 255)).small().strong());
+                                                if ui.button(egui::RichText::new("▶ Apply").color(egui::Color32::from_rgb(0, 255, 150)).strong().small()).clicked() {
+                                                    pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
+                                                    pending_msg = Some(format!("Applied wallpaper: {}", filename));
+                                                }
+                                                if !mapped_ws.is_empty() {
+                                                    ui.label(egui::RichText::new(format!("WS: {}", mapped_ws.join(","))).color(egui::Color32::from_rgb(180, 110, 255)).small().strong());
+                                                }
                                             });
-                                        }
-                                    });
-                                })
-                                .response;
+                                        });
+                                    })
+                                    .response;
 
-                            if card_resp.interact(egui::Sense::click()).clicked() {
-                                self.selected_wallpaper = Some(path.clone());
+                                let interact = card_resp.interact(egui::Sense::click());
+                                if interact.double_clicked() {
+                                    pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
+                                    pending_msg = Some(format!("Applied wallpaper: {}", filename));
+                                } else if interact.clicked() {
+                                    self.selected_wallpaper = Some(path.clone());
+                                }
+                                ui.add_space(4.0);
                             }
-                            ui.add_space(4.0);
                         }
                     });
                 }

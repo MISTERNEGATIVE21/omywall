@@ -179,12 +179,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Some(Commands::Daemon) => {
             init_logging();
+            let _lock = match acquire_instance_lock("omywall-daemon") {
+                Some(f) => f,
+                None => {
+                    let msg = "⚠️ OMYWALL Wallpaper Engine Daemon is already running.";
+                    println!("{}", msg);
+                    let _ = std::process::Command::new("notify-send")
+                        .args(["-u", "normal", "-a", "OMYWALL", "OMYWALL Wallpaper Engine", "Daemon process is already running!"])
+                        .output();
+                    return Ok(());
+                }
+            };
+            Box::leak(Box::new(_lock));
             run_daemon(&mut cfg).await?;
         }
         Some(Commands::Gui) | None => {
+            let _lock = match acquire_instance_lock("omywall-gui") {
+                Some(f) => f,
+                None => {
+                    let msg = "⚠️ OMYWALL Wallpaper Engine GUI process is already running!";
+                    println!("{}", msg);
+                    let _ = std::process::Command::new("notify-send")
+                        .args(["-u", "normal", "-a", "OMYWALL", "OMYWALL Wallpaper Engine", "Process is already running! Focusing existing window..."])
+                        .output();
+
+                    // Attempt to focus existing GUI window across Hyprland, Sway, wmctrl, xdotool
+                    let _ = std::process::Command::new("hyprctl").args(["dispatch", "focuswindow", "OMYWALL Wallpaper Engine"]).output();
+                    let _ = std::process::Command::new("swaymsg").args(["[title=\"OMYWALL Wallpaper Engine.*\"] focus"]).output();
+                    let _ = std::process::Command::new("wmctrl").args(["-a", "OMYWALL Wallpaper Engine"]).output();
+                    return Ok(());
+                }
+            };
+            Box::leak(Box::new(_lock));
             gui::run_gui(cfg)?;
         }
         Some(Commands::Tui) => {
+            let _lock = match acquire_instance_lock("omywall-tui") {
+                Some(f) => f,
+                None => {
+                    let msg = "⚠️ OMYWALL Wallpaper Engine Terminal UI is already running.";
+                    println!("{}", msg);
+                    let _ = std::process::Command::new("notify-send")
+                        .args(["-u", "normal", "-a", "OMYWALL", "OMYWALL Wallpaper Engine", "Terminal UI process is already running!"])
+                        .output();
+                    return Ok(());
+                }
+            };
+            Box::leak(Box::new(_lock));
             tui::run_tui(&cfg).await?;
         }
         Some(Commands::Logs) => {
@@ -377,32 +418,26 @@ async fn send_ipc_cmd(socket_path: &Path, req: IpcRequest) {
     }
 }
 
-fn acquire_single_instance_lock() -> bool {
+fn acquire_instance_lock(name: &str) -> Option<std::fs::File> {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
-    let lock_path = PathBuf::from(runtime_dir).join("omywall-daemon.lock");
+    let lock_path = PathBuf::from(runtime_dir).join(format!("{}.lock", name));
 
     let file = match fs::OpenOptions::new().write(true).create(true).open(&lock_path) {
         Ok(f) => f,
-        Err(_) => return true,
+        Err(_) => return None,
     };
 
     use std::os::unix::io::AsRawFd;
     let fd = file.as_raw_fd();
     let res = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
     if res != 0 {
-        return false;
+        return None;
     }
 
-    Box::leak(Box::new(file));
-    true
+    Some(file)
 }
 
 async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> {
-    // Single Instance OS Kernel Lock Guard
-    if !acquire_single_instance_lock() {
-        println!("OMYWALL Wallpaper Engine Daemon is already running.");
-        return Ok(());
-    }
 
     log_info("Starting OMYWALL Wallpaper Engine Daemon...");
 
