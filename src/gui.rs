@@ -31,6 +31,7 @@ fn set_thumb_pending(key: &str, pending: bool) {
     }
 }
 
+#[allow(dead_code)]
 fn is_thumb_failed(key: &str) -> bool {
     if let Ok(guard) = FAILED_THUMBS.lock() {
         if let Some(ref set) = *guard {
@@ -40,6 +41,7 @@ fn is_thumb_failed(key: &str) -> bool {
     false
 }
 
+#[allow(dead_code)]
 fn set_thumb_failed(key: &str) {
     if let Ok(mut guard) = FAILED_THUMBS.lock() {
         let set = guard.get_or_insert_with(HashSet::new);
@@ -262,6 +264,51 @@ fn md5_hash(bytes: &[u8]) -> u64 {
     hash
 }
 
+fn generate_video_fallback_image(_title_text: &str, ext_str: &str, target_path: &Path) {
+    let width = 320u32;
+    let height = 180u32;
+    let mut imgbuf = image::RgbImage::new(width, height);
+
+    for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
+        let factor = (x + y) as f32 / (width + height) as f32;
+        let r = (13.0 * (1.0 - factor) + 22.0 * factor) as u8;
+        let g = (17.0 * (1.0 - factor) + 28.0 * factor) as u8;
+        let b = (26.0 * (1.0 - factor) + 43.0 * factor) as u8;
+        *pixel = image::Rgb([r, g, b]);
+    }
+
+    let (br, bg, bb) = match ext_str.to_uppercase().as_str() {
+        "MKV" => (255, 120, 0),
+        "MP4" => (0, 180, 240),
+        "GIF" => (220, 100, 255),
+        _ => (168, 85, 247),
+    };
+
+    for x in 8..=311 {
+        imgbuf.put_pixel(x, 8, image::Rgb([br, bg, bb]));
+        imgbuf.put_pixel(x, 9, image::Rgb([br, bg, bb]));
+        imgbuf.put_pixel(x, 170, image::Rgb([br, bg, bb]));
+        imgbuf.put_pixel(x, 171, image::Rgb([br, bg, bb]));
+    }
+    for y in 8..=171 {
+        imgbuf.put_pixel(8, y, image::Rgb([br, bg, bb]));
+        imgbuf.put_pixel(9, y, image::Rgb([br, bg, bb]));
+        imgbuf.put_pixel(310, y, image::Rgb([br, bg, bb]));
+        imgbuf.put_pixel(311, y, image::Rgb([br, bg, bb]));
+    }
+
+    for y in 70..=110 {
+        let max_x = 145 + ((y as i32 - 70) * 35 / 40);
+        for x in 145..=max_x.min(185) {
+            if x >= 0 && x < 320 && y < 180 {
+                imgbuf.put_pixel(x as u32, y as u32, image::Rgb([br, bg, bb]));
+            }
+        }
+    }
+
+    let _ = imgbuf.save(target_path);
+}
+
 fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
     let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
     let _ = std::fs::create_dir_all(&cache_dir);
@@ -280,27 +327,38 @@ fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
         return Some(thumb_file);
     }
 
-    if is_thumb_failed(&key) || is_thumb_pending(&key) {
+    if is_thumb_pending(&key) {
         return None;
     }
 
     set_thumb_pending(&key, true);
     let input_str = key.clone();
     let thumb_str = thumb_file.to_string_lossy().to_string();
+    let ext_str = ext.clone();
 
     std::thread::spawn(move || {
         let mut res = Command::new("ffmpeg")
-            .args(["-ss", "00:00:01", "-i", &input_str, "-vframes", "1", "-s", "320x180", "-y", &thumb_str])
+            .args(["-i", &input_str, "-vframes", "1", "-s", "320x180", "-y", &thumb_str])
             .output();
+
         if res.is_err() || !Path::new(&thumb_str).exists() {
             res = Command::new("ffmpeg")
-                .args(["-i", &input_str, "-vframes", "1", "-s", "320x180", "-y", &thumb_str])
+                .args(["-ss", "00:00:00.500", "-i", &input_str, "-vframes", "1", "-s", "320x180", "-y", &thumb_str])
                 .output();
         }
-        set_thumb_pending(&input_str, false);
+
         if res.is_err() || !Path::new(&thumb_str).exists() {
-            set_thumb_failed(&input_str);
+            let _ = Command::new("mpv")
+                .args(["--no-audio", "--frames=1", &format!("--o={}", thumb_str), &input_str])
+                .output();
         }
+
+        if !Path::new(&thumb_str).exists() {
+            let title = Path::new(&input_str).file_name().and_then(|n| n.to_str()).unwrap_or("Video");
+            generate_video_fallback_image(title, &ext_str, Path::new(&thumb_str));
+        }
+
+        set_thumb_pending(&input_str, false);
     });
 
     None
