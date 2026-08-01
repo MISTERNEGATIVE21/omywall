@@ -1,0 +1,29 @@
+[Desktop Entry]
+Type=Application
+Name=OMYWALL Wallpaper Engine
+GenericName=Live Video, Stream & Workspace Wallpaper Engine
+Comment=Universal Hardware-Accelerated Video, Stream & Workspace Wallpaper Engine for Wayland
+Exec=omywall gui
+Icon=omywall
+Terminal=false
+Categories=Utility;DesktopSettings;Appearance;System;
+Keywords=wallpaper;video;mpvpaper;hyprland;sway;live;omywall;
+StartupNotify=true
+Actions=Daemon;TUI;GUI;Setup;
+
+[Desktop Action Daemon]
+Name=Start Background Daemon
+Exec=omywall daemon
+
+[Desktop Action TUI]
+Name=Launch Terminal UI
+Exec=omywall tui
+Terminal=true
+
+[Desktop Action GUI]
+Name=Launch Settings GUI
+Exec=omywall gui
+
+[Desktop Action Setup]
+Name=System Doctor & Setup
+Exec=omywall gui
