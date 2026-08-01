@@ -26,12 +26,12 @@ if [ -f "omywall.desktop" ]; then
 fi
 
 echo "Installing application icons..."
-if [ -f "assets/omarchy-wall.png" ]; then
-    cp "assets/omarchy-wall.png" "$ICON_PNG_DIR/omywall.png"
+if [ -f "assets/omywall.png" ]; then
+    cp "assets/omywall.png" "$ICON_PNG_DIR/omywall.png"
 fi
 
-if [ -f "assets/omarchy-wall.svg" ]; then
-    cp "assets/omarchy-wall.svg" "$ICON_SVG_DIR/omywall.svg"
+if [ -f "assets/omywall.svg" ]; then
+    cp "assets/omywall.svg" "$ICON_SVG_DIR/omywall.svg"
 fi
 
 if command -v update-desktop-database &> /dev/null; then

@@ -59,7 +59,7 @@ pub fn run_gui(config: Config) -> Result<(), eframe::Error> {
     eframe::run_native(
         "OMYWALL Wallpaper Engine v3.5",
         options,
-        Box::new(|_cc| Ok(Box::new(OmarchyGuiApp::new(config)))),
+        Box::new(|_cc| Ok(Box::new(OmywallGuiApp::new(config)))),
     )
 }
 
@@ -78,7 +78,7 @@ enum ViewMode {
     List,
 }
 
-struct OmarchyGuiApp {
+struct OmywallGuiApp {
     config: Config,
     status: Arc<Mutex<Option<DaemonStatus>>>,
     workspace_mappings: Arc<Mutex<HashMap<String, String>>>,
@@ -202,7 +202,7 @@ fn run_installer_script() -> String {
     let raw_cmd = if let Some(sp) = script_path {
         format!("bash {}", sp.display())
     } else {
-        "curl -sSL https://raw.githubusercontent.com/MISTERNEGATIVE21/Omarchy-Wall/main/scripts/install_deps.sh | bash".to_string()
+        "curl -sSL https://raw.githubusercontent.com/MISTERNEGATIVE21/Omywall/main/scripts/install_deps.sh | bash".to_string()
     };
 
     let bash_cmd = format!("{}; echo ''; echo 'Done. Press Enter to close...'; read _", raw_cmd);
@@ -263,7 +263,7 @@ fn md5_hash(bytes: &[u8]) -> u64 {
 }
 
 fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
-    let cache_dir = PathBuf::from("/tmp/omarchy_thumbs");
+    let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
     let _ = std::fs::create_dir_all(&cache_dir);
 
     let ext = video_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
@@ -314,7 +314,7 @@ fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
         return get_thumbnail_path(path);
     }
 
-    let cache_dir = PathBuf::from("/tmp/omarchy_thumbs");
+    let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
     let _ = std::fs::create_dir_all(&cache_dir);
 
     let key = target.to_string();
@@ -395,7 +395,7 @@ fn get_file_size_str(path: &Path) -> String {
     }
 }
 
-impl OmarchyGuiApp {
+impl OmywallGuiApp {
     fn new(config: Config) -> Self {
         let wallpapers = Self::scan_wallpapers(&config.wallpaper_dir);
         let selected_wallpaper = wallpapers.first().cloned();
@@ -465,8 +465,8 @@ impl OmarchyGuiApp {
 
         if let Some(home) = dirs::home_dir() {
             let candidate_dirs = [
-                home.join(".config").join("omarchy").join("themes"),
-                home.join(".config").join("omarchy").join("current"),
+                home.join(".config").join("omywall").join("themes"),
+                home.join(".config").join("omywall").join("current"),
                 home.join(".local").join("share").join("wallpapers"),
                 home.join("Pictures").join("Wallpapers"),
                 home.join("Pictures"),
@@ -578,7 +578,7 @@ impl OmarchyGuiApp {
     }
 }
 
-impl eframe::App for OmarchyGuiApp {
+impl eframe::App for OmywallGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.last_poll_instant.elapsed() > std::time::Duration::from_millis(2500) {
             self.last_poll_instant = std::time::Instant::now();

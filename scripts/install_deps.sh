@@ -59,24 +59,24 @@ echo -e "${GREEN}[+] Detected Package Manager:${NC} $PKG_MGR"
 
 case "$PKG_MGR" in
     yay)
-        echo -e "${CYAN}[+] Installing packages via yay (Arch Linux / Omarchy)...${NC}"
-        run_aur_helper yay -S --needed --noconfirm mpvpaper mpv ffmpeg electron jq libnotify hyprland || {
+        echo -e "${CYAN}[+] Installing packages via yay (Arch Linux / Hyprland)...${NC}"
+        run_aur_helper yay -S --needed --noconfirm mpvpaper mpv ffmpeg electron jq libnotify hyprland hyprlock || {
             echo -e "${YELLOW}[!] yay installation encountered warnings. Trying pacman for core packages...${NC}"
-            sudo pacman -S --needed --noconfirm mpv ffmpeg jq libnotify hyprland electron || true
+            sudo pacman -S --needed --noconfirm mpv ffmpeg jq libnotify hyprland hyprlock electron || true
             run_aur_helper yay -S --needed --noconfirm mpvpaper || true
         }
         ;;
     paru)
-        echo -e "${CYAN}[+] Installing packages via paru (Arch Linux / Omarchy)...${NC}"
-        run_aur_helper paru -S --needed --noconfirm mpvpaper mpv ffmpeg electron jq libnotify hyprland || {
+        echo -e "${CYAN}[+] Installing packages via paru (Arch Linux / Hyprland)...${NC}"
+        run_aur_helper paru -S --needed --noconfirm mpvpaper mpv ffmpeg electron jq libnotify hyprland hyprlock || {
             echo -e "${YELLOW}[!] paru installation encountered warnings. Trying pacman for core packages...${NC}"
-            sudo pacman -S --needed --noconfirm mpv ffmpeg jq libnotify hyprland electron || true
+            sudo pacman -S --needed --noconfirm mpv ffmpeg jq libnotify hyprland hyprlock electron || true
             run_aur_helper paru -S --needed --noconfirm mpvpaper || true
         }
         ;;
     pacman)
         echo -e "${CYAN}[+] Installing core packages via pacman...${NC}"
-        sudo pacman -S --needed --noconfirm mpv ffmpeg jq libnotify hyprland electron || true
+        sudo pacman -S --needed --noconfirm mpv ffmpeg jq libnotify hyprland hyprlock electron || true
         if ! command -v mpvpaper &> /dev/null; then
             echo -e "${YELLOW}[!] Building mpvpaper from source (AUR helper not found)...${NC}"
             sudo pacman -S --needed --noconfirm meson ninja wlroots wayland-protocols pkgconf gcc || true
@@ -91,7 +91,7 @@ case "$PKG_MGR" in
     apt)
         echo -e "${CYAN}[+] Installing via apt (Debian / Ubuntu / Pop!_OS)...${NC}"
         sudo apt-get update
-        sudo apt-get install -y mpv ffmpeg electron jq libnotify-bin build-essential meson ninja-build cmake pkg-config libwlroots-dev libwayland-dev || true
+        sudo apt-get install -y mpv ffmpeg electron jq libnotify-bin hyprlock build-essential meson ninja-build cmake pkg-config libwlroots-dev libwayland-dev || true
         if ! command -v mpvpaper &> /dev/null; then
             echo -e "${CYAN}[+] Building mpvpaper for Wayland...${NC}"
             rm -rf /tmp/mpvpaper-build
@@ -104,7 +104,7 @@ case "$PKG_MGR" in
         ;;
     dnf)
         echo -e "${CYAN}[+] Installing via dnf (Fedora / Nobara / RHEL)...${NC}"
-        sudo dnf install -y mpv ffmpeg jq libnotify meson ninja-build wayland-protocols-devel wlroots-devel || true
+        sudo dnf install -y mpv ffmpeg jq libnotify hyprlock meson ninja-build wayland-protocols-devel wlroots-devel || true
         if ! command -v mpvpaper &> /dev/null; then
             echo -e "${CYAN}[+] Building mpvpaper...${NC}"
             rm -rf /tmp/mpvpaper-build

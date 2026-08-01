@@ -302,7 +302,7 @@ impl WallpaperEngine {
                 let child = Command::new(&bin)
                     .args([
                         &app_arg,
-                        "--class=omarchy-wall-wallpaper",
+                        "--class=omywall-wallpaper",
                         "--no-first-run",
                         "--disable-infobars",
                         "--user-data-dir=/tmp/omywall-chrome-profile",
@@ -373,8 +373,8 @@ impl WallpaperEngine {
                 let _ = Command::new("/usr/bin/kill").args(["-9", &pid.to_string()]).status();
             }
         }
-        if Command::new("pkill").args(["-9", "-f", "omarchy-wall-wallpaper"]).status().is_err() {
-            let _ = Command::new("/usr/bin/pkill").args(["-9", "-f", "omarchy-wall-wallpaper"]).status();
+        if Command::new("pkill").args(["-9", "-f", "omywall-wallpaper"]).status().is_err() {
+            let _ = Command::new("/usr/bin/pkill").args(["-9", "-f", "omywall-wallpaper"]).status();
         }
         if Command::new("pkill").args(["-9", "-f", "mpvpaper"]).status().is_err() {
             let _ = Command::new("/usr/bin/pkill").args(["-9", "-f", "mpvpaper"]).status();
@@ -412,7 +412,7 @@ impl WallpaperEngine {
             if let Some(ref target_url) = *url_guard {
                 log_info(&format!("Engine: Launching desktop widget at '{}'", target_url));
                 let child = Command::new("electron")
-                    .args(["--title=omarchy-wall-widget", target_url])
+                    .args(["--title=omywall-widget", target_url])
                     .spawn()
                     .or_else(|_| Command::new("chromium").args([format!("--app={}", target_url), "--user-data-dir=/tmp/omywall-widget-profile".to_string()]).spawn())
                     .ok();
