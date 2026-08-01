@@ -178,11 +178,26 @@ impl WallpaperEngine {
                 return Err("wlr-layer-shell Renderer Exception: 'mpvpaper' is required to attach live wallpapers to the Wayland/wlroots desktop background layer without obscuring desktop windows. Please install mpvpaper via 'yay -S mpvpaper' or open the Setup Doctor tab in GUI.".to_string());
             }
 
+            let is_nvidia = gpu_device.as_ref().map_or_else(
+                || crate::config::detect_system_gpus().iter().any(|g| g.vendor == "NVIDIA"),
+                |dev| dev.contains("129") || dev.to_lowercase().contains("nvidia") || dev.contains("card2")
+            ) || matches!(hwdec.as_str(), "nvdec" | "cuda");
+
+            let effective_hwdec = if hwdec == "auto" {
+                if is_nvidia {
+                    "nvdec".to_string()
+                } else {
+                    "auto".to_string()
+                }
+            } else {
+                hwdec.clone()
+            };
+
             let mpvpaper_bin = mpvpaper_path.unwrap();
             let mut mpv_opts = format!(
                 "--input-ipc-server={} --loop-file=inf --image-display-duration=inf --no-osc --no-osd-bar --hwdec={} --volume={} --mute={} --panscan=1.0",
                 socket_str,
-                hwdec,
+                effective_hwdec,
                 volume,
                 if mute { "yes" } else { "no" }
             );
@@ -206,16 +221,10 @@ impl WallpaperEngine {
             if !video_target.is_empty() {
                 mpvpaper_args.push(video_target.to_string());
             } else {
-                // If no initial video target, pass --no-video or fallback black image
                 mpvpaper_args.push("/dev/null".to_string());
             }
 
             log_info(&format!("Spawning mpvpaper ({}) wlr-layer-shell background process with args: {:?}", mpvpaper_bin.display(), mpvpaper_args));
-
-            let is_nvidia = gpu_device.as_ref().map_or_else(
-                || crate::config::detect_system_gpus().iter().any(|g| g.vendor == "NVIDIA"),
-                |dev| dev.contains("129") || dev.to_lowercase().contains("nvidia") || dev.contains("card2")
-            ) || matches!(hwdec.as_str(), "nvdec" | "nvdec-copy" | "cuda" | "cuda-copy");
 
             let mut cmd = Command::new(&mpvpaper_bin);
             cmd.args(&mpvpaper_args);

@@ -842,14 +842,10 @@ impl eframe::App for OmywallGuiApp {
                             let curr_hwdec = self.config.hwdec.clone();
                             for &(mode_id, mode_label, desc) in &[
                                 ("auto", "⚡ Auto-Detect GPU (Recommended)", "Automatic hardware acceleration detection"),
-                                ("nvdec", "💚 NVIDIA NVDEC (NVIDIA GPU)", "NVIDIA NVDEC Hardware Video Decoder"),
-                                ("nvdec-copy", "💚 NVIDIA NVDEC-Copy", "NVIDIA NVDEC Zero-Copy System Memory Decoder"),
-                                ("cuda", "⚡ NVIDIA CUDA Acceleration", "NVIDIA CUDA Hardware Video Transcoder"),
-                                ("cuda-copy", "⚡ NVIDIA CUDA-Copy", "NVIDIA CUDA Video Transcoder Copy"),
+                                ("nvdec", "💚 NVIDIA NVDEC", "NVIDIA NVDEC Hardware Video Decoder"),
+                                ("cuda", "⚡ NVIDIA CUDA Acceleration", "NVIDIA CUDA Hardware Video Acceleration"),
                                 ("vaapi", "🔷 VA-API (Intel / AMD GPU)", "Linux VA-API Hardware Video Acceleration"),
-                                ("vaapi-copy", "🔷 VA-API-Copy", "VA-API Zero-Copy Direct Framebuffer"),
-                                ("vulkan", "🌋 Vulkan Video", "Modern Vulkan Hardware Video Transcoder Decoder"),
-                                ("vdpau", "🎞 VDPAU (Legacy NVIDIA)", "NVIDIA VDPAU Video Acceleration"),
+                                ("vulkan", "🌋 Vulkan Video", "Modern Vulkan Hardware Video Decoder"),
                                 ("no", "⚙️ CPU (Software Only)", "Software video decoding using CPU cores"),
                             ] {
                                 if ui.radio(curr_hwdec == mode_id, mode_label).on_hover_text(desc).clicked() {
