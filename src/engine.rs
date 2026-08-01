@@ -5,7 +5,7 @@ use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::logger::log_info;
+use crate::logger::{log_error, log_info, log_memory_diagnostic};
 
 pub struct WallpaperEngine {
     mpv_process: Arc<Mutex<Option<Child>>>,
@@ -222,6 +222,7 @@ impl WallpaperEngine {
 
     pub fn set_wallpaper_for_workspace(&self, path: &Path, workspace: Option<&str>) -> Result<(), String> {
         if !path.exists() {
+            log_memory_diagnostic();
             return Err(format!("Wallpaper Exception: File does not exist at '{}'", path.display()));
         }
 
@@ -282,23 +283,48 @@ impl WallpaperEngine {
             return Err("Wallpaper Exception: Provided URL is empty".into());
         }
 
-        let is_website = trimmed.contains(".html")
-            || trimmed.contains(".htm")
-            || trimmed.contains(".js")
-            || (!trimmed.ends_with(".mp4") && !trimmed.ends_with(".mkv") && !trimmed.ends_with(".webm") && !trimmed.ends_with(".m3u8"));
+        self.stop_mpv_internal();
+        self.stop_web_engine_internal();
+
+        let target_url = if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.starts_with("file://") {
+            trimmed.to_string()
+        } else if Path::new(trimmed).exists() {
+            let canon = std::fs::canonicalize(trimmed).unwrap_or_else(|_| PathBuf::from(trimmed));
+            format!("file://{}", canon.to_string_lossy())
+        } else {
+            format!("https://{}", trimmed)
+        };
+
+        log_info(&format!("Engine: Setting Web Wallpaper target URL: {}", target_url));
+
+        let is_website = target_url.contains(".html")
+            || target_url.contains(".htm")
+            || target_url.contains(".js")
+            || target_url.starts_with("http://")
+            || target_url.starts_with("https://")
+            || (!target_url.ends_with(".mp4") && !target_url.ends_with(".mkv") && !target_url.ends_with(".webm") && !target_url.ends_with(".m3u8"));
 
         if is_website {
-            self.stop_mpv_internal();
-
-            let target_url = if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") && !trimmed.starts_with("file://") {
-                format!("https://{}", trimmed)
-            } else {
-                trimmed.to_string()
-            };
+            let _ = Command::new("hyprctl")
+                .args(["keyword", "windowrulev2", "background, class:^(omywall-wallpaper)$"])
+                .output();
+            let _ = Command::new("hyprctl")
+                .args(["keyword", "windowrulev2", "nofocus, class:^(omywall-wallpaper)$"])
+                .output();
+            let _ = Command::new("hyprctl")
+                .args(["keyword", "windowrulev2", "pin, class:^(omywall-wallpaper)$"])
+                .output();
+            let _ = Command::new("hyprctl")
+                .args(["keyword", "windowrulev2", "float, class:^(omywall-wallpaper)$"])
+                .output();
+            let _ = Command::new("hyprctl")
+                .args(["keyword", "windowrulev2", "size 100% 100%, class:^(omywall-wallpaper)$"])
+                .output();
 
             let app_arg = format!("--app={}", target_url);
 
             if let Some(bin) = find_web_browser_binary() {
+                log_info(&format!("Engine: Spawning Web Browser engine '{}' for URL {}", bin.display(), target_url));
                 let child = Command::new(&bin)
                     .args([
                         &app_arg,
@@ -321,12 +347,14 @@ impl WallpaperEngine {
                     let mut st = self.user_stopped.lock().unwrap();
                     *st = false;
                     return Ok(());
+                } else if let Err(ref e) = child {
+                    log_error(&format!("Engine: Failed to spawn web browser binary: {}", e));
                 }
             }
 
             self.set_wallpaper_url_mpv(&target_url)
         } else {
-            self.set_wallpaper_url_mpv(trimmed)
+            self.set_wallpaper_url_mpv(&target_url)
         }
     }
 
@@ -485,7 +513,14 @@ impl WallpaperEngine {
         *p = false;
 
         if self.socket_path.exists() {
-            let _ = self.send_mpv_command(serde_json::json!(["set_property", "pause", false]));
+            let res = self.send_mpv_command(serde_json::json!(["set_property", "pause", false]));
+            if res.is_err() {
+                if let Some(curr) = self.current_wallpaper.lock().unwrap().clone() {
+                    let _ = self.set_wallpaper_for_workspace(Path::new(&curr), None);
+                }
+            }
+        } else if let Some(curr) = self.current_wallpaper.lock().unwrap().clone() {
+            let _ = self.set_wallpaper_for_workspace(Path::new(&curr), None);
         }
         log_info("Engine: Playback resumed.");
         Ok(())
@@ -495,20 +530,21 @@ impl WallpaperEngine {
         let is_stopped = *self.user_stopped.lock().unwrap();
         if is_stopped {
             if let Some(curr) = self.current_wallpaper.lock().unwrap().clone() {
-                self.set_wallpaper(Path::new(&curr))?;
+                let _ = self.set_wallpaper(Path::new(&curr));
                 return Ok(false);
             }
         }
 
-        let mut p = self.is_paused.lock().unwrap();
-        let new_state = !*p;
-        *p = new_state;
+        let current_state = *self.is_paused.lock().unwrap();
+        let new_state = !current_state;
 
-        if self.socket_path.exists() {
-            let _ = self.send_mpv_command(serde_json::json!(["set_property", "pause", new_state]));
+        if new_state {
+            let _ = self.pause();
+        } else {
+            let _ = self.resume();
         }
 
-        log_info(&format!("Engine: Toggled pause to {}", new_state));
+        log_info(&format!("Engine: Toggled pause state to {}", new_state));
         Ok(new_state)
     }
 
