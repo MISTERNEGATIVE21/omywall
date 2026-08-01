@@ -34,6 +34,13 @@ if [ -f "assets/omywall.svg" ]; then
     cp "assets/omywall.svg" "$ICON_SVG_DIR/omywall.svg"
 fi
 
+echo "Installing application web assets and presets..."
+ASSETS_DEST="$HOME/.local/share/omywall/assets"
+mkdir -p "$ASSETS_DEST"
+if [ -d "assets" ]; then
+    cp -r assets/* "$ASSETS_DEST/" 2>/dev/null || true
+fi
+
 if command -v update-desktop-database &> /dev/null; then
     update-desktop-database "$DESKTOP_DIR" &> /dev/null || true
 fi

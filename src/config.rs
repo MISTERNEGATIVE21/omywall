@@ -380,3 +380,36 @@ X-GNOME-Autostart-enabled=true
         Ok(conf_file)
     }
 }
+
+pub fn resolve_asset_path(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.starts_with("file://") {
+        return trimmed.to_string();
+    }
+
+    let p = std::path::Path::new(trimmed);
+    if p.exists() {
+        return std::fs::canonicalize(p)
+            .unwrap_or_else(|_| p.to_path_buf())
+            .to_string_lossy()
+            .to_string();
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        let candidates = [
+            home.join(".local").join("share").join("omywall").join(trimmed),
+            home.join(".config").join("omywall").join(trimmed),
+            PathBuf::from("/usr/share/omywall").join(trimmed),
+            PathBuf::from("/usr/local/share/omywall").join(trimmed),
+            std::env::current_dir().unwrap_or_default().join(trimmed),
+        ];
+
+        for c in &candidates {
+            if c.exists() {
+                return c.to_string_lossy().to_string();
+            }
+        }
+    }
+
+    trimmed.to_string()
+}

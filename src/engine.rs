@@ -221,18 +221,26 @@ impl WallpaperEngine {
     }
 
     pub fn set_wallpaper_for_workspace(&self, path: &Path, workspace: Option<&str>) -> Result<(), String> {
-        if !path.exists() {
-            log_memory_diagnostic();
-            return Err(format!("Wallpaper Exception: File does not exist at '{}'", path.display()));
+        let raw_str = path.to_string_lossy().to_string();
+
+        if raw_str.starts_with("http://") || raw_str.starts_with("https://") {
+            return self.set_url(&raw_str);
         }
 
-        let path_str = path.to_string_lossy().to_string();
+        let resolved_str = crate::config::resolve_asset_path(&raw_str);
+        let resolved_path = Path::new(&resolved_str);
 
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        let ext = resolved_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
         if ext == "html" || ext == "htm" || ext == "js" {
-            let file_url = format!("file://{}", path_str);
-            return self.set_url(&file_url);
+            return self.set_url(&resolved_str);
         }
+
+        if !resolved_path.exists() {
+            log_memory_diagnostic();
+            return Err(format!("Wallpaper Exception: File does not exist at '{}'", resolved_path.display()));
+        }
+
+        let path_str = resolved_path.to_string_lossy().to_string();
 
         let is_user_stopped = *self.user_stopped.lock().unwrap();
         let is_paused = *self.is_paused.lock().unwrap();
