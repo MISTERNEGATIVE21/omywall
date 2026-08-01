@@ -283,7 +283,7 @@ fn run_installer_script() -> String {
     }
 }
 
-fn md5_hash(bytes: &[u8]) -> u64 {
+pub fn md5_hash(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 5381;
     for &b in bytes {
         hash = ((hash << 5).wrapping_add(hash)).wrapping_add(b as u64);
@@ -573,13 +573,17 @@ impl OmywallGuiApp {
         let socket = self.config.socket_path.clone();
         let status_arc = self.status.clone();
 
-        tokio::spawn(async move {
-            if let Ok(IpcResponse::Status(st)) = send_ipc_request(&socket, &IpcRequest::GetStatus).await {
-                if let Ok(mut guard) = status_arc.lock() {
-                    *guard = Some(st);
-                }
-            } else if let Ok(mut guard) = status_arc.lock() {
-                *guard = None;
+        std::thread::spawn(move || {
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                rt.block_on(async {
+                    if let Ok(IpcResponse::Status(st)) = send_ipc_request(&socket, &IpcRequest::GetStatus).await {
+                        if let Ok(mut guard) = status_arc.lock() {
+                            *guard = Some(st);
+                        }
+                    } else if let Ok(mut guard) = status_arc.lock() {
+                        *guard = None;
+                    }
+                });
             }
         });
     }
@@ -588,15 +592,19 @@ impl OmywallGuiApp {
         let socket = self.config.socket_path.clone();
         let status_arc = self.status.clone();
 
-        tokio::spawn(async move {
-            let res = send_ipc_request(&socket, &IpcRequest::GetStatus).await;
-            if let Ok(IpcResponse::Status(st)) = res {
-                if let Ok(mut guard) = status_arc.lock() {
-                    *guard = Some(st);
-                }
-            } else {
-                let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("omywall"));
-                let _ = Command::new(exe).arg("daemon").spawn();
+        std::thread::spawn(move || {
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                rt.block_on(async {
+                    let res = send_ipc_request(&socket, &IpcRequest::GetStatus).await;
+                    if let Ok(IpcResponse::Status(st)) = res {
+                        if let Ok(mut guard) = status_arc.lock() {
+                            *guard = Some(st);
+                        }
+                    } else {
+                        let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("omywall"));
+                        let _ = Command::new(exe).arg("daemon").spawn();
+                    }
+                });
             }
         });
     }
@@ -605,15 +613,19 @@ impl OmywallGuiApp {
         let socket = self.config.socket_path.clone();
         let status_arc = self.status.clone();
 
-        tokio::spawn(async move {
-            let resp = send_ipc_request(&socket, &req).await;
-            if let Ok(IpcResponse::Status(st)) = send_ipc_request(&socket, &IpcRequest::GetStatus).await {
-                if let Ok(mut guard) = status_arc.lock() {
-                    *guard = Some(st);
-                }
-            }
-            if let Ok(IpcResponse::Err { message }) = resp {
-                eprintln!("{}", message);
+        std::thread::spawn(move || {
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                rt.block_on(async {
+                    let resp = send_ipc_request(&socket, &req).await;
+                    if let Ok(IpcResponse::Status(st)) = send_ipc_request(&socket, &IpcRequest::GetStatus).await {
+                        if let Ok(mut guard) = status_arc.lock() {
+                            *guard = Some(st);
+                        }
+                    }
+                    if let Ok(IpcResponse::Err { message }) = resp {
+                        eprintln!("{}", message);
+                    }
+                });
             }
         });
     }

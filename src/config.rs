@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebBookmark {
@@ -303,12 +303,31 @@ X-GNOME-Autostart-enabled=true
     }
 
     pub fn generate_hyprlock_conf(&self, active_wallpaper: Option<&str>) -> String {
-        let bg_path = if !self.hyprlock.background_path.trim().is_empty() {
+        let raw_bg = if !self.hyprlock.background_path.trim().is_empty() {
             self.hyprlock.background_path.clone()
         } else if let Some(wall) = active_wallpaper {
             wall.to_string()
         } else {
             "screenshot".to_string()
+        };
+
+        let bg_path = if raw_bg != "screenshot" {
+            let ext = Path::new(&raw_bg).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            if matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "html" | "htm" | "js") {
+                let resolved = crate::config::resolve_asset_path(&raw_bg);
+                let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
+                let hash = format!("{:x}", crate::gui::md5_hash(resolved.as_bytes()));
+                let thumb_file = cache_dir.join(format!("web_{}.jpg", &hash[..8]));
+                if thumb_file.exists() {
+                    thumb_file.to_string_lossy().to_string()
+                } else {
+                    raw_bg
+                }
+            } else {
+                raw_bg
+            }
+        } else {
+            raw_bg
         };
 
         let user_name = std::env::var("USER").unwrap_or_else(|_| "User".to_string());
