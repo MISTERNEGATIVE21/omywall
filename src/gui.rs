@@ -306,6 +306,35 @@ fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
     None
 }
 
+fn generate_web_fallback_image(target_path: &Path) {
+    let width = 320u32;
+    let height = 180u32;
+    let mut imgbuf = image::RgbImage::new(width, height);
+
+    for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
+        let factor = (x + y) as f32 / (width + height) as f32;
+        let r = (18.0 * (1.0 - factor) + 10.0 * factor) as u8;
+        let g = (23.0 * (1.0 - factor) + 16.0 * factor) as u8;
+        let b = (38.0 * (1.0 - factor) + 28.0 * factor) as u8;
+        *pixel = image::Rgb([r, g, b]);
+    }
+
+    for x in 8..=311 {
+        imgbuf.put_pixel(x, 8, image::Rgb([0, 240, 255]));
+        imgbuf.put_pixel(x, 9, image::Rgb([0, 240, 255]));
+        imgbuf.put_pixel(x, 170, image::Rgb([0, 240, 255]));
+        imgbuf.put_pixel(x, 171, image::Rgb([0, 240, 255]));
+    }
+    for y in 8..=171 {
+        imgbuf.put_pixel(8, y, image::Rgb([0, 240, 255]));
+        imgbuf.put_pixel(9, y, image::Rgb([0, 240, 255]));
+        imgbuf.put_pixel(310, y, image::Rgb([0, 240, 255]));
+        imgbuf.put_pixel(311, y, image::Rgb([0, 240, 255]));
+    }
+
+    let _ = imgbuf.save(target_path);
+}
+
 fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
     let path = Path::new(target);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
@@ -331,41 +360,48 @@ fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
 
     set_thumb_pending(&key, true);
     let thumb_str = thumb_file.to_string_lossy().to_string();
-    let target_url = key.clone();
+
+    let abs_url = if target.starts_with("assets/") || (!target.starts_with("http://") && !target.starts_with("https://") && !target.starts_with("file://")) {
+        let p = PathBuf::from(target);
+        if let Ok(canon) = std::fs::canonicalize(&p) {
+            format!("file://{}", canon.to_string_lossy())
+        } else {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            format!("file://{}", cwd.join(target).to_string_lossy())
+        }
+    } else {
+        target.to_string()
+    };
+
+    let target_url_key = key.clone();
 
     std::thread::spawn(move || {
-        let res = Command::new("chromium")
-            .args([
-                "--headless",
-                "--disable-gpu",
-                &format!("--screenshot={}", thumb_str),
-                "--window-size=1280,720",
-                &target_url,
-            ])
-            .output();
+        let browsers = ["chromium", "google-chrome-stable", "google-chrome", "brave", "electron"];
+        let mut success = false;
 
-        if res.is_err() || !Path::new(&thumb_str).exists() {
-            let title_text = Path::new(&target_url).file_name().and_then(|n| n.to_str()).unwrap_or("Web Stream");
-            let svg_content = format!(
-                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\">\
-  <rect width=\"320\" height=\"180\" fill=\"#141824\"/>\
-  <rect x=\"10\" y=\"10\" width=\"300\" height=\"160\" rx=\"10\" fill=\"#1c2333\" stroke=\"#00f0ff\" stroke-width=\"2\"/>\
-  <text x=\"160\" y=\"80\" fill=\"#00f0ff\" font-family=\"sans-serif\" font-size=\"18\" font-weight=\"bold\" text-anchor=\"middle\">🌐 WEB WALLPAPER</text>\
-  <text x=\"160\" y=\"115\" fill=\"#00ff9d\" font-family=\"sans-serif\" font-size=\"11\" text-anchor=\"middle\">{}</text>\
-</svg>",
-                title_text
-            );
-            let svg_file = cache_dir.join(format!("web_{}.svg", &hash[..8]));
-            let _ = std::fs::write(&svg_file, svg_content);
-            let _ = Command::new("ffmpeg")
-                .args(["-i", &svg_file.to_string_lossy(), "-y", &thumb_str])
+        for b in &browsers {
+            let res = Command::new(b)
+                .args([
+                    "--headless",
+                    "--no-sandbox",
+                    "--disable-gpu",
+                    &format!("--screenshot={}", thumb_str),
+                    "--window-size=1280,720",
+                    &abs_url,
+                ])
                 .output();
+
+            if res.is_ok() && Path::new(&thumb_str).exists() {
+                success = true;
+                break;
+            }
         }
 
-        set_thumb_pending(&target_url, false);
-        if !Path::new(&thumb_str).exists() {
-            set_thumb_failed(&target_url);
+        if !success || !Path::new(&thumb_str).exists() {
+            generate_web_fallback_image(Path::new(&thumb_str));
         }
+
+        set_thumb_pending(&target_url_key, false);
     });
 
     None
