@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Sacred Geometry Tesseract</title>
+    <style>
+        * { margin: 0; padding: 0; overflow: hidden; background: #030008; }
+        canvas { width: 100vw; height: 100vh; display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+
+        // 3D Cube Vertices
+        const vertices = [
+            [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+            [-1, -1,  1], [1, -1,  1], [1, 1,  1], [-1, 1,  1],
+            // Inner Hypercube
+            [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5],
+            [-0.5, -0.5,  0.5], [0.5, -0.5,  0.5], [0.5, 0.5,  0.5], [-0.5, 0.5,  0.5]
+        ];
+
+        const edges = [
+            // Outer Cube
+            [0,1],[1,2],[2,3],[3,0], [4,5],[5,6],[6,7],[7,4], [0,4],[1,5],[2,6],[3,7],
+            // Inner Cube
+            [8,9],[9,10],[10,11],[11,8], [12,13],[13,14],[14,15],[15,12], [8,12],[9,13],[10,14],[11,15],
+            // Hypercube Connectors
+            [0,8],[1,9],[2,10],[3,11], [4,12],[5,13],[6,14],[7,15]
+        ];
+
+        let angleX = 0;
+        let angleY = 0;
+        let angleZ = 0;
+
+        function animate() {
+            angleX += 0.012;
+            angleY += 0.015;
+            angleZ += 0.008;
+
+            ctx.fillStyle = 'rgba(3, 0, 8, 0.2)';
+            ctx.fillRect(0, 0, width, height);
+
+            const cx = width / 2;
+            const cy = height / 2;
+            const scale = Math.min(width, height) * 0.25;
+
+            const projected = vertices.map(v => {
+                // Rotate X
+                let y1 = v[1] * Math.cos(angleX) - v[2] * Math.sin(angleX);
+                let z1 = v[1] * Math.sin(angleX) + v[2] * Math.cos(angleX);
+
+                // Rotate Y
+                let x2 = v[0] * Math.cos(angleY) + z1 * Math.sin(angleY);
+                let z2 = -v[0] * Math.sin(angleY) + z1 * Math.cos(angleY);
+
+                // Rotate Z
+                let x3 = x2 * Math.cos(angleZ) - y1 * Math.sin(angleZ);
+                let y3 = x2 * Math.sin(angleZ) + y1 * Math.cos(angleZ);
+
+                // Perspective projection
+                const fov = 4.0;
+                const distance = 4.5;
+                const pScale = fov / (distance + z2);
+
+                return [
+                    cx + x3 * scale * pScale,
+                    cy + y3 * scale * pScale
+                ];
+            });
+
+            // Draw Edges with Laser Neon Glow
+            edges.forEach(([i, j], idx) => {
+                const p1 = projected[i];
+                const p2 = projected[j];
+
+                const hue = (idx * 12 + angleX * 50) % 360;
+                ctx.strokeStyle = `hsl(${hue}, 100%, 65%)`;
+                ctx.lineWidth = 2.2;
+                ctx.beginPath();
+                ctx.moveTo(p1[0], p1[1]);
+                ctx.lineTo(p2[0], p2[1]);
+                ctx.stroke();
+            });
+
+            // Vertices Glow
+            projected.forEach(p => {
+                ctx.fillStyle = '#00ffff';
+                ctx.beginPath();
+                ctx.arc(p[0], p[1], 4, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

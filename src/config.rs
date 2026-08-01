@@ -88,6 +88,36 @@ fn default_fps() -> u32 {
 fn default_web_bookmarks() -> Vec<WebBookmark> {
     vec![
         WebBookmark {
+            title: "3D Holographic Black Hole".to_string(),
+            url: "assets/web_wallpapers/holographic_blackhole_3d.html".to_string(),
+            category: "3D Gravitational Physics".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "3D Cyberpunk Neon Skyline".to_string(),
+            url: "assets/web_wallpapers/cyberpunk_city_3d.html".to_string(),
+            category: "3D Cyberpunk City".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "3D Aurora Borealis Lights".to_string(),
+            url: "assets/web_wallpapers/aurora_borealis_3d.html".to_string(),
+            category: "3D Cosmic Aurora".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "3D Quantum Energy Field".to_string(),
+            url: "assets/web_wallpapers/quantum_field_3d.html".to_string(),
+            category: "3D Quantum Dynamics".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "3D Sacred Geometry Tesseract".to_string(),
+            url: "assets/web_wallpapers/geometry_wireframe_3d.html".to_string(),
+            category: "3D Laser Geometry".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
             title: "3D Cyber Hyperspace Tunnel".to_string(),
             url: "assets/web_wallpapers/cyber_tunnel_3d.html".to_string(),
             category: "3D WebGL / Canvas".to_string(),

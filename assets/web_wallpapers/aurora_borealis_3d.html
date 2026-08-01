@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Aurora Borealis Northern Lights</title>
+    <style>
+        * { margin: 0; padding: 0; overflow: hidden; background: #01040a; }
+        canvas { width: 100vw; height: 100vh; display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+
+        const stars = [];
+        for (let i = 0; i < 300; i++) {
+            stars.push({
+                x: Math.random() * width,
+                y: Math.random() * height * 0.7,
+                size: Math.random() * 1.8,
+                alpha: Math.random()
+            });
+        }
+
+        let time = 0;
+
+        function animate() {
+            time += 0.015;
+
+            // Night Sky Base Gradient
+            const sky = ctx.createLinearGradient(0, 0, 0, height);
+            sky.addColorStop(0, '#020612');
+            sky.addColorStop(0.5, '#051428');
+            sky.addColorStop(1, '#01040a');
+            ctx.fillStyle = sky;
+            ctx.fillRect(0, 0, width, height);
+
+            // Twinkling Stars
+            stars.forEach(s => {
+                s.alpha += (Math.random() - 0.5) * 0.05;
+                s.alpha = Math.max(0.2, Math.min(1, s.alpha));
+                ctx.fillStyle = `rgba(255, 255, 255, ${s.alpha})`;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Shimmering Aurora Borealis Ribbons
+            const ribbons = 4;
+            for (let r = 0; r < ribbons; r++) {
+                ctx.beginPath();
+                const baseY = height * 0.4 + r * 30;
+
+                ctx.moveTo(0, height);
+
+                for (let x = 0; x <= width; x += 15) {
+                    const wave1 = Math.sin(x * 0.005 + time + r * 1.5) * 80;
+                    const wave2 = Math.cos(x * 0.01 - time * 0.8) * 45;
+                    const y = baseY + wave1 + wave2;
+
+                    if (x === 0) {
+                        ctx.lineTo(0, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+
+                ctx.lineTo(width, height);
+                ctx.closePath();
+
+                const auroraGlow = ctx.createLinearGradient(0, baseY - 120, 0, baseY + 180);
+                if (r % 2 === 0) {
+                    auroraGlow.addColorStop(0, 'rgba(0, 255, 170, 0.65)');
+                    auroraGlow.addColorStop(0.5, 'rgba(0, 180, 255, 0.4)');
+                    auroraGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                } else {
+                    auroraGlow.addColorStop(0, 'rgba(180, 0, 255, 0.55)');
+                    auroraGlow.addColorStop(0.5, 'rgba(0, 255, 120, 0.35)');
+                    auroraGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                }
+
+                ctx.fillStyle = auroraGlow;
+                ctx.fill();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
