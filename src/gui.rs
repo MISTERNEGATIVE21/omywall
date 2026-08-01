@@ -1051,8 +1051,8 @@ impl eframe::App for OmywallGuiApp {
                 });
         }
 
-        // 5. CENTRAL PANEL: WALLPAPER GALLERY GRID & SAVED WEB WALLPAPER BOOKMARKS
         egui::CentralPanel::default().show(ctx, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             if self.show_doctor {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
@@ -1357,66 +1357,113 @@ impl eframe::App for OmywallGuiApp {
                 if self.category_filter == CategoryFilter::WebWidgets {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
-                            ui.heading("🌐 Animated Web & HTML Widgets");
-                            ui.label(egui::RichText::new("● Live HTML5 / JS").color(egui::Color32::from_rgb(0, 240, 255)).small().strong())
-                                .on_hover_text("Click any bookmark to launch interactive canvas, web stream, or HTML desktop widget");
+                            ui.heading(
+                                egui::RichText::new("🌐 Interactive 3D Web & HTML5 Wallpapers")
+                                    .color(egui::Color32::from_rgb(0, 240, 255))
+                                    .strong(),
+                            );
+                            ui.label(egui::RichText::new("● Native WebGL Canvas Engine").color(egui::Color32::from_rgb(0, 255, 160)).small().strong())
+                                .on_hover_text("Native GTK Layer Shell + WebKit2 wlr-layer-shell desktop background rendering");
                         });
                         ui.add_space(6.0);
 
-                        egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
-                            let bookmarks = self.config.saved_web_wallpapers.clone();
+                        let bookmarks = self.config.saved_web_wallpapers.clone();
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(12.0, 12.0);
                             for bm in &bookmarks {
-                                ui.group(|ui| {
-                                    ui.horizontal(|ui| {
-                                        let target_url = crate::config::resolve_asset_path(&bm.url);
+                                let target_url = crate::config::resolve_asset_path(&bm.url);
+                                let is_active = current_wall.as_ref().map(|curr| curr == &target_url).unwrap_or(false);
+                                let is_selected = self.selected_wallpaper.as_ref().map(|p| p.to_string_lossy() == target_url).unwrap_or(false);
 
-                                        if let Some(thumb_path) = get_web_thumbnail_path(&target_url) {
-                                            if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
-                                                ui.add(egui::Image::new(tex).max_size(egui::vec2(70.0, 40.0)).rounding(4.0));
-                                            } else {
-                                                ctx.request_repaint_after(std::time::Duration::from_millis(150));
-                                            }
-                                        } else {
-                                            ctx.request_repaint_after(std::time::Duration::from_millis(150));
-                                        }
+                                let card_bg = if is_selected {
+                                    egui::Color32::from_rgb(30, 48, 75)
+                                } else if is_active {
+                                    egui::Color32::from_rgb(12, 40, 28)
+                                } else {
+                                    egui::Color32::from_rgb(22, 27, 42)
+                                };
 
-                                        ui.vertical(|ui| {
-                                            ui.label(egui::RichText::new(&bm.title).color(egui::Color32::from_rgb(0, 225, 255)).strong().size(14.0));
-                                            ui.label(egui::RichText::new(&bm.url).color(egui::Color32::from_rgb(140, 155, 175)).small());
-                                        });
+                                let card_stroke = if is_active {
+                                    egui::Stroke::new(1.8, egui::Color32::from_rgb(0, 255, 150))
+                                } else if is_selected {
+                                    egui::Stroke::new(1.8, egui::Color32::from_rgb(0, 225, 255))
+                                } else {
+                                    egui::Stroke::new(1.0, egui::Color32::from_rgb(35, 45, 65))
+                                };
 
-                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            if !bm.is_demo {
-                                                if ui.button("🗑").clicked() {
-                                                    self.config.remove_web_bookmark(&bm.url);
+                                let frame_res = egui::Frame::none()
+                                    .fill(card_bg)
+                                    .stroke(card_stroke)
+                                    .rounding(10.0)
+                                    .inner_margin(egui::Margin::same(8.0))
+                                    .show(ui, |ui| {
+                                        ui.set_width(220.0);
+                                        ui.set_height(175.0);
+                                        ui.vertical_centered(|ui| {
+                                            if let Some(thumb_path) = get_web_thumbnail_path(&target_url) {
+                                                if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
+                                                    ui.add(egui::Image::new(tex).max_size(egui::vec2(204.0, 100.0)).rounding(6.0));
+                                                } else {
+                                                    ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                                                    egui::Frame::none()
+                                                        .fill(egui::Color32::from_rgb(14, 18, 28))
+                                                        .rounding(6.0)
+                                                        .show(ui, |ui| {
+                                                            ui.set_width(204.0);
+                                                            ui.set_height(100.0);
+                                                        });
                                                 }
+                                            } else {
+                                                ctx.request_repaint_after(std::time::Duration::from_millis(100));
                                             }
-                                            if ui.button(egui::RichText::new("▶ Launch Web Wallpaper").color(egui::Color32::from_rgb(0, 255, 150)).strong()).clicked() {
-                                                self.selected_wallpaper = Some(PathBuf::from(&target_url));
-                                                self.show_inspector = true;
-                                                pending_action = Some(IpcRequest::SetWallpaper { path: target_url.clone() });
-                                                pending_msg = Some(format!("Launched web wallpaper: {}", bm.title));
-                                            }
-                                            if ui.button(egui::RichText::new("👁 Preview").color(egui::Color32::from_rgb(0, 220, 255)).small()).clicked() {
-                                                self.selected_wallpaper = Some(PathBuf::from(&target_url));
-                                                self.show_inspector = true;
-                                            }
+                                            ui.add_space(4.0);
+                                            ui.horizontal(|ui| {
+                                                ui.label(egui::RichText::new(format!("[{}]", bm.category)).color(egui::Color32::from_rgb(0, 240, 255)).strong().small());
+                                                ui.add(egui::Label::new(egui::RichText::new(&bm.title).strong().small()).truncate());
+                                            });
+                                            ui.add_space(4.0);
+                                            ui.horizontal(|ui| {
+                                                if ui.button(egui::RichText::new("▶ Launch").color(egui::Color32::from_rgb(0, 255, 150)).strong().small()).clicked() {
+                                                    self.selected_wallpaper = Some(PathBuf::from(&target_url));
+                                                    self.show_inspector = true;
+                                                    pending_action = Some(IpcRequest::SetWallpaper { path: target_url.clone() });
+                                                    pending_msg = Some(format!("Launched 3D web wallpaper: {}", bm.title));
+                                                }
+                                                if ui.button(egui::RichText::new("👁 Preview").color(egui::Color32::from_rgb(0, 220, 255)).small()).clicked() {
+                                                    self.selected_wallpaper = Some(PathBuf::from(&target_url));
+                                                    self.show_inspector = true;
+                                                }
+                                                if !bm.is_demo {
+                                                    if ui.button("🗑").clicked() {
+                                                        self.config.remove_web_bookmark(&bm.url);
+                                                    }
+                                                }
+                                            });
                                         });
                                     });
-                                });
-                                ui.add_space(4.0);
+
+                                let interact = frame_res.response.interact(egui::Sense::click());
+                                if interact.double_clicked() {
+                                    self.selected_wallpaper = Some(PathBuf::from(&target_url));
+                                    self.show_inspector = true;
+                                    pending_action = Some(IpcRequest::SetWallpaper { path: target_url.clone() });
+                                    pending_msg = Some(format!("Launched 3D web wallpaper: {}", bm.title));
+                                } else if interact.clicked() {
+                                    self.selected_wallpaper = Some(PathBuf::from(&target_url));
+                                    self.show_inspector = true;
+                                }
                             }
                         });
 
-                        ui.add_space(10.0);
+                        ui.add_space(12.0);
                         ui.separator();
                         ui.add_space(8.0);
 
-                        ui.label(egui::RichText::new("➕ Save Custom Animated Website or HTML File").strong());
+                        ui.label(egui::RichText::new("➕ Save Custom Animated Website or HTML File").strong().color(egui::Color32::from_rgb(255, 190, 50)));
                         ui.horizontal(|ui| {
                             ui.add(egui::TextEdit::singleline(&mut self.new_web_title).hint_text("Title (e.g. Matrix Canvas)"));
                             ui.add(egui::TextEdit::singleline(&mut self.web_url_input).hint_text("URL or Path (https://...)"));
-                            if ui.button("💾 Save Website").clicked() {
+                            if ui.button(egui::RichText::new("💾 Save Website").color(egui::Color32::from_rgb(0, 240, 255)).strong()).clicked() {
                                 if !self.new_web_title.trim().is_empty() && !self.web_url_input.trim().is_empty() {
                                     self.config.add_web_bookmark(
                                         self.new_web_title.trim().to_string(),
@@ -1672,6 +1719,7 @@ impl eframe::App for OmywallGuiApp {
         if let Some(msg) = pending_msg {
             self.status_message = msg;
         }
+            });
 
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
     }
