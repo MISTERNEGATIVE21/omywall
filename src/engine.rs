@@ -212,8 +212,24 @@ impl WallpaperEngine {
 
             log_info(&format!("Spawning mpvpaper ({}) wlr-layer-shell background process with args: {:?}", mpvpaper_bin.display(), mpvpaper_args));
 
-            let child = Command::new(&mpvpaper_bin)
-                .args(&mpvpaper_args)
+            let is_nvidia = gpu_device.as_ref().map_or_else(
+                || crate::config::detect_system_gpus().iter().any(|g| g.vendor == "NVIDIA"),
+                |dev| dev.contains("129") || dev.to_lowercase().contains("nvidia") || dev.contains("card2")
+            ) || matches!(hwdec.as_str(), "nvdec" | "nvdec-copy" | "cuda" | "cuda-copy");
+
+            let mut cmd = Command::new(&mpvpaper_bin);
+            cmd.args(&mpvpaper_args);
+
+            if is_nvidia {
+                cmd.env("__NV_PRIME_RENDER_OFFLOAD", "1");
+                cmd.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
+                cmd.env("__VK_LAYER_NV_optimus", "NVIDIA_only");
+                cmd.env("CUDA_VISIBLE_DEVICES", "0");
+                cmd.env("VK_DRIVER_FILES", "/usr/share/vulkan/icd.d/nvidia_icd.json");
+                log_info("Engine: Enabled NVIDIA PRIME Render Offload (__NV_PRIME_RENDER_OFFLOAD=1)");
+            }
+
+            let child = cmd
                 .spawn()
                 .map_err(|e| format!("Failed to spawn mpvpaper process at {}: {}", mpvpaper_bin.display(), e))?;
 

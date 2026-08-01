@@ -531,6 +531,8 @@ impl OmywallGuiApp {
 
         if let Some(home) = dirs::home_dir() {
             let candidate_dirs = [
+                home.join(".local").join("share").join("omywall"),
+                home.join(".local").join("share").join("omywall").join("assets"),
                 home.join(".config").join("omywall").join("themes"),
                 home.join(".config").join("omywall").join("current"),
                 home.join(".local").join("share").join("wallpapers"),
@@ -540,7 +542,11 @@ impl OmywallGuiApp {
                 home.join(".local").join("share").join("Steam").join("steamapps").join("workshop").join("content").join("431960"),
                 home.join(".steam").join("steam").join("steamapps").join("workshop").join("content").join("431960"),
                 home.join(".steam").join("root").join("steamapps").join("workshop").join("content").join("431960"),
+                PathBuf::from("/usr/share/omywall"),
+                PathBuf::from("/usr/share/omywall/assets"),
+                PathBuf::from("/usr/local/share/omywall/assets"),
                 PathBuf::from("/usr/share/backgrounds"),
+                std::env::current_dir().unwrap_or_default().join("assets"),
             ];
 
             for c_dir in &candidate_dirs {

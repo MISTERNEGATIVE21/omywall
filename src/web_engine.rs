@@ -91,6 +91,14 @@ Gtk.main()
         py_cmd.env("WEBKIT_FORCE_COMPOSITING_MODE", "1");
         py_cmd.env("LIBGL_ALWAYS_SOFTWARE", "0");
 
+        let is_nvidia = crate::config::detect_system_gpus().iter().any(|g| g.vendor == "NVIDIA");
+        if is_nvidia {
+            py_cmd.env("__NV_PRIME_RENDER_OFFLOAD", "1");
+            py_cmd.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
+            py_cmd.env("__VK_LAYER_NV_optimus", "NVIDIA_only");
+            py_cmd.env("CUDA_VISIBLE_DEVICES", "0");
+        }
+
         if let Ok(child) = py_cmd.spawn()
         {
             // Wait briefly to confirm python script didn't exit with error
