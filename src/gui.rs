@@ -692,14 +692,11 @@ fn minimize_gui_window(ctx: &egui::Context) {
     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
 
     std::thread::spawn(|| {
-        let _ = Command::new("hyprctl")
-            .args(["dispatch", "movetoworkspacesilent", "special:minimized,title:OMYWALL Wallpaper Engine"])
-            .output();
-        let _ = Command::new("swaymsg")
-            .args(["[title=\"OMYWALL Wallpaper Engine.*\"] move scratchpad"])
+        let _ = Command::new("xdotool")
+            .args(["search", "--onlyvisible", "--class", "omywall", "windowminimize"])
             .output();
         let _ = Command::new("wmctrl")
-            .args(["-r", "OMYWALL Wallpaper Engine", "-b", "add,hidden"])
+            .args(["-r", "OMYWALL", "-b", "add,hidden"])
             .output();
     });
 }

@@ -329,20 +329,49 @@ impl WallpaperEngine {
                 .args(["keyword", "windowrulev2", "size 100% 100%, class:^(omywall-wallpaper)$"])
                 .output();
 
-            let app_arg = format!("--app={}", target_url);
-
             if let Some(bin) = find_web_browser_binary() {
                 log_info(&format!("Engine: Spawning Web Browser engine '{}' for URL {}", bin.display(), target_url));
-                let child = Command::new(&bin)
-                    .args([
-                        &app_arg,
-                        "--class=omywall-wallpaper",
-                        "--no-first-run",
-                        "--disable-infobars",
-                        "--user-data-dir=/tmp/omywall-chrome-profile",
-                        "--autoplay-policy=no-user-gesture-required",
-                    ])
-                    .spawn();
+                let bin_name = bin.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+
+                let child = if bin_name.contains("electron") {
+                    let runner_path = PathBuf::from("/tmp/omywall_web_runner.js");
+                    let runner_code = r#"
+const { app, BrowserWindow } = require('electron');
+app.whenReady().then(() => {
+    const win = new BrowserWindow({
+        width: 1920,
+        height: 1080,
+        frame: false,
+        transparent: true,
+        skipTaskbar: true,
+        webPreferences: { nodeIntegration: false }
+    });
+    win.setMenu(null);
+    win.maximize();
+    win.loadURL(process.argv[2] || 'https://clock.zone');
+});
+"#;
+                    let _ = std::fs::write(&runner_path, runner_code);
+                    Command::new(&bin)
+                        .args([
+                            runner_path.to_string_lossy().as_ref(),
+                            &target_url,
+                            "--class=omywall-wallpaper",
+                        ])
+                        .spawn()
+                } else {
+                    let app_arg = format!("--app={}", target_url);
+                    Command::new(&bin)
+                        .args([
+                            &app_arg,
+                            "--class=omywall-wallpaper",
+                            "--no-first-run",
+                            "--disable-infobars",
+                            "--user-data-dir=/tmp/omywall-chrome-profile",
+                            "--autoplay-policy=no-user-gesture-required",
+                        ])
+                        .spawn()
+                };
 
                 if let Ok(c) = child {
                     let mut proc_guard = self.web_process.lock().unwrap();
