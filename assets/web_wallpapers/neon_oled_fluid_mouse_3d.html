@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Neon OLED Liquid Fluid 3D</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000000; cursor: crosshair; }
+    canvas { display: block; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const gl = canvas.getContext('webgl2', {
+      alpha: false,
+      depth: false,
+      antialias: true,
+      powerPreference: 'high-performance',
+      preserveDrawingBuffer: false
+    }) || canvas.getContext('webgl', { powerPreference: 'high-performance' });
+
+    let width = canvas.width = window.innerWidth;
+    let height = canvas.height = window.innerHeight;
+
+    window.addEventListener('resize', () => {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, width, height);
+    });
+
+    const ctx = canvas.getContext('2d');
+    let mouse = { x: width / 2, y: height / 2, px: width / 2, py: height / 2, active: false };
+
+    window.addEventListener('mousemove', (e) => {
+      mouse.px = mouse.x;
+      mouse.py = mouse.y;
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+      mouse.active = true;
+      spawnRibbon(mouse.x, mouse.y, mouse.x - mouse.px, mouse.y - mouse.py);
+    });
+
+    window.addEventListener('touchmove', (e) => {
+      if (e.touches.length > 0) {
+        const t = e.touches[0];
+        mouse.px = mouse.x;
+        mouse.py = mouse.y;
+        mouse.x = t.clientX;
+        mouse.y = t.clientY;
+        mouse.active = true;
+        spawnRibbon(mouse.x, mouse.y, mouse.x - mouse.px, mouse.y - mouse.py);
+      }
+    });
+
+    const particles = [];
+    const colors = [
+      '#00f0ff', '#00ff9d', '#ff007f', '#7000ff', '#ffaa00', '#00e5ff'
+    ];
+
+    function spawnRibbon(x, y, vx, vy) {
+      const count = 12;
+      const speed = Math.hypot(vx, vy);
+      for (let i = 0; i < count; i++) {
+        const angle = Math.atan2(vy, vx) + (Math.random() - 0.5) * 1.2;
+        const mag = (speed * 0.4 + Math.random() * 3) * 0.8;
+        particles.push({
+          x: x + (Math.random() - 0.5) * 10,
+          y: y + (Math.random() - 0.5) * 10,
+          vx: Math.cos(angle) * mag + (Math.random() - 0.5) * 0.5,
+          vy: Math.sin(angle) * mag + (Math.random() - 0.5) * 0.5,
+          size: Math.random() * 14 + 6,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          life: 1.0,
+          decay: Math.random() * 0.015 + 0.008
+        });
+      }
+    }
+
+    // Auto motion idle animation if mouse is idle
+    let time = 0;
+    function animate() {
+      requestAnimationFrame(animate);
+      time += 0.02;
+
+      // Pure OLED motion fade
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+      ctx.fillRect(0, 0, width, height);
+
+      if (!mouse.active) {
+        const autoX = width / 2 + Math.cos(time * 0.8) * (width * 0.28) + Math.sin(time * 1.4) * 80;
+        const autoY = height / 2 + Math.sin(time * 0.6) * (height * 0.22) + Math.cos(time * 1.1) * 60;
+        spawnRibbon(autoX, autoY, Math.cos(time) * 4, Math.sin(time) * 4);
+      }
+
+      ctx.globalCompositeOperation = 'lighter';
+
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.96;
+        p.vy *= 0.96;
+        p.size *= 0.985;
+        p.life -= p.decay;
+
+        if (p.life <= 0 || p.size <= 0.5) {
+          particles.splice(i, 1);
+          continue;
+        }
+
+        ctx.beginPath();
+        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+        grad.addColorStop(0, p.color);
+        grad.addColorStop(0.5, p.color);
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    animate();
+  </script>
+</body>
+</html>

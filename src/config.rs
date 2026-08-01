@@ -88,6 +88,18 @@ fn default_fps() -> u32 {
 fn default_web_bookmarks() -> Vec<WebBookmark> {
     vec![
         WebBookmark {
+            title: "Neon OLED Liquid Fluid 3D (Mouse Follow)".to_string(),
+            url: "assets/web_wallpapers/neon_oled_fluid_mouse_3d.html".to_string(),
+            category: "OLED Interactive Fluid".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "OLED Cosmic Aurora 3D (Interactive Gravity)".to_string(),
+            url: "assets/web_wallpapers/oled_cosmic_aurora_interactive.html".to_string(),
+            category: "OLED Mouse Distortion".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
             title: "3D Holographic Black Hole".to_string(),
             url: "assets/web_wallpapers/holographic_blackhole_3d.html".to_string(),
             category: "3D Gravitational Physics".to_string(),
