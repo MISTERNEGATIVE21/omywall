@@ -401,6 +401,12 @@ pub fn resolve_asset_path(url: &str) -> String {
     }
 
     let p = std::path::Path::new(trimmed);
+    if p.is_absolute() && p.exists() {
+        return std::fs::canonicalize(p)
+            .unwrap_or_else(|_| p.to_path_buf())
+            .to_string_lossy()
+            .to_string();
+    }
     if p.exists() {
         return std::fs::canonicalize(p)
             .unwrap_or_else(|_| p.to_path_buf())
@@ -408,18 +414,26 @@ pub fn resolve_asset_path(url: &str) -> String {
             .to_string();
     }
 
+    let stripped = trimmed.strip_prefix("assets/").unwrap_or(trimmed);
+
     if let Some(home) = dirs::home_dir() {
         let candidates = [
+            home.join(".local").join("share").join("omywall").join("assets").join(stripped),
             home.join(".local").join("share").join("omywall").join(trimmed),
             home.join(".config").join("omywall").join(trimmed),
+            PathBuf::from("/usr/share/omywall").join("assets").join(stripped),
             PathBuf::from("/usr/share/omywall").join(trimmed),
+            PathBuf::from("/usr/local/share/omywall").join("assets").join(stripped),
             PathBuf::from("/usr/local/share/omywall").join(trimmed),
             std::env::current_dir().unwrap_or_default().join(trimmed),
         ];
 
         for c in &candidates {
             if c.exists() {
-                return c.to_string_lossy().to_string();
+                return std::fs::canonicalize(c)
+                    .unwrap_or_else(|_| c.clone())
+                    .to_string_lossy()
+                    .to_string();
             }
         }
     }

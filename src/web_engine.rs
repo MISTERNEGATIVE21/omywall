@@ -26,15 +26,14 @@ impl WebEngineManager {
 
         let target_url = if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.starts_with("file://") {
             trimmed.to_string()
-        } else if Path::new(trimmed).exists() {
-            let canon = std::fs::canonicalize(trimmed).unwrap_or_else(|_| PathBuf::from(trimmed));
-            format!("file://{}", canon.to_string_lossy())
         } else {
             let resolved = crate::config::resolve_asset_path(trimmed);
             if Path::new(&resolved).exists() {
                 format!("file://{}", resolved)
-            } else {
+            } else if trimmed.contains('.') && !trimmed.contains(' ') {
                 format!("https://{}", trimmed)
+            } else {
+                format!("file://{}", resolved)
             }
         };
 
@@ -87,9 +86,12 @@ Gtk.main()
         let _ = std::fs::write(&py_runner_path, py_runner_code);
 
         // Try spawning python3 GtkLayerShell web wallpaper runner first
-        if let Ok(child) = Command::new("python3")
-            .args([py_runner_path.to_string_lossy().as_ref(), &target_url])
-            .spawn()
+        let mut py_cmd = Command::new("python3");
+        py_cmd.args([py_runner_path.to_string_lossy().as_ref(), &target_url]);
+        py_cmd.env("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+        py_cmd.env("LIBGL_ALWAYS_SOFTWARE", "0");
+
+        if let Ok(child) = py_cmd.spawn()
         {
             // Wait briefly to confirm python script didn't exit with error
             std::thread::sleep(std::time::Duration::from_millis(150));
