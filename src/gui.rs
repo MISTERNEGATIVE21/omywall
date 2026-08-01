@@ -664,6 +664,9 @@ impl OmywallGuiApp {
     }
 
     fn get_cached_texture(&mut self, ctx: &egui::Context, thumb_path: &Path) -> Option<&egui::TextureHandle> {
+        if self.texture_cache.len() > 300 {
+            self.texture_cache.clear();
+        }
         if !self.texture_cache.contains_key(thumb_path) {
             let tex = load_egui_texture(ctx, thumb_path);
             self.texture_cache.insert(thumb_path.to_path_buf(), tex);
