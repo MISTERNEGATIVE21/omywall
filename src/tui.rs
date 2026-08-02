@@ -95,6 +95,15 @@ fn scan_wallpapers(dir: &Path) -> Vec<PathBuf> {
         if local_wallpapers.exists() {
             walk_dir(&local_wallpapers, 0, &mut files, &valid_exts);
         }
+        let app_web_assets = home.join(".local").join("share").join("omywall").join("assets").join("web_wallpapers");
+        if app_web_assets.exists() {
+            walk_dir(&app_web_assets, 0, &mut files, &valid_exts);
+        }
+    }
+
+    let repo_web_assets = PathBuf::from("assets").join("web_wallpapers");
+    if repo_web_assets.exists() {
+        walk_dir(&repo_web_assets, 0, &mut files, &valid_exts);
     }
 
     files.sort();
