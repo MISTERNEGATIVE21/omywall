@@ -458,7 +458,7 @@ fn generate_web_fallback_image(target_path: &Path) {
     let _ = imgbuf.save(target_path);
 }
 
-fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
+pub fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
     let resolved = crate::config::resolve_asset_path(target);
     let path = Path::new(&resolved);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
@@ -1620,7 +1620,11 @@ impl eframe::App for OmywallGuiApp {
                         }
                     });
                 } else {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .enable_scrolling(true)
+                        .drag_to_scroll(true)
+                        .show(ui, |ui| {
                         let wallpapers_clone = self.wallpapers.clone();
 
                         let filtered: Vec<&PathBuf> = wallpapers_clone
