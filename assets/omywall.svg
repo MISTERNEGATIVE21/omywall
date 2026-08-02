@@ -1,65 +1,65 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
-    <!-- Background Deep Space Radial Gradient -->
-    <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#14192d" />
-      <stop offset="100%" stop-color="#070913" />
+    <!-- Deep Cosmic Void Radial Background -->
+    <radialGradient id="voidBg" cx="50%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#151b2c" />
+      <stop offset="60%" stop-color="#0a0e18" />
+      <stop offset="100%" stop-color="#04060b" />
     </radialGradient>
 
-    <!-- Outer Neon Ring Gradient -->
-    <linearGradient id="neonRing" x1="0%" y1="0%" x2="100%" y2="100%">
+    <!-- Vibrant Neon Cyan Gradient -->
+    <linearGradient id="neonCyan" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#00f0ff" />
-      <stop offset="50%" stop-color="#7000ff" />
-      <stop offset="100%" stop-color="#00ff9d" />
+      <stop offset="100%" stop-color="#0066ff" />
     </linearGradient>
 
-    <!-- Inner Prism Gradient 1 -->
-    <linearGradient id="prism1" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00f0ff" stop-opacity="0.9" />
-      <stop offset="100%" stop-color="#0a1936" stop-opacity="0.4" />
+    <!-- Luminous Emerald Gradient -->
+    <linearGradient id="neonEmerald" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00ff9d" />
+      <stop offset="100%" stop-color="#00b377" />
     </linearGradient>
 
-    <!-- Inner Prism Gradient 2 -->
-    <linearGradient id="prism2" x1="100%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#00ff9d" stop-opacity="0.9" />
-      <stop offset="100%" stop-color="#120c24" stop-opacity="0.5" />
+    <!-- Electric Violet Gradient -->
+    <linearGradient id="neonViolet" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#d040ff" />
+      <stop offset="100%" stop-color="#7000ff" />
     </linearGradient>
 
-    <!-- Inner Prism Gradient 3 -->
-    <linearGradient id="prism3" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#b040ff" stop-opacity="0.95" />
-      <stop offset="100%" stop-color="#00f0ff" stop-opacity="0.3" />
-    </linearGradient>
-
-    <!-- Drop Shadow Filter -->
-    <filter id="glowFilter" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="12" result="blur" />
+    <!-- Ambient Glow Filter -->
+    <filter id="hyperGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
       <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
+
+    <!-- Top Glass Highlight -->
+    <linearGradient id="glassSpecular" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.18" />
+      <stop offset="40%" stop-color="#ffffff" stop-opacity="0.03" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.0" />
+    </linearGradient>
   </defs>
 
-  <!-- Base Circle Frame -->
-  <rect width="512" height="512" rx="128" fill="url(#bgGlow)" />
+  <!-- Superellipse Background Frame -->
+  <rect width="512" height="512" rx="128" ry="128" fill="url(#voidBg)" />
+  <rect width="512" height="512" rx="128" ry="128" fill="url(#glassSpecular)" />
 
-  <!-- Outer Glowing Orbit Ring -->
-  <circle cx="256" cy="256" r="190" fill="none" stroke="url(#neonRing)" stroke-width="8" opacity="0.35" />
-  
-  <g filter="url(#glowFilter)">
-    <!-- Outer Hexagonal Portal Contour -->
-    <polygon points="256,76 412,166 412,346 256,436 100,346 100,166" fill="none" stroke="url(#neonRing)" stroke-dasharray="8 6" stroke-width="5" />
+  <!-- Outer Minimalist Precision Border -->
+  <rect width="504" height="504" x="4" y="4" rx="124" ry="124" fill="none" stroke="url(#neonCyan)" stroke-width="2" opacity="0.4" />
 
-    <!-- Abstract Dynamic 3D Wallpaper Layers -->
-    <!-- Top Facet -->
-    <polygon points="256,116 376,186 256,256 136,186" fill="url(#prism1)" stroke="#00f0ff" stroke-width="2" />
-    
-    <!-- Left Facet -->
-    <polygon points="136,186 256,256 256,396 136,326" fill="url(#prism3)" stroke="#b040ff" stroke-width="2" />
-    
-    <!-- Right Facet -->
-    <polygon points="256,256 376,186 376,326 256,396" fill="url(#prism2)" stroke="#00ff9d" stroke-width="2" />
+  <!-- High-Fidelity Abstract Portal Vector -->
+  <g filter="url(#hyperGlow)">
+    <!-- Back Outer Orbit Ring -->
+    <circle cx="256" cy="256" r="150" fill="none" stroke="url(#neonViolet)" stroke-width="12" opacity="0.8" />
 
-    <!-- Center Energy Core -->
-    <circle cx="256" cy="256" r="28" fill="#00f0ff" opacity="0.9" />
-    <circle cx="256" cy="256" r="14" fill="#ffffff" />
+    <!-- Primary Floating Hyper-Surfaces -->
+    <!-- Surface 1: Bottom Right Wave -->
+    <path d="M 170 340 C 220 410, 340 400, 390 320 C 420 270, 380 200, 310 230 C 240 260, 190 310, 170 340 Z" fill="url(#neonEmerald)" opacity="0.85" />
+
+    <!-- Surface 2: Top Left Wave -->
+    <path d="M 342 172 C 292 102, 172 112, 122 192 C 92 242, 132 312, 202 282 C 272 252, 322 202, 342 172 Z" fill="url(#neonCyan)" opacity="0.9" />
+
+    <!-- Central Glowing Core Prism -->
+    <circle cx="256" cy="256" r="36" fill="url(#neonCyan)" />
+    <circle cx="256" cy="256" r="20" fill="#ffffff" />
   </g>
 </svg>
