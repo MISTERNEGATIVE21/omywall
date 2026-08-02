@@ -277,18 +277,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Status) => {
             match send_ipc_request(&cfg.socket_path, &IpcRequest::GetStatus).await {
                 Ok(IpcResponse::Status(st)) => {
-                    println!("--- OMYWALL Wallpaper Engine Status ---");
-                    println!("Current Wallpaper: {}", st.current_wallpaper.unwrap_or_else(|| "None Selected".into()));
-                    println!("Active Monitor:    {}", st.active_monitor.unwrap_or_else(|| "None".into()));
-                    println!("Playback:          {}", if st.is_paused { "Paused ⏸" } else { "Playing ▶" });
-                    println!("Slideshow Mode:    {}", if st.slideshow_active { format!("Active (Interval: {}s)", st.slideshow_interval) } else { "Disabled".into() });
-                    println!("Hardware Dec:      {} (Screen {})", st.hwdec, st.screen_id);
-                    println!("Volume:            {}% ({})", st.volume, if st.is_muted { "Muted" } else { "Unmuted" });
-                    println!("Wallpapers Found:  {}", st.total_wallpapers);
+                    println!("\x1b[1;36m┌────────────────────────────────────────────────────────┐\x1b[0m");
+                    println!("\x1b[1;36m│          🌌 OMYWALL WALLPAPER ENGINE STATUS           │\x1b[0m");
+                    println!("\x1b[1;36m└────────────────────────────────────────────────────────┘\x1b[0m");
+                    println!("  \x1b[1;33m● Current Wallpaper:\x1b[0m \x1b[1;32m{}\x1b[0m", st.current_wallpaper.unwrap_or_else(|| "None Selected".into()));
+                    println!("  \x1b[1;33m● Active Monitor:\x1b[0m    \x1b[1;37m{}\x1b[0m", st.active_monitor.unwrap_or_else(|| "All / Primary".into()));
+                    println!("  \x1b[1;33m● Playback State:\x1b[0m    \x1b[1;35m{}\x1b[0m", if st.is_paused { "Paused ⏸" } else { "Playing ▶" });
+                    println!("  \x1b[1;33m● Hardware Acceleration:\x1b[0m \x1b[1;36m{}\x1b[0m (Screen {})", st.hwdec, st.screen_id);
+                    println!("  \x1b[1;33m● Volume / Mute:\x1b[0m     {}% ({})", st.volume, if st.is_muted { "Muted 🔇" } else { "Unmuted 🔊" });
+                    println!("  \x1b[1;33m● Catalog Wallpapers:\x1b[0m {} available files", st.total_wallpapers);
                 }
                 Ok(other) => println!("Response: {:?}", other),
                 Err(e) => {
-                    eprintln!("Daemon Status Error: {}", e);
+                    eprintln!("\x1b[1;31mDaemon Status Error:\x1b[0m {}", e);
                     std::process::exit(1);
                 }
             }
