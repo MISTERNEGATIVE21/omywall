@@ -8,17 +8,21 @@ BIN_DIR="$PREFIX/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_PNG_DIR="$HOME/.local/share/icons/hicolor/512x512/apps"
 ICON_SVG_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+ASSETS_DEST="$HOME/.local/share/omywall/assets"
 
-mkdir -p "$BIN_DIR" "$DESKTOP_DIR" "$ICON_PNG_DIR" "$ICON_SVG_DIR"
+echo "🧹 Cleaning up old binaries, legacy files, and obsolete asset caches..."
+rm -f "$BIN_DIR/omywall" "$BIN_DIR/omywall-picker" "$BIN_DIR/omarchy-wall"
+rm -f "$DESKTOP_DIR/omywall.desktop" "$DESKTOP_DIR/omarchy-wall.desktop"
+rm -f "$ICON_PNG_DIR/omywall.png" "$ICON_SVG_DIR/omywall.svg" "$ICON_PNG_DIR/omarchy-wall.png" "$ICON_SVG_DIR/omarchy-wall.svg"
+rm -rf "$ASSETS_DEST" /tmp/omywall_thumbs /tmp/omywall_web_layer.py /tmp/omywall_web_app.js
+
+mkdir -p "$BIN_DIR" "$DESKTOP_DIR" "$ICON_PNG_DIR" "$ICON_SVG_DIR" "$ASSETS_DEST"
 
 echo "Building release binary..."
 cargo build --release
 
-echo "Installing binary to $BIN_DIR/omywall..."
+echo "Installing clean binary to $BIN_DIR/omywall..."
 install -m 755 "target/release/omywall" "$BIN_DIR/omywall"
-
-echo "Removing legacy omarchy-wall binary aliases and desktop residue..."
-rm -f "$BIN_DIR/omarchy-wall" "$DESKTOP_DIR/omarchy-wall.desktop" "$ICON_PNG_DIR/omarchy-wall.png" "$ICON_SVG_DIR/omarchy-wall.svg"
 
 echo "Installing desktop application entry..."
 if [ -f "omywall.desktop" ]; then
@@ -34,9 +38,7 @@ if [ -f "assets/omywall.svg" ]; then
     cp "assets/omywall.svg" "$ICON_SVG_DIR/omywall.svg"
 fi
 
-echo "Installing application web assets and presets..."
-ASSETS_DEST="$HOME/.local/share/omywall/assets"
-mkdir -p "$ASSETS_DEST"
+echo "Installing fresh application web assets and 3D presets..."
 if [ -d "assets" ]; then
     cp -r assets/* "$ASSETS_DEST/" 2>/dev/null || true
 fi
