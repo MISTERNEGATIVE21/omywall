@@ -752,6 +752,19 @@ impl OmywallGuiApp {
             return self.texture_cache.get(thumb_path).and_then(|t| t.as_ref());
         }
 
+        if thumb_path.exists() {
+            if let Ok(img) = image::open(thumb_path) {
+                let resized = img.thumbnail(384, 216);
+                let rgba = resized.to_rgba8();
+                let pixels = rgba.as_raw().clone();
+                let color_img = egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], &pixels);
+                let name = thumb_path.to_string_lossy().to_string();
+                let tex = ctx.load_texture(name, color_img, egui::TextureOptions::LINEAR);
+                self.texture_cache.insert(thumb_path.to_path_buf(), Some(tex));
+                return self.texture_cache.get(thumb_path).and_then(|t| t.as_ref());
+            }
+        }
+
         request_background_image_decode(ctx.clone(), thumb_path.to_path_buf());
         ctx.request_repaint_after(std::time::Duration::from_millis(30));
         None
@@ -1689,7 +1702,7 @@ impl eframe::App for OmywallGuiApp {
                         }
                     });
                 } else {
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .enable_scrolling(true)
                         .drag_to_scroll(true)
