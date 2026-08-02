@@ -545,3 +545,29 @@ pub fn detect_system_gpus() -> Vec<GpuInfo> {
 
     gpus
 }
+
+pub fn get_available_hwdec_options() -> Vec<(&'static str, &'static str, &'static str)> {
+    let mut options = vec![("auto", "⚡ Auto-Detect GPU (Recommended)", "Automatic hardware acceleration detection")];
+    let gpus = detect_system_gpus();
+
+    let has_nvidia = gpus.iter().any(|g| g.vendor == "NVIDIA") || std::path::Path::new("/dev/nvidia0").exists() || std::path::Path::new("/proc/driver/nvidia").exists();
+    let has_intel_amd = gpus.iter().any(|g| g.vendor == "Intel" || g.vendor == "AMD") || std::path::Path::new("/dev/dri/renderD128").exists();
+
+    if has_nvidia {
+        options.push(("nvdec", "💚 NVIDIA NVDEC", "NVIDIA NVDEC Hardware Video Decoder"));
+        options.push(("cuda", "⚡ NVIDIA CUDA Acceleration", "NVIDIA CUDA Hardware Video Acceleration"));
+    }
+
+    if has_intel_amd {
+        options.push(("vaapi", "🔷 VA-API (Intel / AMD GPU)", "Linux VA-API Hardware Video Acceleration"));
+    }
+
+    if std::path::Path::new("/usr/lib/libvulkan.so.1").exists() 
+        || std::path::Path::new("/usr/lib64/libvulkan.so.1").exists()
+        || std::path::Path::new("/usr/lib/x86_64-linux-gnu/libvulkan.so.1").exists() {
+        options.push(("vulkan", "🌋 Vulkan Video", "Modern Vulkan Hardware Video Decoder"));
+    }
+
+    options.push(("no", "⚙️ CPU (Software Only)", "Software video decoding using CPU cores"));
+    options
+}

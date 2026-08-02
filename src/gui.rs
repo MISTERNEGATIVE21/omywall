@@ -906,14 +906,8 @@ impl eframe::App for OmywallGuiApp {
                             ui.label(egui::RichText::new("⚡ Hardware Video Decoder Driver:").strong().color(egui::Color32::from_rgb(0, 240, 255)));
                             ui.add_space(4.0);
                             let curr_hwdec = self.config.hwdec.clone();
-                            for &(mode_id, mode_label, desc) in &[
-                                ("auto", "⚡ Auto-Detect GPU (Recommended)", "Automatic hardware acceleration detection"),
-                                ("nvdec", "💚 NVIDIA NVDEC", "NVIDIA NVDEC Hardware Video Decoder"),
-                                ("cuda", "⚡ NVIDIA CUDA Acceleration", "NVIDIA CUDA Hardware Video Acceleration"),
-                                ("vaapi", "🔷 VA-API (Intel / AMD GPU)", "Linux VA-API Hardware Video Acceleration"),
-                                ("vulkan", "🌋 Vulkan Video", "Modern Vulkan Hardware Video Decoder"),
-                                ("no", "⚙️ CPU (Software Only)", "Software video decoding using CPU cores"),
-                            ] {
+                            let available_options = crate::config::get_available_hwdec_options();
+                            for &(mode_id, mode_label, desc) in &available_options {
                                 if ui.radio(curr_hwdec == mode_id, mode_label).on_hover_text(desc).clicked() {
                                     self.config.hwdec = mode_id.to_string();
                                     let _ = self.config.save();
@@ -1160,14 +1154,7 @@ impl eframe::App for OmywallGuiApp {
                                         _ => "⚡ Auto-Detect GPU",
                                     })
                                     .show_ui(ui, |ui| {
-                                        for &(val, label) in &[
-                                            ("auto", "⚡ Auto-Detect GPU"),
-                                            ("nvdec", "💚 NVIDIA NVDEC"),
-                                            ("cuda", "⚡ NVIDIA CUDA"),
-                                            ("vaapi", "🔷 VA-API (Intel/AMD)"),
-                                            ("vulkan", "🌋 Vulkan Video"),
-                                            ("no", "⚙️ CPU Software Only"),
-                                        ] {
+                                        for &(val, label, _desc) in &crate::config::get_available_hwdec_options() {
                                             if ui.selectable_value(&mut selected_hwdec, val.to_string(), label).clicked() {
                                                 self.config.hwdec = val.to_string();
                                                 let _ = self.config.save();
