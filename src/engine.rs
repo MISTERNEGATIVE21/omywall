@@ -173,11 +173,6 @@ impl WallpaperEngine {
             let mute = *self.mute.lock().unwrap();
             let socket_str = self.socket_path.to_string_lossy().to_string();
 
-            let mpvpaper_path = find_mpvpaper_binary();
-            if mpvpaper_path.is_none() {
-                return Err("wlr-layer-shell Renderer Exception: 'mpvpaper' is required to attach live wallpapers to the Wayland/wlroots desktop background layer without obscuring desktop windows. Please install mpvpaper via 'yay -S mpvpaper' or open the Setup Doctor tab in GUI.".to_string());
-            }
-
             let is_nvidia = gpu_device.as_ref().map_or_else(
                 || crate::config::detect_system_gpus().iter().any(|g| g.vendor == "NVIDIA"),
                 |dev| dev.contains("129") || dev.to_lowercase().contains("nvidia") || dev.contains("card2")
@@ -193,56 +188,96 @@ impl WallpaperEngine {
                 hwdec.clone()
             };
 
-            let mpvpaper_bin = mpvpaper_path.unwrap();
-            let mut mpv_opts = format!(
-                "--input-ipc-server={} --loop-file=inf --image-display-duration=inf --no-osc --no-osd-bar --hwdec={} --volume={} --mute={} --panscan=1.0",
-                socket_str,
-                effective_hwdec,
-                volume,
-                if mute { "yes" } else { "no" }
-            );
+            let video_target = initial_file.unwrap_or("");
+            let mpvpaper_path = find_mpvpaper_binary();
+            let mut spawned_child = None;
 
-            if fps > 0 {
-                mpv_opts.push_str(&format!(" --override-display-fps={}", fps));
-            }
+            if let Some(mpvpaper_bin) = mpvpaper_path {
+                let mut mpv_opts = format!(
+                    "--input-ipc-server={} --loop-file=inf --image-display-duration=inf --no-osc --no-osd-bar --hwdec={} --volume={} --mute={} --panscan=1.0",
+                    socket_str,
+                    effective_hwdec,
+                    volume,
+                    if mute { "yes" } else { "no" }
+                );
 
-            if let Some(ref dev) = gpu_device {
-                if !dev.trim().is_empty() {
-                    mpv_opts.push_str(&format!(" --gpu-device={} --vo=gpu", dev));
+                if fps > 0 {
+                    mpv_opts.push_str(&format!(" --override-display-fps={}", fps));
+                }
+
+                if let Some(ref dev) = gpu_device {
+                    if !dev.trim().is_empty() {
+                        mpv_opts.push_str(&format!(" --gpu-device={} --vo=gpu", dev));
+                    }
+                }
+
+                let mut mpvpaper_args = vec![
+                    "-o".to_string(),
+                    mpv_opts,
+                    "*".to_string(),
+                ];
+                if !video_target.is_empty() {
+                    mpvpaper_args.push(video_target.to_string());
+                } else {
+                    mpvpaper_args.push("/dev/null".to_string());
+                }
+
+                log_info(&format!("Spawning mpvpaper ({}) wlr-layer-shell background process with args: {:?}", mpvpaper_bin.display(), mpvpaper_args));
+
+                let mut cmd = Command::new(&mpvpaper_bin);
+                cmd.args(&mpvpaper_args);
+
+                if is_nvidia {
+                    cmd.env("__NV_PRIME_RENDER_OFFLOAD", "1");
+                    cmd.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
+                    cmd.env("__VK_LAYER_NV_optimus", "NVIDIA_only");
+                    cmd.env("CUDA_VISIBLE_DEVICES", "0");
+                    cmd.env("VK_DRIVER_FILES", "/usr/share/vulkan/icd.d/nvidia_icd.json");
+                    log_info("Engine: Enabled NVIDIA PRIME Render Offload (__NV_PRIME_RENDER_OFFLOAD=1)");
+                }
+
+                if let Ok(child) = cmd.spawn() {
+                    spawned_child = Some(child);
                 }
             }
 
-            let video_target = initial_file.unwrap_or("");
-            let mut mpvpaper_args = vec![
-                "-o".to_string(),
-                mpv_opts,
-                "*".to_string(),
-            ];
-            if !video_target.is_empty() {
-                mpvpaper_args.push(video_target.to_string());
-            } else {
-                mpvpaper_args.push("/dev/null".to_string());
+            if spawned_child.is_none() {
+                log_info("Engine: Falling back to direct mpv background renderer...");
+                let mpv_bin = PathBuf::from("/usr/bin/mpv");
+                let mut mpv_args = vec![
+                    format!("--input-ipc-server={}", socket_str),
+                    "--loop-file=inf".to_string(),
+                    format!("--hwdec={}", effective_hwdec),
+                    format!("--volume={}", volume),
+                    format!("--mute={}", if mute { "yes" } else { "no" }),
+                    "--no-osc".to_string(),
+                    "--no-osd-bar".to_string(),
+                    "--no-border".to_string(),
+                    "--fullscreen".to_string(),
+                    "--ontop=no".to_string(),
+                    "--panscan=1.0".to_string(),
+                ];
+                if !video_target.is_empty() {
+                    mpv_args.push(video_target.to_string());
+                } else {
+                    mpv_args.push("/dev/null".to_string());
+                }
+
+                let mut cmd = Command::new(&mpv_bin);
+                cmd.args(&mpv_args);
+
+                if is_nvidia {
+                    cmd.env("__NV_PRIME_RENDER_OFFLOAD", "1");
+                    cmd.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
+                    cmd.env("__VK_LAYER_NV_optimus", "NVIDIA_only");
+                    cmd.env("CUDA_VISIBLE_DEVICES", "0");
+                }
+
+                let child = cmd.spawn().map_err(|e| format!("Failed to spawn mpv fallback renderer: {}", e))?;
+                spawned_child = Some(child);
             }
 
-            log_info(&format!("Spawning mpvpaper ({}) wlr-layer-shell background process with args: {:?}", mpvpaper_bin.display(), mpvpaper_args));
-
-            let mut cmd = Command::new(&mpvpaper_bin);
-            cmd.args(&mpvpaper_args);
-
-            if is_nvidia {
-                cmd.env("__NV_PRIME_RENDER_OFFLOAD", "1");
-                cmd.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
-                cmd.env("__VK_LAYER_NV_optimus", "NVIDIA_only");
-                cmd.env("CUDA_VISIBLE_DEVICES", "0");
-                cmd.env("VK_DRIVER_FILES", "/usr/share/vulkan/icd.d/nvidia_icd.json");
-                log_info("Engine: Enabled NVIDIA PRIME Render Offload (__NV_PRIME_RENDER_OFFLOAD=1)");
-            }
-
-            let child = cmd
-                .spawn()
-                .map_err(|e| format!("Failed to spawn mpvpaper process at {}: {}", mpvpaper_bin.display(), e))?;
-
-            *mpv_guard = Some(child);
+            *mpv_guard = spawned_child;
 
             // Wait for MPV IPC socket to bind, with early termination check if process dies
             for _ in 0..30 {
