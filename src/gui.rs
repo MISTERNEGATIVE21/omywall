@@ -483,6 +483,31 @@ fn generate_web_fallback_image(target_path: &Path) {
     let _ = imgbuf.save(target_path);
 }
 
+pub fn request_live_video_preview_frames(ctx: egui::Context, path_str: String) {
+    let hash = format!("{:x}", md5_hash(path_str.as_bytes()));
+    let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
+    let _ = std::fs::create_dir_all(&cache_dir);
+
+    let frame_0 = cache_dir.join(format!("live_{}_0.jpg", &hash[..8]));
+    if frame_0.exists() {
+        return;
+    }
+
+    std::thread::spawn(move || {
+        let timestamps = ["0.5", "2.5", "4.5", "6.5"];
+        for (idx, ts) in timestamps.iter().enumerate() {
+            let out_file = cache_dir.join(format!("live_{}_{}.jpg", &hash[..8], idx));
+            let res = Command::new("ffmpeg")
+                .args(["-ss", ts, "-i", &path_str, "-vframes", "1", "-s", "240x135", "-y", out_file.to_str().unwrap_or("")])
+                .output();
+            if res.is_ok() && out_file.exists() {
+                notify_thumb_updated(out_file);
+            }
+        }
+        ctx.request_repaint();
+    });
+}
+
 pub fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
     let resolved = crate::config::resolve_asset_path(target);
     let path = Path::new(&resolved);
@@ -1051,19 +1076,31 @@ impl eframe::App for OmywallGuiApp {
                             .inner_margin(egui::Margin::same(6.0))
                             .show(ui, |ui| {
                                 ui.vertical_centered(|ui| {
-                                    if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
+                                    let hash = format!("{:x}", md5_hash(path_str.as_bytes()));
+                                    let anim_frame = ((ctx.input(|i| i.time) * 3.0) as usize) % 4;
+                                    let live_frame_path = PathBuf::from(format!("/tmp/omywall_thumbs/live_{}_{}.jpg", &hash[..8], anim_frame));
+
+                                    let ext_lower = sel_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                                    if matches!(ext_lower.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "flv" | "m4v") {
+                                        request_live_video_preview_frames(ctx.clone(), path_str.clone());
+                                    }
+
+                                    if let Some(tex) = self.get_cached_texture(ctx, &live_frame_path) {
+                                        ui.add(egui::Image::new(tex).max_size(egui::vec2(280.0, 150.0)).rounding(6.0));
+                                        ctx.request_repaint_after(std::time::Duration::from_millis(300));
+                                    } else if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
                                         if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
                                             ui.add(egui::Image::new(tex).max_size(egui::vec2(280.0, 150.0)).rounding(6.0));
                                         } else {
                                             ui.set_height(140.0);
                                             ui.centered_and_justified(|ui| {
-                                                ui.label(egui::RichText::new("⏳ Rendering Preview...").color(egui::Color32::from_rgb(0, 200, 255)).small());
+                                                ui.label(egui::RichText::new("⏳ Rendering Live Preview...").color(egui::Color32::from_rgb(0, 200, 255)).small());
                                             });
                                         }
                                     } else {
                                         ui.set_height(140.0);
                                         ui.centered_and_justified(|ui| {
-                                            ui.label(egui::RichText::new("⏳ Generating Preview...").color(egui::Color32::from_rgb(0, 200, 255)).small());
+                                            ui.label(egui::RichText::new("⏳ Generating Live Preview...").color(egui::Color32::from_rgb(0, 200, 255)).small());
                                         });
                                     }
                                 });
