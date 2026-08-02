@@ -54,7 +54,8 @@ fn request_background_image_decode(ctx: egui::Context, path: PathBuf) {
 
     std::thread::spawn(move || {
         if let Ok(img) = image::open(&path) {
-            let rgba = img.to_rgba8();
+            let resized = img.thumbnail(384, 216);
+            let rgba = resized.to_rgba8();
             let pixels = rgba.as_raw().clone();
             let color_img = egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], &pixels);
 
