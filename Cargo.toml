@@ -3,7 +3,7 @@ name = "omywall"
 version = "0.1.0"
 edition = "2021"
 authors = ["MisterNegative <misternegative21@gmail.com>"]
-description = "Lightweight hardware-accelerated video, web stream & GIF wallpaper manager for Linux"
+description = "Ultra-lightweight hardware-accelerated video, Web 3D & desktop wallpaper engine for Linux Wayland"
 
 [dependencies]
 mpv = "0.2"
@@ -24,3 +24,15 @@ x11-dl = "2.21"
 libc = "0.2"
 tracing = "0.1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+tikv-jemallocator = { version = "0.6", optional = true }
+
+[features]
+default = []
+jemalloc = ["dep:tikv-jemallocator"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
