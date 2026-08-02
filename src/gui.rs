@@ -73,12 +73,47 @@ fn request_background_image_decode(ctx: egui::Context, path: PathBuf) {
     });
 }
 
+fn load_window_icon() -> Option<egui::IconData> {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/user"));
+    let candidates = [
+        PathBuf::from("assets/omywall.svg"),
+        PathBuf::from("assets/omywall.png"),
+        home.join(".local/share/omywall/assets/omywall.svg"),
+        home.join(".local/share/icons/hicolor/scalable/apps/omywall.svg"),
+        home.join(".local/share/icons/hicolor/512x512/apps/omywall.png"),
+    ];
+
+    for path in &candidates {
+        if path.exists() {
+            if let Ok(img) = image::open(path) {
+                let rgba = img.to_rgba8();
+                let width = rgba.width();
+                let height = rgba.height();
+                let pixels = rgba.into_raw();
+                return Some(egui::IconData {
+                    rgba: pixels,
+                    width,
+                    height,
+                });
+            }
+        }
+    }
+    None
+}
+
 pub fn run_gui(config: Config) -> Result<(), eframe::Error> {
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("OMYWALL Wallpaper Engine v3.5")
+        .with_app_id("omywall")
+        .with_inner_size([1240.0, 820.0])
+        .with_min_inner_size([940.0, 640.0]);
+
+    if let Some(icon) = load_window_icon() {
+        viewport = viewport.with_icon(icon);
+    }
+
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("OMYWALL Wallpaper Engine v3.5")
-            .with_inner_size([1240.0, 820.0])
-            .with_min_inner_size([940.0, 640.0]),
+        viewport,
         ..Default::default()
     };
 
