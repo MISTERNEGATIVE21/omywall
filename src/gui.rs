@@ -397,7 +397,7 @@ fn generate_video_fallback_image(_title_text: &str, ext_str: &str, target_path: 
     let _ = imgbuf.save(target_path);
 }
 
-fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
+fn get_thumbnail_path(ctx: Option<egui::Context>, video_path: &Path) -> Option<PathBuf> {
     let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
     let _ = std::fs::create_dir_all(&cache_dir);
 
@@ -423,6 +423,7 @@ fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
         let input_str = key.clone();
         let thumb_str = thumb_file.to_string_lossy().to_string();
         let ext_str = ext.clone();
+        let ctx = ctx.clone();
 
         std::thread::spawn(move || {
             let mut res = Command::new("ffmpeg")
@@ -448,6 +449,9 @@ fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
 
             set_thumb_pending(&input_str, false);
             notify_thumb_updated(PathBuf::from(&thumb_str));
+            if let Some(c) = ctx {
+                c.request_repaint();
+            }
         });
     }
 
@@ -508,13 +512,13 @@ pub fn request_live_video_preview_frames(ctx: egui::Context, path_str: String) {
     });
 }
 
-pub fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
+pub fn get_web_thumbnail_path(ctx: Option<egui::Context>, target: &str) -> Option<PathBuf> {
     let resolved = crate::config::resolve_asset_path(target);
     let path = Path::new(&resolved);
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
 
     if matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "png" | "jpg" | "jpeg" | "webp") {
-        return get_thumbnail_path(path);
+        return get_thumbnail_path(ctx, path);
     }
 
     let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
@@ -1088,7 +1092,7 @@ impl eframe::App for OmywallGuiApp {
                                     if let Some(tex) = self.get_cached_texture(ctx, &live_frame_path) {
                                         ui.add(egui::Image::new(tex).max_size(egui::vec2(280.0, 150.0)).rounding(6.0));
                                         ctx.request_repaint_after(std::time::Duration::from_millis(300));
-                                    } else if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
+                                    } else if let Some(thumb_path) = get_web_thumbnail_path(Some(ctx.clone()), &path_str) {
                                         if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
                                             ui.add(egui::Image::new(tex).max_size(egui::vec2(280.0, 150.0)).rounding(6.0));
                                         } else {
@@ -1585,7 +1589,7 @@ impl eframe::App for OmywallGuiApp {
                                         ui.set_width(220.0);
                                         ui.set_height(175.0);
                                         ui.vertical_centered(|ui| {
-                                            if let Some(thumb_path) = get_web_thumbnail_path(&target_url) {
+                                            if let Some(thumb_path) = get_web_thumbnail_path(Some(ctx.clone()), &target_url) {
                                                 if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
                                                     ui.add(egui::Image::new(tex).max_size(egui::vec2(204.0, 100.0)).rounding(6.0));
                                                 } else {
@@ -1782,7 +1786,7 @@ impl eframe::App for OmywallGuiApp {
                                             ui.set_width(210.0);
                                             ui.set_height(160.0);
                                             ui.vertical_centered(|ui| {
-                                                if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
+                                                if let Some(thumb_path) = get_web_thumbnail_path(Some(ctx.clone()), &path_str) {
                                                     if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
                                                         ui.add(egui::Image::new(tex).max_size(egui::vec2(194.0, 95.0)).rounding(4.0));
                                                     } else {
@@ -1884,7 +1888,7 @@ impl eframe::App for OmywallGuiApp {
                                     .inner_margin(egui::Margin::symmetric(10.0, 8.0))
                                     .show(ui, |ui| {
                                         ui.horizontal(|ui| {
-                                            if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
+                                            if let Some(thumb_path) = get_web_thumbnail_path(Some(ctx.clone()), &path_str) {
                                                 if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
                                                     ui.add(egui::Image::new(tex).max_size(egui::vec2(60.0, 36.0)).rounding(4.0));
                                                 } else {
