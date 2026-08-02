@@ -218,10 +218,22 @@ impl Config {
         if path.exists() {
             if let Ok(content) = fs::read_to_string(&path) {
                 if let Ok(mut cfg) = toml::from_str::<Config>(&content) {
-                    if cfg.saved_web_wallpapers.is_empty() {
-                        cfg.saved_web_wallpapers = default_web_bookmarks();
+                    cfg.saved_web_wallpapers.retain(|b| {
+                        if b.url.contains("clock.html") || b.url.contains("cyber_clock.html") {
+                            return false;
+                        }
+                        let resolved = resolve_asset_path(&b.url);
+                        b.url.starts_with("http://") || b.url.starts_with("https://") || Path::new(&resolved).exists()
+                    });
+
+                    for default_bm in default_web_bookmarks() {
+                        if !cfg.saved_web_wallpapers.iter().any(|b| b.url == default_bm.url) {
+                            cfg.saved_web_wallpapers.push(default_bm);
+                        }
                     }
+
                     cfg.autostart = Self::is_autostart_enabled();
+                    let _ = cfg.save();
                     return cfg;
                 }
             }
