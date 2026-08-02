@@ -893,6 +893,9 @@ impl eframe::App for OmywallGuiApp {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&self.status_message).color(egui::Color32::from_rgb(150, 165, 185)).small());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let metrics = crate::config::get_system_metrics();
+                    ui.label(egui::RichText::new(format!("⚡ CPU: {:.1}% | RAM: {}MB | GPU: {:.1}% (VRAM: {}MB)", metrics.cpu_usage, metrics.ram_used_mb, metrics.gpu_usage, metrics.vram_used_mb)).color(egui::Color32::from_rgb(0, 240, 255)).small().strong());
+                    ui.separator();
                     if let Some(ref wall) = current_wall {
                         let filename = Path::new(wall).file_name().and_then(|n| n.to_str()).unwrap_or(wall);
                         ui.label(egui::RichText::new(format!("Playing: {}", filename)).color(egui::Color32::from_rgb(0, 230, 140)).small().strong());

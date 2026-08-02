@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebBookmark {
@@ -578,4 +579,100 @@ pub fn get_available_hwdec_options() -> Vec<(&'static str, &'static str, &'stati
 
     options.push(("no", "⚙️ CPU (Software Only)", "Software video decoding using CPU cores"));
     options
+}
+
+static LAST_CPU_IDLE: AtomicU64 = AtomicU64::new(0);
+static LAST_CPU_TOTAL: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemMetrics {
+    pub cpu_usage: f32,
+    pub ram_used_mb: u64,
+    pub ram_total_mb: u64,
+    pub gpu_usage: f32,
+    pub vram_used_mb: u64,
+    pub gpu_name: String,
+}
+
+pub fn get_system_metrics() -> SystemMetrics {
+    let mut cpu_usage = 0.0f32;
+    let mut ram_used_mb = 0u64;
+    let mut ram_total_mb = 0u64;
+    let mut gpu_usage = 0.0f32;
+    let mut vram_used_mb = 0u64;
+    let mut gpu_name = "Integrated Graphics".to_string();
+
+    if let Ok(stat) = fs::read_to_string("/proc/stat") {
+        if let Some(first_line) = stat.lines().next() {
+            let parts: Vec<&str> = first_line.split_whitespace().collect();
+            if parts.len() >= 5 {
+                let user: u64 = parts[1].parse().unwrap_or(0);
+                let nice: u64 = parts[2].parse().unwrap_or(0);
+                let system: u64 = parts[3].parse().unwrap_or(0);
+                let idle: u64 = parts[4].parse().unwrap_or(0);
+                let iowait: u64 = parts.get(5).and_then(|p| p.parse().ok()).unwrap_or(0);
+                let irq: u64 = parts.get(6).and_then(|p| p.parse().ok()).unwrap_or(0);
+                let softirq: u64 = parts.get(7).and_then(|p| p.parse().ok()).unwrap_or(0);
+
+                let total_idle = idle + iowait;
+                let total = user + nice + system + idle + iowait + irq + softirq;
+
+                let prev_idle = LAST_CPU_IDLE.swap(total_idle, Ordering::Relaxed);
+                let prev_total = LAST_CPU_TOTAL.swap(total, Ordering::Relaxed);
+
+                let delta_total = total.saturating_sub(prev_total);
+                let delta_idle = total_idle.saturating_sub(prev_idle);
+
+                if delta_total > 0 {
+                    cpu_usage = ((delta_total.saturating_sub(delta_idle)) as f32 / delta_total as f32) * 100.0;
+                }
+            }
+        }
+    }
+
+    if let Ok(mem) = fs::read_to_string("/proc/meminfo") {
+        let mut total_kb = 0u64;
+        let mut avail_kb = 0u64;
+        for line in mem.lines() {
+            if line.starts_with("MemTotal:") {
+                total_kb = line.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+            } else if line.starts_with("MemAvailable:") {
+                avail_kb = line.split_whitespace().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+            }
+        }
+        ram_total_mb = total_kb / 1024;
+        ram_used_mb = (total_kb.saturating_sub(avail_kb)) / 1024;
+    }
+
+    let gpus = detect_system_gpus();
+    if let Some(gpu) = gpus.iter().find(|g| g.vendor == "NVIDIA") {
+        gpu_name = gpu.name.clone();
+        if let Ok(out) = std::process::Command::new("nvidia-smi")
+            .args(["--query-gpu=utilization.gpu,memory.used", "--format=csv,noheader,nounits"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let parts: Vec<&str> = stdout.trim().split(',').map(|s| s.trim()).collect();
+            if parts.len() >= 2 {
+                gpu_usage = parts[0].parse().unwrap_or(0.0);
+                vram_used_mb = parts[1].parse().unwrap_or(0);
+            }
+        }
+    } else if let Ok(busy) = fs::read_to_string("/sys/class/drm/card0/device/gpu_busy_percent") {
+        gpu_usage = busy.trim().parse().unwrap_or(0.0);
+        if let Some(gpu) = gpus.first() {
+            gpu_name = gpu.name.clone();
+        }
+    } else if let Some(gpu) = gpus.first() {
+        gpu_name = gpu.name.clone();
+    }
+
+    SystemMetrics {
+        cpu_usage: cpu_usage.clamp(0.0, 100.0),
+        ram_used_mb,
+        ram_total_mb,
+        gpu_usage: gpu_usage.clamp(0.0, 100.0),
+        vram_used_mb,
+        gpu_name,
+    }
 }

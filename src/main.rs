@@ -277,15 +277,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Status) => {
             match send_ipc_request(&cfg.socket_path, &IpcRequest::GetStatus).await {
                 Ok(IpcResponse::Status(st)) => {
+                    let metrics = crate::config::get_system_metrics();
                     println!("\x1b[1;36m┌────────────────────────────────────────────────────────┐\x1b[0m");
                     println!("\x1b[1;36m│          🌌 OMYWALL WALLPAPER ENGINE STATUS           │\x1b[0m");
                     println!("\x1b[1;36m└────────────────────────────────────────────────────────┘\x1b[0m");
-                    println!("  \x1b[1;33m● Current Wallpaper:\x1b[0m \x1b[1;32m{}\x1b[0m", st.current_wallpaper.unwrap_or_else(|| "None Selected".into()));
-                    println!("  \x1b[1;33m● Active Monitor:\x1b[0m    \x1b[1;37m{}\x1b[0m", st.active_monitor.unwrap_or_else(|| "All / Primary".into()));
-                    println!("  \x1b[1;33m● Playback State:\x1b[0m    \x1b[1;35m{}\x1b[0m", if st.is_paused { "Paused ⏸" } else { "Playing ▶" });
+                    println!("  \x1b[1;33m● Current Wallpaper:\x1b[0m     \x1b[1;32m{}\x1b[0m", st.current_wallpaper.unwrap_or_else(|| "None Selected".into()));
+                    println!("  \x1b[1;33m● Active Monitor:\x1b[0m        \x1b[1;37m{}\x1b[0m", st.active_monitor.unwrap_or_else(|| "All / Primary".into()));
+                    println!("  \x1b[1;33m● Playback State:\x1b[0m        \x1b[1;35m{}\x1b[0m", if st.is_paused { "Paused ⏸" } else { "Playing ▶" });
                     println!("  \x1b[1;33m● Hardware Acceleration:\x1b[0m \x1b[1;36m{}\x1b[0m (Screen {})", st.hwdec, st.screen_id);
-                    println!("  \x1b[1;33m● Volume / Mute:\x1b[0m     {}% ({})", st.volume, if st.is_muted { "Muted 🔇" } else { "Unmuted 🔊" });
-                    println!("  \x1b[1;33m● Catalog Wallpapers:\x1b[0m {} available files", st.total_wallpapers);
+                    println!("  \x1b[1;33m● Real-time CPU Usage:\x1b[0m   \x1b[1;36m{:.1}%\x1b[0m", metrics.cpu_usage);
+                    println!("  \x1b[1;33m● Real-time RAM Usage:\x1b[0m   \x1b[1;36m{} MB / {} MB\x1b[0m", metrics.ram_used_mb, metrics.ram_total_mb);
+                    println!("  \x1b[1;33m● Real-time GPU Usage:\x1b[0m   \x1b[1;32m{:.1}%\x1b[0m ({}, VRAM: {} MB)", metrics.gpu_usage, metrics.gpu_name, metrics.vram_used_mb);
+                    println!("  \x1b[1;33m● Catalog Wallpapers:\x1b[0m     {} available files", st.total_wallpapers);
                 }
                 Ok(other) => println!("Response: {:?}", other),
                 Err(e) => {

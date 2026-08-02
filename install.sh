@@ -3,6 +3,9 @@ set -e
 
 echo "🌌 Rebuilding & Installing OMYWALL Wallpaper Engine in the system..."
 
+export TMPDIR="$HOME/.cache/cargo_tmp"
+mkdir -p "$TMPDIR"
+
 PREFIX="${PREFIX:-$HOME/.local}"
 BIN_DIR="$PREFIX/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
@@ -14,7 +17,7 @@ echo "🧹 Cleaning up old binaries, legacy files, and obsolete asset caches..."
 rm -f "$BIN_DIR/omywall" "$BIN_DIR/omywall-picker" "$BIN_DIR/omarchy-wall"
 rm -f "$DESKTOP_DIR/omywall.desktop" "$DESKTOP_DIR/omarchy-wall.desktop"
 rm -f "$ICON_PNG_DIR/omywall.png" "$ICON_SVG_DIR/omywall.svg" "$ICON_PNG_DIR/omarchy-wall.png" "$ICON_SVG_DIR/omarchy-wall.svg"
-rm -rf "$ASSETS_DEST" /tmp/omywall_thumbs /tmp/omywall_web_layer.py /tmp/omywall_web_app.js
+rm -rf "$ASSETS_DEST" "$TMPDIR/*" /tmp/omywall_thumbs /tmp/omywall_web_layer.py /tmp/omywall_web_app.js 2>/dev/null || true
 
 mkdir -p "$BIN_DIR" "$DESKTOP_DIR" "$ICON_PNG_DIR" "$ICON_SVG_DIR" "$ASSETS_DEST"
 

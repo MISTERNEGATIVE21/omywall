@@ -278,32 +278,38 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                         }
                     }).unwrap_or_else(|| "None Selected".to_string());
 
+                    let metrics = crate::config::get_system_metrics();
+
                     vec![
                         Line::from(vec![
                             Span::styled("Active Wallpaper: ", Style::default().fg(Color::DarkGray)),
                             Span::styled(curr_name, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                         ]),
                         Line::from(vec![
-                            Span::styled("Active Monitor: ", Style::default().fg(Color::DarkGray)),
+                            Span::styled("Active Monitor:   ", Style::default().fg(Color::DarkGray)),
                             Span::styled(
-                                st.active_monitor.clone().unwrap_or_else(|| "None".to_string()),
+                                st.active_monitor.clone().unwrap_or_else(|| "All / Primary".to_string()),
                                 Style::default().fg(Color::LightCyan),
                             ),
                         ]),
                         Line::from(vec![
-                            Span::styled("Playback State: ", Style::default().fg(Color::DarkGray)),
+                            Span::styled("Playback State:   ", Style::default().fg(Color::DarkGray)),
                             Span::styled(
                                 if st.is_paused { "PAUSED ⏸" } else { "PLAYING ▶" },
                                 Style::default().fg(if st.is_paused { Color::Yellow } else { Color::Green }),
                             ),
                         ]),
                         Line::from(vec![
-                            Span::styled("HW Accel / Screen: ", Style::default().fg(Color::DarkGray)),
+                            Span::styled("HW Accel / Screen:", Style::default().fg(Color::DarkGray)),
                             Span::styled(format!("{} (Screen {})", st.hwdec, st.screen_id), Style::default().fg(Color::LightBlue)),
                         ]),
                         Line::from(vec![
-                            Span::styled("Volume / Opacity: ", Style::default().fg(Color::DarkGray)),
-                            Span::styled(format!("{}% / {:.0}%", st.volume, st.opacity * 100.0), Style::default().fg(Color::Yellow)),
+                            Span::styled("Real-time CPU:    ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(format!("{:.1}% (RAM: {}/{}MB)", metrics.cpu_usage, metrics.ram_used_mb, metrics.ram_total_mb), Style::default().fg(Color::Cyan)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("Real-time GPU:    ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(format!("{:.1}% (VRAM: {}MB)", metrics.gpu_usage, metrics.vram_used_mb), Style::default().fg(Color::LightGreen)),
                         ]),
                     ]
                 } else {
