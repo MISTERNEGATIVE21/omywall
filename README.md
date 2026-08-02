@@ -14,8 +14,7 @@
 
 ---
 
-## 📌 Keywords & Discoverability Meta
-**Topics**: `wallpaper-engine`, `wayland`, `hyprland`, `sway`, `mpvpaper`, `webkit2gtk`, `rust`, `cuda`, `nvidia-gpu`, `screensaver`, `hyprlock`, `webgl-wallpaper`, `live-wallpaper`, `video-wallpaper`, `desktop-customization`, `arch-linux`, `aur`
+## 📖 About
 
 **OMYWALL (`omywall`)** is an ultra-lightweight, hardware-accelerated live video, web stream, and desktop wallpaper engine for Linux Wayland compositors. Built with Rust, native `wlr-layer-shell` (`mpvpaper` & `GTK Layer Shell` + `WebKit2`), `libmpv`, `Ratatui`, and `egui`, it renders high-performance desktop background videos and live WebGL 3D wallpapers natively behind all windows on every workspace with minimal CPU (~1-2%) and RAM overhead.
 
