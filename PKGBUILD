@@ -10,7 +10,6 @@ depends=('mpv' 'mpvpaper' 'ffmpeg' 'python' 'python-gobject' 'gtk3' 'gtk-layer-s
 makedepends=('cargo' 'git')
 optdepends=(
     'hyprlock: Wayland screensaver lockscreen support'
-    'electron: Fallback web wallpaper engine for desktop web streams'
     'hyprland: Wayland tiling compositor support'
     'sway: Sway/wlroots tiling compositor support'
 )

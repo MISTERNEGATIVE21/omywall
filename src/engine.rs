@@ -59,54 +59,7 @@ pub fn find_mpvpaper_binary() -> Option<PathBuf> {
     None
 }
 
-pub fn find_web_browser_binary() -> Option<PathBuf> {
-    let candidates = [
-        "electron",
-        "electron39",
-        "electron38",
-        "electron37",
-        "electron36",
-        "chromium",
-        "google-chrome",
-        "brave",
-    ];
 
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/user"));
-
-    for cmd in &candidates {
-        if let Ok(out) = Command::new("which").arg(cmd).output() {
-            if out.status.success() {
-                let p_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !p_str.is_empty() {
-                    return Some(PathBuf::from(p_str));
-                }
-            }
-        }
-        if let Ok(out) = Command::new("sh").args(["-c", &format!("command -v {}", cmd)]).output() {
-            if out.status.success() {
-                let p_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !p_str.is_empty() {
-                    return Some(PathBuf::from(p_str));
-                }
-            }
-        }
-
-        let paths = [
-            home.join(".local/bin").join(cmd),
-            PathBuf::from("/usr/bin").join(cmd),
-            PathBuf::from("/usr/local/bin").join(cmd),
-            PathBuf::from("/bin").join(cmd),
-        ];
-
-        for p in &paths {
-            if p.exists() {
-                return Some(p.clone());
-            }
-        }
-    }
-
-    None
-}
 
 impl WallpaperEngine {
     pub fn new(hwdec: &str, gpu_device: Option<String>, target_fps: u32, volume: i64, mute: bool, window_id: u64, screen_id: i64) -> Result<Self, String> {

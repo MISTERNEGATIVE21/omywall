@@ -24,7 +24,7 @@
 
 - 🎥 **Wayland `wlr-layer-shell` Video Engine**: Video wallpapers (`.mp4`, `.mkv`, `.webm`, `.gif`) attach natively to the desktop `background` layer using `mpvpaper`. Never spawns floating or fullscreen overlay windows above active apps.
 - 💚 **NVIDIA PRIME / CUDA Hardware Acceleration**: Automatic GPU offload (`__NV_PRIME_RENDER_OFFLOAD=1`, `nvdec`, `cuda`) for 4K 60FPS video playback and WebGL 3D rendering directly on discrete NVIDIA GPUs.
-- 🌐 **Native `wlr-layer-shell` Web Engine**: Websites, HTML5 WebGL 3D animations, and interactive mouse-follower particles render as true `wlr-layer-shell` background surfaces using `GTK Layer Shell` and `WebKit2` (with Electron/Ozone Wayland fallback).
+- 🌐 **Native `wlr-layer-shell` Web Engine**: Websites, HTML5 WebGL 3D animations, and interactive mouse-follower particles render as true `wlr-layer-shell` background surfaces using native `GTK Layer Shell` and `WebKit2`.
 - 🖤 **OLED Interactive Wallpapers**: Specially crafted pitch-black `#000000` canvas wallpapers with interactive liquid fluid mouse-following particle physics.
 - 🔒 **Hyprlock Screensaver Integration**: Attach any video, image, or Web 3D wallpaper directly as your `hyprlock` screensaver background with auto-extracted frame thumbnails.
 - ⚡ **ANR-Free Non-Blocking Architecture**: All Unix socket IPC network requests and daemon polling run on isolated background threads, guaranteeing the UI event loop never freezes or triggers OS "Application Not Responding" warnings.

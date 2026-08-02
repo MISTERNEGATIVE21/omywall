@@ -19,7 +19,6 @@ pkgbase = omywall
 	depends = jq
 	depends = hicolor-icon-theme
 	optdepends = hyprlock: Wayland screensaver lockscreen support
-	optdepends = electron: Fallback web wallpaper engine for desktop web streams
 	optdepends = hyprland: Wayland tiling compositor support
 	optdepends = sway: Sway/wlroots tiling compositor support
 	source = git+https://github.com/MISTERNEGATIVE21/omywall.git

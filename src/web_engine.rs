@@ -37,7 +37,7 @@ impl WebEngineManager {
             }
         };
 
-        log_info(&format!("WebEngine: Applying background wlr-layer-shell web wallpaper -> {}", target_url));
+        log_info(&format!("WebEngine: Applying native GTK Layer Shell + WebKit2 WebGL wallpaper -> {}", target_url));
 
         // Primary native Wayland wlr-layer-shell Web Engine (GTK Layer Shell + WebKit2)
         let py_runner_path = PathBuf::from("/tmp/omywall_web_layer.py");
@@ -98,7 +98,6 @@ Gtk.main()
 "#;
         let _ = std::fs::write(&py_runner_path, py_runner_code);
 
-        // Try spawning python3 GtkLayerShell web wallpaper runner first
         let mut py_cmd = Command::new("python3");
         py_cmd.args([py_runner_path.to_string_lossy().as_ref(), &target_url]);
         py_cmd.env("WEBKIT_FORCE_COMPOSITING_MODE", "1");
@@ -116,120 +115,33 @@ Gtk.main()
             py_cmd.env("EGL_PLATFORM", "wayland");
         }
 
-        if let Ok(child) = py_cmd.spawn()
-        {
-            // Wait briefly to confirm python script didn't exit with error
-            std::thread::sleep(std::time::Duration::from_millis(150));
-            let mut test_child = child;
-            match test_child.try_wait() {
-                Ok(Some(status)) => {
-                    log_error(&format!("WebEngine: GTK Layer Shell runner exited with status {:?}. Falling back to Electron...", status));
-                }
-                Ok(None) => {
-                    log_info("WebEngine: Successfully launched native wlr-layer-shell WebKit background wallpaper surface");
-                    let mut guard = self.web_child.lock().unwrap();
-                    *guard = Some(test_child);
-                    let mut url_guard = self.current_url.lock().unwrap();
-                    *url_guard = Some(target_url);
-                    return Ok(());
-                }
-                Err(_) => {}
-            }
-        }
-
-        // Secondary fallback: Electron runner with Wayland Ozone flags & NVIDIA GPU flags
-        let electron_runner_path = PathBuf::from("/tmp/omywall_web_app.js");
-        let electron_runner_code = r#"
-const { app, BrowserWindow } = require('electron');
-app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
-app.commandLine.appendSwitch('enable-features', 'UseOzonePlatform,WaylandWindowDecorations,CanvasOopRasterization');
-app.commandLine.appendSwitch('ozone-platform', 'wayland');
-app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
-app.commandLine.appendSwitch('disk-cache-size', '33554432');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('enable-webgl');
-app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
-app.commandLine.appendSwitch('disable-gpu-vsync');
-
-app.whenReady().then(() => {
-    const win = new BrowserWindow({
-        width: 1920,
-        height: 1080,
-        type: 'desktop',
-        frame: false,
-        transparent: true,
-        fullscreen: true,
-        skipTaskbar: true,
-        focusable: false,
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            backgroundThrottling: false
-        }
-    });
-    win.setMenu(null);
-    win.setIgnoreMouseEvents(true, { forward: true });
-    win.loadURL(process.argv[2]);
-});
-"#;
-        let _ = std::fs::write(&electron_runner_path, electron_runner_code);
-
-        let browser_bin = crate::engine::find_web_browser_binary();
-        if let Some(bin) = browser_bin {
-            let bin_name = bin.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
-            log_info(&format!("WebEngine: Spawning fallback Electron binary '{}' for URL {}", bin.display(), target_url));
-
-            let mut elec_cmd = Command::new(&bin);
-            if is_nvidia {
-                elec_cmd.env("__NV_PRIME_RENDER_OFFLOAD", "1");
-                elec_cmd.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia");
-                elec_cmd.env("__VK_LAYER_NV_optimus", "NVIDIA_only");
-                elec_cmd.env("CUDA_VISIBLE_DEVICES", "0");
-            }
-
-            let child = if bin_name.contains("electron") {
-                elec_cmd.args([
-                    electron_runner_path.to_string_lossy().as_ref(),
-                    &target_url,
-                    "--class=omywall-web-wallpaper",
-                    "--ignore-gpu-blocklist",
-                    "--enable-gpu-rasterization",
-                    "--enable-webgl",
-                ]).spawn()
-            } else {
-                let app_arg = format!("--app={}", target_url);
-                elec_cmd.args([
-                    &app_arg,
-                    "--class=omywall-web-wallpaper",
-                    "--no-first-run",
-                    "--disable-infobars",
-                    "--user-data-dir=/tmp/omywall-chrome-profile",
-                    "--autoplay-policy=no-user-gesture-required",
-                    "--ignore-gpu-blocklist",
-                    "--enable-gpu-rasterization",
-                    "--enable-webgl",
-                ]).spawn()
-            };
-
-            match child {
-                Ok(c) => {
-                    let mut guard = self.web_child.lock().unwrap();
-                    *guard = Some(c);
-                    let mut url_guard = self.current_url.lock().unwrap();
-                    *url_guard = Some(target_url);
-                    return Ok(());
-                }
-                Err(e) => {
-                    log_error(&format!("WebEngine Error: Failed to spawn web process: {}", e));
-                    return Err(format!("Failed to spawn web process: {}", e));
+        match py_cmd.spawn() {
+            Ok(child) => {
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                let mut test_child = child;
+                match test_child.try_wait() {
+                    Ok(Some(status)) => {
+                        let err = format!("WebEngine Error: GTK Layer Shell runner exited with status {:?}", status);
+                        log_error(&err);
+                        Err(err)
+                    }
+                    Ok(None) => {
+                        log_info("WebEngine: Successfully launched native GTK Layer Shell + WebKit2 background surface");
+                        let mut guard = self.web_child.lock().unwrap();
+                        *guard = Some(test_child);
+                        let mut url_guard = self.current_url.lock().unwrap();
+                        *url_guard = Some(target_url);
+                        Ok(())
+                    }
+                    Err(e) => Err(format!("WebEngine Error: {}", e)),
                 }
             }
+            Err(e) => {
+                let err = format!("WebEngine Error: Failed to spawn GTK Layer Shell WebKit process: {}", e);
+                log_error(&err);
+                Err(err)
+            }
         }
-
-        Err("WebEngine Exception: Neither GtkLayerShell nor suitable Electron binary is available".into())
     }
 
     pub fn stop(&self) {
@@ -239,7 +151,6 @@ app.whenReady().then(() => {
             let _ = child.wait();
         }
         let _ = Command::new("pkill").args(["-9", "-f", "omywall_web_layer.py"]).status();
-        let _ = Command::new("pkill").args(["-9", "-f", "omywall-web-wallpaper"]).status();
         let mut url_guard = self.current_url.lock().unwrap();
         *url_guard = None;
     }
