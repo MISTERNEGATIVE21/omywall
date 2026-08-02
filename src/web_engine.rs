@@ -112,6 +112,8 @@ Gtk.main()
             py_cmd.env("__VK_LAYER_NV_optimus", "NVIDIA_only");
             py_cmd.env("CUDA_VISIBLE_DEVICES", "0");
             py_cmd.env("DRI_PRIME", "1");
+            py_cmd.env("GBM_BACKEND", "nvidia-drm");
+            py_cmd.env("EGL_PLATFORM", "wayland");
         }
 
         if let Ok(child) = py_cmd.spawn()
