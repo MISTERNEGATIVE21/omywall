@@ -476,6 +476,7 @@ fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
 
     if !thumb_file.exists() {
         generate_web_fallback_image(&thumb_file);
+        notify_thumb_updated(thumb_file.clone());
     }
 
     Some(thumb_file)

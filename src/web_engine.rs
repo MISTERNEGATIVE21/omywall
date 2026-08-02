@@ -47,12 +47,13 @@ import gi
 
 try:
     gi.require_version('Gtk', '3.0')
+    gi.require_version('Gdk', '3.0')
     gi.require_version('GtkLayerShell', '0.1')
     try:
         gi.require_version('WebKit2', '4.1')
     except:
         gi.require_version('WebKit2', '4.0')
-    from gi.repository import Gtk, GtkLayerShell, WebKit2
+    from gi.repository import Gtk, Gdk, GtkLayerShell, WebKit2
 except Exception as e:
     sys.stderr.write(f"GtkLayerShell/WebKit2 import error: {e}\n")
     sys.exit(1)
@@ -67,6 +68,10 @@ GtkLayerShell.set_anchor(window, GtkLayerShell.Edge.BOTTOM, True)
 GtkLayerShell.set_anchor(window, GtkLayerShell.Edge.LEFT, True)
 GtkLayerShell.set_anchor(window, GtkLayerShell.Edge.RIGHT, True)
 GtkLayerShell.set_exclusive_zone(window, -1)
+GtkLayerShell.set_keyboard_interactivity(window, False)
+
+window.set_support_multidevice(True)
+window.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.POINTER_MOTION_HINT_MASK)
 
 webview = WebKit2.WebView()
 settings = webview.get_settings()
