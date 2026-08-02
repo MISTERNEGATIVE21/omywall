@@ -53,18 +53,43 @@ fn request_background_image_decode(ctx: egui::Context, path: PathBuf) {
     }
 
     std::thread::spawn(move || {
-        if let Ok(img) = image::open(&path) {
-            let resized = img.thumbnail(384, 216);
-            let rgba = resized.to_rgba8();
-            let pixels = rgba.as_raw().clone();
-            let color_img = egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], &pixels);
-
-            if let Ok(mut decoded) = DECODED_IMAGES.lock() {
-                let map = decoded.get_or_insert_with(HashMap::new);
-                map.insert(path.clone(), color_img);
+        let color_img = match image::open(&path) {
+            Ok(img) => {
+                let resized = img.thumbnail(384, 216);
+                let rgba = resized.to_rgba8();
+                let pixels = rgba.as_raw().clone();
+                egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], &pixels)
             }
-            ctx.request_repaint();
+            Err(_) => {
+                let width = 320u32;
+                let height = 180u32;
+                let mut imgbuf = image::RgbImage::new(width, height);
+                for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
+                    let factor = (x + y) as f32 / (width + height) as f32;
+                    let r = (15.0 * (1.0 - factor) + 8.0 * factor) as u8;
+                    let g = (20.0 * (1.0 - factor) + 12.0 * factor) as u8;
+                    let b = (35.0 * (1.0 - factor) + 25.0 * factor) as u8;
+                    *pixel = image::Rgb([r, g, b]);
+                }
+                for x in 4..=315 {
+                    imgbuf.put_pixel(x, 4, image::Rgb([0, 240, 255]));
+                    imgbuf.put_pixel(x, 175, image::Rgb([0, 240, 255]));
+                }
+                for y in 4..=175 {
+                    imgbuf.put_pixel(4, y, image::Rgb([0, 240, 255]));
+                    imgbuf.put_pixel(315, y, image::Rgb([0, 240, 255]));
+                }
+                let rgba: image::RgbaImage = image::DynamicImage::ImageRgb8(imgbuf).to_rgba8();
+                let pixels = rgba.as_raw().clone();
+                egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], &pixels)
+            }
+        };
+
+        if let Ok(mut decoded) = DECODED_IMAGES.lock() {
+            let map = decoded.get_or_insert_with(HashMap::new);
+            map.insert(path.clone(), color_img);
         }
+        ctx.request_repaint();
 
         if let Ok(mut pending) = PENDING_DECODES.lock() {
             if let Some(set) = pending.as_mut() {
@@ -1646,6 +1671,37 @@ impl eframe::App for OmywallGuiApp {
                             })
                             .collect();
 
+                        ctx.input(|i| {
+                            if !filtered.is_empty() {
+                                let curr_idx = self.selected_wallpaper.as_ref()
+                                    .and_then(|p| filtered.iter().position(|&item| item == p))
+                                    .unwrap_or(0);
+
+                                if i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::L) {
+                                    let next = (curr_idx + 1) % filtered.len();
+                                    self.selected_wallpaper = Some(filtered[next].clone());
+                                    self.show_inspector = true;
+                                } else if i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::H) {
+                                    let prev = if curr_idx == 0 { filtered.len() - 1 } else { curr_idx - 1 };
+                                    self.selected_wallpaper = Some(filtered[prev].clone());
+                                    self.show_inspector = true;
+                                } else if i.key_pressed(egui::Key::ArrowDown) || i.key_pressed(egui::Key::J) {
+                                    let next = (curr_idx + 4).min(filtered.len() - 1);
+                                    self.selected_wallpaper = Some(filtered[next].clone());
+                                    self.show_inspector = true;
+                                } else if i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::K) {
+                                    let prev = curr_idx.saturating_sub(4);
+                                    self.selected_wallpaper = Some(filtered[prev].clone());
+                                    self.show_inspector = true;
+                                } else if i.key_pressed(egui::Key::Enter) {
+                                    if let Some(ref sel) = self.selected_wallpaper {
+                                        pending_action = Some(IpcRequest::SetWallpaper { path: sel.to_string_lossy().to_string() });
+                                        pending_msg = Some(format!("Applied wallpaper: {}", sel.file_name().and_then(|n| n.to_str()).unwrap_or("")));
+                                    }
+                                }
+                            }
+                        });
+
                         if self.view_mode == ViewMode::Grid {
                             ui.horizontal_wrapped(|ui| {
                                 ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
@@ -1735,6 +1791,10 @@ impl eframe::App for OmywallGuiApp {
                                                 });
                                             });
                                         });
+
+                                    if is_selected {
+                                        frame_res.response.scroll_to_me(Some(egui::Align::Center));
+                                    }
 
                                     let card_interact = frame_res.response.interact(egui::Sense::click());
                                     if card_interact.double_clicked() {
