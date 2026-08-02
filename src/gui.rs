@@ -1067,26 +1067,62 @@ impl eframe::App for OmywallGuiApp {
 
                         ui.add_space(8.0);
                         ui.group(|ui| {
-                            ui.label(egui::RichText::new("🎛 Active Playback Controls").strong().small());
-                            ui.add_space(4.0);
+                            ui.label(egui::RichText::new("🚀 Actions & Desktop Binding").strong().small());
+                            ui.add_space(6.0);
 
-                            ui.horizontal(|ui| {
-                                if ui.button(egui::RichText::new("▶ Apply to Current").color(egui::Color32::from_rgb(0, 255, 150)).strong()).clicked() {
-                                    pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
-                                    pending_msg = Some(format!("Applied wallpaper: {}", filename));
+                            let apply_btn = egui::Button::new(
+                                egui::RichText::new("▶ APPLY DESKTOP WALLPAPER")
+                                    .color(egui::Color32::from_rgb(0, 12, 24))
+                                    .strong()
+                                    .size(13.0)
+                            )
+                            .fill(egui::Color32::from_rgb(0, 255, 150))
+                            .rounding(8.0)
+                            .min_size(egui::vec2(ui.available_width(), 32.0));
+
+                            if ui.add(apply_btn).clicked() {
+                                pending_action = Some(IpcRequest::SetWallpaper { path: path_str.clone() });
+                                pending_msg = Some(format!("Applied wallpaper: {}", filename));
+                            }
+
+                            ui.add_space(4.0);
+                            let lock_btn = egui::Button::new(
+                                egui::RichText::new("🔒 SET HYPRLOCK SCREENSAVER")
+                                    .color(egui::Color32::from_rgb(0, 240, 255))
+                                    .strong()
+                                    .size(12.0)
+                            )
+                            .fill(egui::Color32::from_rgb(18, 32, 54))
+                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 240, 255)))
+                            .rounding(8.0)
+                            .min_size(egui::vec2(ui.available_width(), 28.0));
+
+                            if ui.add(lock_btn).clicked() {
+                                self.config.hyprlock.background_path = path_str.clone();
+                                match self.config.save_hyprlock_conf(Some(&path_str)) {
+                                    Ok(p) => {
+                                        let _ = self.config.save();
+                                        pending_msg = Some(format!("Attached screensaver to {}", p.display()));
+                                    }
+                                    Err(e) => {
+                                        pending_msg = Some(format!("Error setting screensaver: {}", e));
+                                    }
                                 }
+                            }
+
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
                                 let pause_label = if is_paused { "▶ Resume" } else { "⏸ Pause" };
                                 if ui.button(pause_label).clicked() {
                                     pending_action = Some(IpcRequest::TogglePause);
                                     pending_msg = Some("Toggled playback pause state".into());
                                 }
-                                if ui.button(egui::RichText::new("🛑 Stop").color(egui::Color32::from_rgb(255, 90, 90))).clicked() {
+                                 if ui.button(egui::RichText::new("🛑 Clear Desktop").color(egui::Color32::from_rgb(255, 90, 90))).clicked() {
                                     pending_action = Some(IpcRequest::StopWallpaper);
-                                    pending_msg = Some("Stopped active wallpaper engine".into());
+                                    pending_msg = Some("Cleared desktop wallpaper".into());
                                 }
                             });
-
-                            ui.add_space(6.0);
+                        });
                             ui.horizontal(|ui| {
                                 ui.label("🔊 Vol:");
                                 if ui.add(egui::Slider::new(&mut self.volume_slider, 0..=100).suffix("%")).changed() {
@@ -1115,13 +1151,9 @@ impl eframe::App for OmywallGuiApp {
                                 egui::ComboBox::from_id_salt("hwdec_selector_inspector")
                                     .selected_text(match selected_hwdec.as_str() {
                                         "nvdec" => "💚 NVIDIA NVDEC",
-                                        "nvdec-copy" => "💚 NVIDIA NVDEC Copy",
                                         "cuda" => "⚡ NVIDIA CUDA",
-                                        "cuda-copy" => "⚡ NVIDIA CUDA Copy",
                                         "vaapi" => "🔷 VA-API (Intel/AMD)",
-                                        "vaapi-copy" => "🔷 VA-API Copy",
                                         "vulkan" => "🌋 Vulkan Video",
-                                        "vdpau" => "🎞 VDPAU (Legacy)",
                                         "no" => "⚙️ CPU Software Only",
                                         _ => "⚡ Auto-Detect GPU",
                                     })
@@ -1129,13 +1161,9 @@ impl eframe::App for OmywallGuiApp {
                                         for &(val, label) in &[
                                             ("auto", "⚡ Auto-Detect GPU"),
                                             ("nvdec", "💚 NVIDIA NVDEC"),
-                                            ("nvdec-copy", "💚 NVIDIA NVDEC Copy"),
-                                            ("cuda", "⚡ NVIDIA CUDA Transcoder"),
-                                            ("cuda-copy", "⚡ NVIDIA CUDA Copy"),
+                                            ("cuda", "⚡ NVIDIA CUDA"),
                                             ("vaapi", "🔷 VA-API (Intel/AMD)"),
-                                            ("vaapi-copy", "🔷 VA-API Copy"),
                                             ("vulkan", "🌋 Vulkan Video"),
-                                            ("vdpau", "🎞 VDPAU Legacy"),
                                             ("no", "⚙️ CPU Software Only"),
                                         ] {
                                             if ui.selectable_value(&mut selected_hwdec, val.to_string(), label).clicked() {
@@ -1147,7 +1175,6 @@ impl eframe::App for OmywallGuiApp {
                                         }
                                     });
                             });
-                        });
                     } else {
                         ui.vertical_centered(|ui| {
                             ui.add_space(40.0);

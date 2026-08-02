@@ -8,7 +8,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, BorderType, List, ListItem, ListState, Paragraph, Wrap},
     Terminal,
 };
 use std::io;
@@ -233,11 +233,12 @@ async fn main_tui_loop<B: ratatui::backend::Backend>(
                 let list_block = Block::default()
                     .title(list_title)
                     .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(match mode {
                         InputMode::Search => Color::Yellow,
                         InputMode::SetMonitor => Color::LightCyan,
                         InputMode::SetUrl => Color::Cyan,
-                        InputMode::Normal => Color::Blue,
+                        InputMode::Normal => Color::Rgb(0, 240, 255),
                     }));
 
                 let list = List::new(items)
