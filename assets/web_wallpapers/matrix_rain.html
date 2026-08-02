@@ -3,32 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Matrix Digital Rain - OMYWALL</title>
+    <title>Matrix Digital Rain</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: monospace; }
         canvas { display: block; width: 100vw; height: 100vh; }
-        .overlay {
-            position: absolute;
-            top: 24px;
-            left: 28px;
-            color: rgba(0, 255, 140, 0.85);
-            font-size: 13px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            font-weight: 700;
-            pointer-events: none;
-            text-shadow: 0 0 10px rgba(0, 255, 140, 0.5);
-        }
     </style>
 </head>
 <body>
-    <div class="overlay">OMYWALL MATRIX DIGITAL RAIN</div>
     <canvas id="canvas"></canvas>
 
     <script>
         const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { powerPreference: 'high-performance' });
 
         let width, height, columns, drops;
         const fontSize = 16;
@@ -50,7 +37,6 @@
             ctx.fillStyle = 'rgba(0, 5, 2, 0.08)';
             ctx.fillRect(0, 0, width, height);
 
-            ctx.fontSize = `${fontSize}px`;
             ctx.font = `${fontSize}px monospace`;
 
             for (let i = 0; i < drops.length; i++) {
@@ -58,13 +44,11 @@
                 const x = i * fontSize;
                 const y = drops[i] * fontSize;
 
-                // Glowing Head Character
                 ctx.fillStyle = '#ffffff';
                 ctx.shadowColor = '#00ff9d';
                 ctx.shadowBlur = 12;
                 ctx.fillText(char, x, y);
 
-                // Body Stream Character behind head
                 ctx.fillStyle = '#00ff9d';
                 ctx.shadowBlur = 4;
                 ctx.fillText(matrixChars[Math.floor(Math.random() * matrixChars.length)], x, y - fontSize);

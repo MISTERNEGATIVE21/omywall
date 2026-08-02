@@ -3,32 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Synthwave Horizon - OMYWALL</title>
+    <title>3D Synthwave Horizon</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body, html { width: 100%; height: 100%; overflow: hidden; background: #0b021a; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background: #0b021a; font-family: sans-serif; }
         canvas { display: block; width: 100vw; height: 100vh; }
-        .overlay {
-            position: absolute;
-            top: 24px;
-            left: 28px;
-            color: rgba(255, 0, 128, 0.85);
-            font-size: 13px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            font-weight: 700;
-            pointer-events: none;
-            text-shadow: 0 0 10px rgba(255, 0, 128, 0.5);
-        }
     </style>
 </head>
 <body>
-    <div class="overlay">OMYWALL 3D SYNTHWAVE HORIZON</div>
     <canvas id="canvas"></canvas>
 
     <script>
         const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { powerPreference: 'high-performance' });
 
         let width, height, cx, cy;
         function resize() {
@@ -40,7 +27,6 @@
         window.addEventListener('resize', resize);
         resize();
 
-        // Stars
         const stars = [];
         for (let i = 0; i < 180; i++) {
             stars.push({
@@ -58,7 +44,6 @@
             time += 0.015;
             speedZ = (speedZ + 2.5) % 40;
 
-            // Background Gradient
             const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
             bgGrad.addColorStop(0, '#05010d');
             bgGrad.addColorStop(0.45, '#260438');
@@ -67,7 +52,6 @@
             ctx.fillStyle = bgGrad;
             ctx.fillRect(0, 0, width, height);
 
-            // Stars
             ctx.fillStyle = '#ffffff';
             for (let i = 0; i < stars.length; i++) {
                 const s = stars[i];
@@ -78,7 +62,6 @@
             }
             ctx.globalAlpha = 1.0;
 
-            // Neon Sun
             const sunRadius = 140;
             const sunY = cy - 20;
             const sunGrad = ctx.createLinearGradient(0, sunY - sunRadius, 0, sunY + sunRadius);
@@ -95,7 +78,6 @@
             ctx.fill();
             ctx.restore();
 
-            // Sun Scanlines Cutouts
             ctx.fillStyle = '#260438';
             for (let i = 0; i < 7; i++) {
                 const lh = 3 + i * 2.5;
@@ -103,7 +85,6 @@
                 ctx.fillRect(cx - sunRadius - 10, ly, sunRadius * 2 + 20, lh);
             }
 
-            // 3D Perspective Grid
             const horizonY = cy + 10;
             const gridLines = 32;
             const fov = 350;
@@ -113,7 +94,6 @@
             ctx.shadowColor = '#00f0ff';
             ctx.shadowBlur = 12;
 
-            // Longitudinal lines radiating from horizon
             for (let i = -gridLines / 2; i <= gridLines / 2; i++) {
                 const x1 = cx + i * 18;
                 const x2 = cx + i * 180;
@@ -123,7 +103,6 @@
                 ctx.stroke();
             }
 
-            // Latitudinal moving horizontal grid lines
             for (let z = 10; z < 700; z += 35) {
                 const currentZ = z - speedZ;
                 if (currentZ <= 0) continue;

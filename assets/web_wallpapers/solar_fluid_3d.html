@@ -3,32 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Solar Energy Fluid - OMYWALL</title>
+    <title>3D Solar Energy Fluid</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body, html { width: 100%; height: 100%; overflow: hidden; background: #070300; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background: #070300; font-family: sans-serif; }
         canvas { display: block; width: 100vw; height: 100vh; }
-        .overlay {
-            position: absolute;
-            top: 24px;
-            left: 28px;
-            color: rgba(255, 140, 0, 0.85);
-            font-size: 13px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            font-weight: 700;
-            pointer-events: none;
-            text-shadow: 0 0 10px rgba(255, 140, 0, 0.5);
-        }
     </style>
 </head>
 <body>
-    <div class="overlay">OMYWALL 3D SOLAR ENERGY FLUID</div>
     <canvas id="canvas"></canvas>
 
     <script>
         const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { powerPreference: 'high-performance' });
 
         let width, height, cx, cy;
         function resize() {
@@ -60,7 +47,6 @@
             ctx.fillStyle = 'rgba(7, 3, 0, 0.2)';
             ctx.fillRect(0, 0, width, height);
 
-            // Core Glow
             const coreGrad = ctx.createRadialGradient(cx, cy, 10, cx, cy, 380);
             coreGrad.addColorStop(0, 'rgba(255, 120, 0, 0.3)');
             coreGrad.addColorStop(0.6, 'rgba(255, 40, 0, 0.1)');
@@ -89,7 +75,6 @@
                 ctx.arc(screenX, screenY, n.radius, 0, Math.PI * 2);
                 ctx.fill();
 
-                // Draw connecting web strands
                 for (let j = i + 1; j < numNodes; j++) {
                     const n2 = nodes[j];
                     const dx = n.x - n2.x;

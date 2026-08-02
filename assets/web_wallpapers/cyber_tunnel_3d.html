@@ -3,32 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Cyber Hyperspace Tunnel - OMYWALL</title>
+    <title>3D Cyber Hyperspace Tunnel</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body, html { width: 100%; height: 100%; overflow: hidden; background: #05070e; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background: #05070e; font-family: sans-serif; }
         canvas { display: block; width: 100vw; height: 100vh; }
-        .overlay {
-            position: absolute;
-            top: 24px;
-            left: 28px;
-            color: rgba(0, 240, 255, 0.85);
-            font-size: 13px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            font-weight: 700;
-            pointer-events: none;
-            text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
-        }
     </style>
 </head>
 <body>
-    <div class="overlay">OMYWALL 3D HYPERSPACE TUNNEL</div>
     <canvas id="canvas"></canvas>
 
     <script>
         const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { powerPreference: 'high-performance' });
 
         let width, height, cx, cy;
         function resize() {
@@ -75,7 +62,6 @@
             ctx.fillStyle = 'rgba(5, 7, 14, 0.25)';
             ctx.fillRect(0, 0, width, height);
 
-            // Draw 3D Tunnel Rings
             for (let i = 0; i < numRings; i++) {
                 const z = i * 50 - offsetZ + 50;
                 if (z <= 0) continue;
@@ -88,14 +74,12 @@
                     const rotX = Math.cos(angle) * radius;
                     const rotY = Math.sin(angle) * radius;
 
-                    // Add subtle distortion wave
                     const waveX = rotX + Math.sin(time + z * 0.01) * 20;
                     const waveY = rotY + Math.cos(time + z * 0.01) * 20;
 
                     points.push(project(waveX, waveY, z));
                 }
 
-                // Render ring wireframe
                 const alpha = Math.max(0, 1 - z / 1800);
                 const hue = (i * 8 + time * 50) % 360;
                 ctx.strokeStyle = `hsla(${hue}, 100%, 60%, ${alpha * 0.8})`;
@@ -109,7 +93,6 @@
                 ctx.closePath();
                 ctx.stroke();
 
-                // Connect to previous ring for 3D grid lines
                 if (i > 0) {
                     const prevZ = (i - 1) * 50 - offsetZ + 50;
                     if (prevZ > 0) {
@@ -128,7 +111,6 @@
                 }
             }
 
-            // Draw Warp Particles
             for (let i = 0; i < numParticles; i++) {
                 const p = particles[i];
                 p.z -= speed * 2;
