@@ -679,7 +679,7 @@ impl OmywallGuiApp {
             self.texture_cache.clear();
         }
 
-        if self.texture_cache.contains_key(thumb_path) {
+        if self.texture_cache.get(thumb_path).and_then(|t| t.as_ref()).is_some() {
             return self.texture_cache.get(thumb_path).and_then(|t| t.as_ref());
         }
 
