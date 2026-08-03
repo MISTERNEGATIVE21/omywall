@@ -75,15 +75,23 @@ fn request_background_image_decode(ctx: egui::Context, path: PathBuf) {
 
             if cached_file.exists() {
                 image::open(&cached_file)
-            } else if let Ok(out) = Command::new("curl").args(["-s", "-L", "-A", "Mozilla/5.0", "--max-time", "12", &path_str]).output() {
-                if out.status.success() && !out.stdout.is_empty() {
-                    let _ = std::fs::write(&cached_file, &out.stdout);
-                    image::load_from_memory(&out.stdout)
+            } else if let Ok(client) = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(15)).build() {
+                if let Ok(resp) = client.get(path_str.as_ref()).send() {
+                    if let Ok(bytes) = resp.bytes() {
+                        if !bytes.is_empty() {
+                            let _ = std::fs::write(&cached_file, &bytes);
+                            image::load_from_memory(&bytes)
+                        } else {
+                            Err(image::ImageError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "empty response")))
+                        }
+                    } else {
+                        Err(image::ImageError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "read bytes failed")))
+                    }
                 } else {
-                    Err(image::ImageError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "download failed")))
+                    Err(image::ImageError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "http get failed")))
                 }
             } else {
-                Err(image::ImageError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "curl failed")))
+                Err(image::ImageError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "client init failed")))
             }
         } else {
             image::open(&path)
@@ -738,7 +746,7 @@ fn get_gif_preview_path(ctx: Option<egui::Context>, video_path: &Path) -> Option
         std::thread::spawn(move || {
             let vf = "fps=12,scale=320:180:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3";
             let ok = Command::new("ffmpeg")
-                .args(["-y", "-hide_banner", "-loglevel", "error", "-t", "4", "-i", &input_str, "-vf", vf, &part_str])
+                .args(["-y", "-hide_banner", "-loglevel", "error", "-t", "4", "-i", &input_str, "-vf", vf, "-f", "gif", &part_str])
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);

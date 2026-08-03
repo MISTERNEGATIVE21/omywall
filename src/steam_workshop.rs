@@ -42,16 +42,14 @@ impl Default for WorkshopItem {
 }
 
 fn http_get(url: &str) -> Result<String, String> {
-    let out = Command::new("curl")
-        .args([
-            "-s", "-L",
-            "-A", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-            "--max-time", "25",
-            url,
-        ])
-        .output()
-        .map_err(|e| format!("curl failed: {}", e))?;
-    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+        .timeout(std::time::Duration::from_secs(25))
+        .build()
+        .map_err(|e| format!("http client error: {}", e))?;
+
+    let resp = client.get(url).send().map_err(|e| format!("http get error: {}", e))?;
+    resp.text().map_err(|e| format!("http read error: {}", e))
 }
 
 pub fn browse_workshop(page: u32, sort: &str, days: i64) -> Result<Vec<WorkshopItem>, String> {
@@ -101,24 +99,24 @@ pub fn browse_workshop(page: u32, sort: &str, days: i64) -> Result<Vec<WorkshopI
 }
 
 pub fn fetch_workshop_details(ids: &[String]) -> Result<Vec<WorkshopItem>, String> {
-    let mut body = format!("itemcount={}", ids.len());
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("http client error: {}", e))?;
+
+    let mut params = Vec::new();
+    params.push(("itemcount".to_string(), ids.len().to_string()));
     for (i, id) in ids.iter().enumerate() {
-        body.push_str(&format!("&publishedfileids[{}]={}", i, id));
+        params.push((format!("publishedfileids[{}]", i), id.clone()));
     }
 
-    let out = Command::new("curl")
-        .args([
-            "-s", "-X", "POST",
-            "-d", &body,
-            "--max-time", "15",
-            "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/",
-        ])
-        .output()
-        .map_err(|e| format!("curl failed: {}", e))?;
+    let resp = client.post("https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/")
+        .form(&params)
+        .send()
+        .map_err(|e| format!("api post error: {}", e))?;
 
-    let json_str = String::from_utf8_lossy(&out.stdout);
-    let val: serde_json::Value = serde_json::from_str(&json_str)
-        .map_err(|e| format!("json parse error: {}", e))?;
+    let val: serde_json::Value = resp.json().map_err(|e| format!("json parse error: {}", e))?;
 
     let mut items = Vec::new();
     if let Some(details) = val.get("response").and_then(|r| r.get("publishedfiledetails")).and_then(|d| d.as_array()) {
@@ -400,15 +398,16 @@ pub fn request_preview_image(item: &WorkshopItem) {
     if out_path.exists() {
         return;
     }
-    let out_str = out_path.to_string_lossy().to_string();
     std::thread::spawn(move || {
-        let _ = Command::new("curl")
-            .args(["-s", "-L", "-A", "Mozilla/5.0", "--max-time", "20", "-o", &out_str, &url])
-            .output();
-        if PathBuf::from(&out_str).metadata().map(|m| m.len()).unwrap_or(0) > 100 {
-            crate::gui::notify_thumb_updated(PathBuf::from(&out_str));
-        } else {
-            let _ = std::fs::remove_file(&out_str);
+        if let Ok(client) = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(20)).build() {
+            if let Ok(resp) = client.get(&url).send() {
+                if let Ok(bytes) = resp.bytes() {
+                    if bytes.len() > 100 {
+                        let _ = std::fs::write(&out_path, &bytes);
+                        crate::gui::notify_thumb_updated(out_path);
+                    }
+                }
+            }
         }
     });
 }
