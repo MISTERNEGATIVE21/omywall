@@ -156,10 +156,6 @@ struct SlideshowState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Ignore SIGCHLD signals so spawned child processes exit cleanly without signaling MPV/Rust process
-    unsafe {
-        libc::signal(libc::SIGCHLD, libc::SIG_IGN);
-    }
 
     let cli = Cli::parse();
     let mut cfg = Config::load();
