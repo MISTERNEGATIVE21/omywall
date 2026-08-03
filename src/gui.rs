@@ -912,6 +912,8 @@ Gtk.main()
         let _ = Command::new("python3")
             .args([py_runner.to_string_lossy().as_ref(), &url_owned, &out_str])
             .env("WEBKIT_FORCE_COMPOSITING_MODE", "1")
+            .env("__NV_PRIME_RENDER_OFFLOAD", "1")
+            .env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
             .output();
         if Path::new(&out_str).exists() {
             notify_thumb_updated(PathBuf::from(&out_str));
@@ -1608,6 +1610,12 @@ impl OmywallGuiApp {
                         ui.ctx().request_repaint_after(std::time::Duration::from_millis(anim.frame_delay_ms.max(50)));
                         return;
                     }
+                }
+            }
+            if let Some(video_thumb) = get_thumbnail_path(Some(ctx.clone()), path) {
+                if let Some(tex) = self.get_cached_texture(ctx, &video_thumb) {
+                    ui.add(egui::Image::new(tex).max_size(size).rounding(4.0));
+                    return;
                 }
             }
         }

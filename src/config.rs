@@ -807,27 +807,33 @@ pub fn get_system_metrics() -> SystemMetrics {
         ram_used_mb = (total_kb.saturating_sub(avail_kb)) / 1024;
     }
 
-    let gpus = detect_system_gpus();
-    if let Some(gpu) = gpus.iter().find(|g| g.vendor == "NVIDIA") {
-        gpu_name = gpu.name.clone();
-        if let Ok(out) = std::process::Command::new("nvidia-smi")
-            .args(["--query-gpu=utilization.gpu,memory.used", "--format=csv,noheader,nounits"])
-            .output()
-        {
+    if let Ok(out) = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=utilization.gpu,memory.used,name", "--format=csv,noheader,nounits"])
+        .output()
+    {
+        if out.status.success() {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let parts: Vec<&str> = stdout.trim().split(',').map(|s| s.trim()).collect();
             if parts.len() >= 2 {
                 gpu_usage = parts[0].parse().unwrap_or(0.0);
                 vram_used_mb = parts[1].parse().unwrap_or(0);
+                if parts.len() >= 3 && !parts[2].is_empty() {
+                    gpu_name = parts[2].to_string();
+                }
             }
         }
-    } else if let Ok(busy) = fs::read_to_string("/sys/class/drm/card0/device/gpu_busy_percent") {
-        gpu_usage = busy.trim().parse().unwrap_or(0.0);
+    }
+
+    if gpu_name.is_empty() {
+        let gpus = detect_system_gpus();
+        if let Ok(busy) = fs::read_to_string("/sys/class/drm/card0/device/gpu_busy_percent")
+            .or_else(|_| fs::read_to_string("/sys/class/drm/card1/device/gpu_busy_percent"))
+        {
+            gpu_usage = busy.trim().parse().unwrap_or(0.0);
+        }
         if let Some(gpu) = gpus.first() {
             gpu_name = gpu.name.clone();
         }
-    } else if let Some(gpu) = gpus.first() {
-        gpu_name = gpu.name.clone();
     }
 
     SystemMetrics {
