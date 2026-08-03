@@ -76,7 +76,87 @@ pub fn browse_workshop(page: u32, sort: &str, days: i64) -> Result<Vec<WorkshopI
     }
 
     let html = http_get(&url)?;
-    parse_browse_html(&html)
+    let mut ids = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for cap in html.match_indices("sharedfiles/filedetails/?id=") {
+        let start = cap.0 + "sharedfiles/filedetails/?id=".len();
+        let id: String = html[start..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if !id.is_empty() && seen.insert(id.clone()) {
+            ids.push(id);
+        }
+    }
+
+    if ids.is_empty() {
+        return parse_browse_html(&html);
+    }
+
+    match fetch_workshop_details(&ids) {
+        Ok(items) if !items.is_empty() => Ok(items),
+        _ => parse_browse_html(&html),
+    }
+}
+
+pub fn fetch_workshop_details(ids: &[String]) -> Result<Vec<WorkshopItem>, String> {
+    let mut body = format!("itemcount={}", ids.len());
+    for (i, id) in ids.iter().enumerate() {
+        body.push_str(&format!("&publishedfileids[{}]={}", i, id));
+    }
+
+    let out = Command::new("curl")
+        .args([
+            "-s", "-X", "POST",
+            "-d", &body,
+            "--max-time", "15",
+            "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/",
+        ])
+        .output()
+        .map_err(|e| format!("curl failed: {}", e))?;
+
+    let json_str = String::from_utf8_lossy(&out.stdout);
+    let val: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| format!("json parse error: {}", e))?;
+
+    let mut items = Vec::new();
+    if let Some(details) = val.get("response").and_then(|r| r.get("publishedfiledetails")).and_then(|d| d.as_array()) {
+        for d in details {
+            let id = d.get("publishedfileid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if id.is_empty() { continue; }
+            let title = d.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled Wallpaper").to_string();
+            let preview_url = d.get("preview_url").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let author = d.get("creator").and_then(|v| v.as_str()).unwrap_or("Steam Author").to_string();
+            let subscriptions = d.get("subscriptions").and_then(|v| v.as_u64()).unwrap_or(0);
+            let views = d.get("views").and_then(|v| v.as_u64()).unwrap_or(0);
+            let file_size = d.get("file_size").and_then(|v| v.as_u64()).or_else(|| d.get("file_size").and_then(|v| v.as_str()).and_then(|s| s.parse().ok())).unwrap_or(0);
+            let description = d.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let tags = d.get("tags")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|t| t.get("tag").and_then(|s| s.as_str()).map(|s| s.to_string())).collect())
+                .unwrap_or_default();
+            let time_updated = d.get("time_updated").and_then(|v| v.as_u64()).unwrap_or(0);
+            let url = format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", id);
+
+            items.push(WorkshopItem {
+                id,
+                title,
+                preview_url,
+                author,
+                subscriptions,
+                views,
+                file_size,
+                description,
+                tags,
+                hcontent_file: String::new(),
+                time_updated,
+                url,
+            });
+        }
+    }
+
+    Ok(items)
 }
 
 pub fn parse_browse_html(html: &str) -> Result<Vec<WorkshopItem>, String> {
@@ -132,7 +212,7 @@ fn extract_preview_url(html: &str, marker: &str) -> Option<String> {
     let rest = &before[src_start..];
     let end = rest.find('"')?;
     let url = &rest[..end];
-    if url.starts_with("http") && (url.contains("steamusercontent") || url.contains("akamai")) {
+    if url.starts_with("http://") || url.starts_with("https://") {
         Some(url.to_string())
     } else {
         None
@@ -300,7 +380,7 @@ pub fn cached_preview_path(item: &WorkshopItem) -> Option<PathBuf> {
     let url = item.preview_url.as_ref()?;
     let cache_dir = PathBuf::from("/tmp/omywall_workshop_thumbs");
     let hash = format!("{:x}", crate::gui::md5_hash(url.as_bytes()));
-    let out_path = cache_dir.join(format!("{}_{}.img", &item.id, &hash[..8]));
+    let out_path = cache_dir.join(format!("{}_{}.jpg", &item.id, &hash[..8]));
     if out_path.exists() {
         Some(out_path)
     } else {
@@ -316,7 +396,7 @@ pub fn request_preview_image(item: &WorkshopItem) {
     let cache_dir = PathBuf::from("/tmp/omywall_workshop_thumbs");
     let _ = std::fs::create_dir_all(&cache_dir);
     let hash = format!("{:x}", crate::gui::md5_hash(url.as_bytes()));
-    let out_path = cache_dir.join(format!("{}_{}.img", &item.id, &hash[..8]));
+    let out_path = cache_dir.join(format!("{}_{}.jpg", &item.id, &hash[..8]));
     if out_path.exists() {
         return;
     }

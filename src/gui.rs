@@ -64,7 +64,32 @@ fn request_background_image_decode(ctx: egui::Context, path: PathBuf) {
     }
 
     std::thread::spawn(move || {
-        let color_img = match image::open(&path) {
+        let path_str = path.to_string_lossy();
+        let is_remote = path_str.starts_with("http://") || path_str.starts_with("https://");
+
+        let loaded = if is_remote {
+            let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
+            let _ = std::fs::create_dir_all(&cache_dir);
+            let hash = format!("{:x}", md5_hash(path_str.as_bytes()));
+            let cached_file = cache_dir.join(format!("remote_{}.jpg", &hash[..12]));
+
+            if cached_file.exists() {
+                image::open(&cached_file)
+            } else if let Ok(out) = Command::new("curl").args(["-s", "-L", "-A", "Mozilla/5.0", "--max-time", "12", &path_str]).output() {
+                if out.status.success() && !out.stdout.is_empty() {
+                    let _ = std::fs::write(&cached_file, &out.stdout);
+                    image::load_from_memory(&out.stdout)
+                } else {
+                    Err(image::ImageError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "download failed")))
+                }
+            } else {
+                Err(image::ImageError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "curl failed")))
+            }
+        } else {
+            image::open(&path)
+        };
+
+        let color_img = match loaded {
             Ok(img) => {
                 let resized = img.thumbnail(384, 216);
                 let rgba = resized.to_rgba8();
@@ -98,6 +123,9 @@ fn request_background_image_decode(ctx: egui::Context, path: PathBuf) {
 
         if let Ok(mut decoded) = DECODED_IMAGES.lock() {
             let map = decoded.get_or_insert_with(HashMap::new);
+            if map.len() > 120 {
+                map.clear();
+            }
             map.insert(path.clone(), color_img);
         }
         ctx.request_repaint();
@@ -1570,7 +1598,15 @@ impl OmywallGuiApp {
             }
         }
 
-        if let Some(thumb_path) = get_web_thumbnail_path(Some(ctx.clone()), &path.to_string_lossy()) {
+        let path_str = path.to_string_lossy();
+        if path_str.starts_with("http://") || path_str.starts_with("https://") || matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp") {
+            if let Some(tex) = self.get_cached_texture(ctx, path) {
+                ui.add(egui::Image::new(tex).max_size(size).rounding(4.0));
+                return;
+            }
+        }
+
+        if let Some(thumb_path) = get_web_thumbnail_path(Some(ctx.clone()), &path_str) {
             if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
                 ui.add(egui::Image::new(tex).max_size(size).rounding(4.0));
                 return;
@@ -2089,6 +2125,22 @@ impl eframe::App for OmywallGuiApp {
                             ui.separator();
                             ui.add_space(8.0);
 
+                            if self.workshop_items.is_empty() && !self.workshop_loading {
+                                self.workshop_loading = true;
+                                self.workshop_status = "Loading Workshop catalog...".to_string();
+                                let page = self.workshop_page;
+                                let sort = self.workshop_sort.clone();
+                                let days = self.workshop_days;
+                                let ctx2 = ctx.clone();
+                                std::thread::spawn(move || {
+                                    let res = crate::steam_workshop::browse_workshop(page, &sort, days);
+                                    if let Ok(mut g) = WORKSHOP_BROWSE_RESULT.lock() {
+                                        *g = Some(res);
+                                    }
+                                    ctx2.request_repaint();
+                                });
+                            }
+
                             // Browse controls
                             ui.horizontal(|ui| {
                                 ui.label(egui::RichText::new("Browse:").strong().color(egui::Color32::from_rgb(255, 190, 50)));
@@ -2244,15 +2296,25 @@ impl eframe::App for OmywallGuiApp {
                                             .show(ui, |ui| {
                                                 ui.set_width(230.0);
                                                 ui.vertical(|ui| {
+                                                    let mut rendered = false;
                                                     if has_thumb {
                                                         if let Some(p) = thumb_cache.clone() {
                                                             if let Some(tex) = self.get_cached_texture(ctx, &p) {
                                                                 ui.add(egui::Image::new(tex).max_size(egui::vec2(210.0, 120.0)).rounding(6.0));
-                                                            } else {
-                                                                ctx.request_repaint_after(std::time::Duration::from_millis(150));
+                                                                rendered = true;
                                                             }
                                                         }
-                                                    } else {
+                                                    }
+                                                    if !rendered {
+                                                        if let Some(ref url) = item.preview_url {
+                                                            let p = PathBuf::from(url);
+                                                            if let Some(tex) = self.get_cached_texture(ctx, &p) {
+                                                                ui.add(egui::Image::new(tex).max_size(egui::vec2(210.0, 120.0)).rounding(6.0));
+                                                                rendered = true;
+                                                            }
+                                                        }
+                                                    }
+                                                    if !rendered {
                                                         egui::Frame::none()
                                                             .fill(egui::Color32::from_rgb(14, 18, 28))
                                                             .rounding(6.0)
