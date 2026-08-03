@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Breakout</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+  .hud {
+    position: fixed; top: 16px; left: 20px; color: rgba(255,255,255,0.85);
+    font: bold 14px 'Courier New', monospace; pointer-events: none;
+    text-shadow: 0 0 8px rgba(0,0,0,0.8);
+  }
+  .controls {
+    position: fixed; top: 16px; right: 20px; color: rgba(255,255,255,0.6);
+    font: 11px 'Segoe UI', sans-serif; pointer-events: none;
+    text-align: right; line-height: 1.6;
+  }
+  
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="hud" id="hud"></div>
+<div class="controls" id="controls"></div>
+<div class="label">Breakout</div>
+<script>
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0;
+let paddle, ball, bricks, particles, score, lives, gameOver, won;
+let mx = 0.5;
+const hud = document.getElementById('hud');
+const ctrl = document.getElementById('controls');
+ctrl.innerHTML = 'MOUSE: move paddle<br>CLICK: launch ball<br>R: restart';
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; init(); }
+window.addEventListener('resize', resize);
+window.addEventListener('mousemove', e => { mx = e.clientX / w; });
+window.addEventListener('click', e => {
+  if (ball.stuck) { ball.stuck = false; ball.vx = (Math.random() - 0.5) * 4; ball.vy = -5; }
+  if (gameOver || won) init();
+});
+window.addEventListener('keydown', e => { if (e.key.toLowerCase() === 'r') init(); });
+function init() {
+  paddle = { x: w/2, y: h - 40, w: 120, h: 14, speed: 12 };
+  ball = { x: w/2, y: h - 60, r: 8, vx: 0, vy: 0, stuck: true };
+  bricks = [];
+  const cols = Math.min(12, Math.floor(w / 80));
+  const rows = 6;
+  const bw = (w - 40) / cols;
+  const bh = 24;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      bricks.push({
+        x: 20 + c * bw + 2, y: 80 + r * (bh + 4),
+        w: bw - 4, h: bh,
+        hue: r * 50 + 200, alive: true,
+        hits: 0
+      });
+    }
+  }
+  particles = [];
+  score = 0;
+  lives = 3;
+  gameOver = false;
+  won = false;
+}
+resize();
+function loop() {
+  t += 0.05;
+  // bg
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#050010');
+  bg.addColorStop(1, '#1a0530');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+  // stars
+  for (let i = 0; i < 50; i++) {
+    const sx = (i * 137.5) % w;
+    const sy = (i * 73.3) % h;
+    ctx.fillStyle = `rgba(255,255,255,${0.2 + Math.sin(t + i) * 0.2})`;
+    ctx.fillRect(sx, sy, 1.5, 1.5);
+  }
+  if (!gameOver && !won) {
+    // paddle
+    paddle.x = mx * w;
+    paddle.x = Math.max(paddle.w/2, Math.min(w - paddle.w/2, paddle.x));
+    // ball
+    if (ball.stuck) {
+      ball.x = paddle.x;
+      ball.y = paddle.y - paddle.h/2 - ball.r;
+    } else {
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+      // walls
+      if (ball.x < ball.r) { ball.x = ball.r; ball.vx *= -1; }
+      if (ball.x > w - ball.r) { ball.x = w - ball.r; ball.vx *= -1; }
+      if (ball.y < ball.r) { ball.y = ball.r; ball.vy *= -1; }
+      // paddle
+      if (ball.y > paddle.y - paddle.h/2 - ball.r && ball.y < paddle.y + paddle.h/2 &&
+          ball.x > paddle.x - paddle.w/2 - ball.r && ball.x < paddle.x + paddle.w/2 + ball.r && ball.vy > 0) {
+        ball.y = paddle.y - paddle.h/2 - ball.r;
+        ball.vy = -Math.abs(ball.vy);
+        const hit = (ball.x - paddle.x) / (paddle.w/2);
+        ball.vx = hit * 6;
+      }
+      // lost
+      if (ball.y > h + 50) {
+        lives--;
+        if (lives <= 0) {
+          gameOver = true;
+        } else {
+          ball.stuck = true;
+          ball.vx = 0; ball.vy = 0;
+        }
+      }
+      // bricks
+      for (const b of bricks) {
+        if (!b.alive) continue;
+        if (ball.x + ball.r > b.x && ball.x - ball.r < b.x + b.w &&
+            ball.y + ball.r > b.y && ball.y - ball.r < b.y + b.h) {
+          // determine side
+          const dx = ball.x - (b.x + b.w/2);
+          const dy = ball.y - (b.y + b.h/2);
+          if (Math.abs(dx / b.w) > Math.abs(dy / b.h)) {
+            ball.vx *= -1;
+          } else {
+            ball.vy *= -1;
+          }
+          b.alive = false;
+          score += 10;
+          // particles
+          for (let i = 0; i < 15; i++) {
+            particles.push({
+              x: b.x + b.w/2, y: b.y + b.h/2,
+              vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
+              life: 1, hue: b.hue, r: 2 + Math.random() * 3
+            });
+          }
+          break;
+        }
+      }
+      if (bricks.every(b => !b.alive)) won = true;
+    }
+  }
+  // bricks
+  for (const b of bricks) {
+    if (!b.alive) continue;
+    const grad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+    grad.addColorStop(0, `hsl(${b.hue}, 80%, 65%)`);
+    grad.addColorStop(1, `hsl(${b.hue}, 80%, 45%)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = `hsla(${b.hue}, 100%, 80%, 0.5)`;
+    ctx.fillRect(b.x, b.y, b.w, 2);
+    ctx.strokeStyle = `hsla(${b.hue}, 80%, 30%, 0.5)`;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+  }
+  // paddle
+  const pg = ctx.createLinearGradient(paddle.x - paddle.w/2, 0, paddle.x + paddle.w/2, 0);
+  pg.addColorStop(0, '#3a86ff');
+  pg.addColorStop(0.5, '#06ffa5');
+  pg.addColorStop(1, '#3a86ff');
+  ctx.fillStyle = pg;
+  ctx.shadowColor = '#06ffa5';
+  ctx.shadowBlur = 15;
+  ctx.fillRect(paddle.x - paddle.w/2, paddle.y - paddle.h/2, paddle.w, paddle.h);
+  ctx.shadowBlur = 0;
+  // ball
+  const bg2 = ctx.createRadialGradient(ball.x, ball.y, 0, ball.x, ball.y, ball.r * 3);
+  bg2.addColorStop(0, 'rgba(255, 255, 255, 1)');
+  bg2.addColorStop(0.5, 'rgba(255, 200, 100, 0.5)');
+  bg2.addColorStop(1, 'rgba(255, 200, 100, 0)');
+  ctx.fillStyle = bg2;
+  ctx.fillRect(ball.x - ball.r * 3, ball.y - ball.r * 3, ball.r * 6, ball.r * 6);
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+  ctx.fill();
+  // particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.3;
+    p.life -= 0.02;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    ctx.fillStyle = `hsla(${p.hue}, 100%, 60%, ${p.life})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * p.life, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // game over / win
+  if (gameOver || won) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = won ? '#06ffa5' : '#ff5060';
+    ctx.font = 'bold 56px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(won ? 'YOU WIN!' : 'GAME OVER', w/2, h/2);
+    ctx.fillStyle = '#fff';
+    ctx.font = '22px "Segoe UI", sans-serif';
+    ctx.fillText('Click to play again', w/2, h/2 + 50);
+    ctx.textAlign = 'left';
+  }
+  hud.innerHTML = `SCORE: ${score}<br>LIVES: ${'★'.repeat(lives)}`;
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

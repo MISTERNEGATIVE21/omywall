@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Retro Robot</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; image-rendering: pixelated; image-rendering: crisp-edges; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+  
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="label">Retro Robot</div>
+<script>
+
+function pixel(ctx, x, y, size, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x * size, y * size, size, size);
+}
+function pixelArt(ctx, ox, oy, size, art, palette) {
+  for (let y = 0; y < art.length; y++) {
+    for (let x = 0; x < art[y].length; x++) {
+      const c = art[y][x];
+      if (c !== ' ' && c !== '.' && palette[c]) {
+        ctx.fillStyle = palette[c];
+        ctx.fillRect(ox + x * size, oy + y * size, size, size);
+      }
+    }
+  }
+}
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0;
+let mx = 0.5, my = 0.5;
+let sparks = [];
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+window.addEventListener('mousemove', e => { mx = e.clientX / w; my = e.clientY / h; });
+// robot pixel art (16x20)
+const robotArt = [
+  '......GGGG......',
+  '.....GAAAAG.....',
+  '....GAAAAAAG....',
+  '....GARRRRAG....',
+  '....GARRRRAG....',
+  '....GARRRRAG....',
+  '....GAAAAAAG....',
+  '...GAAAYAAAG....',
+  '...GAAAAAAAAG...',
+  '..GRRRRRRRRRG...',
+  '..GRWWWWWWWWRG..',
+  '..GRWWWWWWWWRG..',
+  '..GRRRRRRRRRG...',
+  '..GAAAAAAAAAG...',
+  '...GAAAAAAAAAG..',
+  '....GAAAAAAG....',
+  '....GG....GG....',
+  '....GG....GG....',
+  '....BB....BB....',
+  '...BBBB..BBBB...',
+];
+const pal = {
+  G: '#3a3a3a',  // gray metal
+  A: '#a8a8a8',  // lighter gray
+  R: '#5a5a5a',  // darker panel
+  W: '#00ffff',  // screen display
+  Y: '#ff6600',  // antenna light
+  B: '#1a1a1a',  // legs
+};
+const robotArt2 = robotArt.map((row, i) => {
+  if (i === 10) return '..GRWBWBBWWRG..';
+  if (i === 11) return '..GRWWWWWWWWRG..';
+  return row;
+});
+// factory background
+const pipes = [];
+for (let i = 0; i < 8; i++) {
+  pipes.push({ x: Math.random() * w, y: Math.random() * h * 0.5, w: 20 + Math.random() * 30, h: 100 + Math.random() * 100 });
+}
+function loop() {
+  t += 0.05;
+  // bg - industrial
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#1a1a2a');
+  bg.addColorStop(0.5, '#2a2a3a');
+  bg.addColorStop(1, '#1a1a20');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+  // pipes (background)
+  for (const p of pipes) {
+    ctx.fillStyle = '#3a3a4a';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = '#4a4a5a';
+    ctx.fillRect(p.x, p.y, p.w, 6);
+    ctx.fillRect(p.x, p.y + p.h - 6, p.w, 6);
+  }
+  // gear decorations
+  for (let i = 0; i < 5; i++) {
+    const gx = w * (0.1 + i * 0.2);
+    const gy = h * 0.2 + Math.sin(i) * 30;
+    const gr = 30 + i * 5;
+    ctx.save();
+    ctx.translate(gx, gy);
+    ctx.rotate(t * (i % 2 ? 0.5 : -0.3));
+    ctx.fillStyle = '#3a3a4a';
+    ctx.beginPath();
+    for (let t_ = 0; t_ < 12; t_++) {
+      const a = (t_ / 12) * Math.PI * 2;
+      const r1 = gr;
+      const r2 = gr + 8;
+      ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
+      ctx.lineTo(Math.cos(a + 0.1) * r2, Math.sin(a + 0.1) * r2);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#2a2a3a';
+    ctx.beginPath();
+    ctx.arc(0, 0, gr * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  // ground
+  ctx.fillStyle = '#1a1a20';
+  ctx.fillRect(0, h - 60, w, 60);
+  ctx.fillStyle = '#3a3a4a';
+  ctx.fillRect(0, h - 60, w, 4);
+  // grid pattern
+  ctx.strokeStyle = 'rgba(0, 255, 255, 0.1)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < w; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, h - 60); ctx.lineTo(x, h); ctx.stroke();
+  }
+  // robot
+  const ps = Math.floor(Math.min(w, h) / 30);
+  const cx = w/2 + (mx - 0.5) * 100;
+  const cy = h - 60 - ps * 20 + Math.sin(t * 2) * 5;
+  const art = Math.floor(t * 2) % 4 < 2 ? robotArt : robotArt2;
+  pixelArt(ctx, cx, cy, ps, art, pal);
+  // antenna spark
+  if (Math.random() < 0.3) {
+    sparks.push({
+      x: cx + ps * 7, y: cy,
+      vx: (Math.random() - 0.5) * 4,
+      vy: -Math.random() * 4 - 1,
+      life: 1
+    });
+  }
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.x += s.vx; s.y += s.vy;
+    s.vy += 0.2;
+    s.life -= 0.04;
+    if (s.life <= 0) { sparks.splice(i, 1); continue; }
+    ctx.fillStyle = `rgba(255, 200, 0, ${s.life})`;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 2 * s.life, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // antenna light pulse
+  const lightPulse = (Math.sin(t * 5) + 1) / 2;
+  const lg = ctx.createRadialGradient(cx + ps * 7, cy, 0, cx + ps * 7, cy, 15);
+  lg.addColorStop(0, `rgba(255, 100, 0, ${0.5 + lightPulse * 0.5})`);
+  lg.addColorStop(1, 'rgba(255, 100, 0, 0)');
+  ctx.fillStyle = lg;
+  ctx.fillRect(cx + ps * 7 - 15, cy - 15, 30, 30);
+  // screen glow
+  const sg = ctx.createRadialGradient(cx + ps * 8, cy + ps * 11, 0, cx + ps * 8, cy + ps * 11, 30);
+  sg.addColorStop(0, 'rgba(0, 255, 255, 0.3)');
+  sg.addColorStop(1, 'rgba(0, 255, 255, 0)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(cx, cy + ps * 5, ps * 16, ps * 8);
+  // shadow on ground
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+  ctx.beginPath();
+  ctx.ellipse(cx + ps * 8, h - 60, ps * 8, ps * 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // status text on screen
+  ctx.fillStyle = '#00ffff';
+  ctx.font = 'bold ' + Math.floor(ps * 0.6) + 'px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('BEEP', cx + ps * 8, cy + ps * 11);
+  ctx.textAlign = 'left';
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

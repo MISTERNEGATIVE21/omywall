@@ -32,6 +32,13 @@ pub enum IpcRequest {
     CycleLiveWallpaper,
     GetStatus,
     ListWallpapers,
+    GetDisplays,
+    QuerySteamWallpapers,
+    SetSteamWallpaper {
+        path: String,
+        screen: Option<String>,
+        overrides: Option<crate::config::WallpaperOverrides>,
+    },
     QuitDaemon,
 }
 
@@ -42,6 +49,8 @@ pub enum IpcResponse {
     Status(DaemonStatus),
     MonitorMappings { mappings: HashMap<String, String> },
     WallpaperList { files: Vec<String>, current: Option<String> },
+    Displays { displays: Vec<crate::display::DisplayInfo> },
+    SteamWallpapers { wallpapers: Vec<crate::steam_scanner::SteamWallpaper> },
     Err { message: String },
 }
 

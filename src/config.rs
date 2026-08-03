@@ -16,6 +16,9 @@ pub struct WebBookmark {
 pub struct HyprlockConfig {
     pub enabled: bool,
     pub background_path: String,
+    pub screensaver_mode: String,
+    pub asset_path: String,
+    pub gradient_color: String,
     pub blur_passes: u32,
     pub blur_size: u32,
     pub clock_color: String,
@@ -32,6 +35,9 @@ impl Default for HyprlockConfig {
         Self {
             enabled: true,
             background_path: String::new(),
+            screensaver_mode: "active".to_string(),
+            asset_path: String::new(),
+            gradient_color: "#121826".to_string(),
             blur_passes: 2,
             blur_size: 7,
             clock_color: "#00f0ff".to_string(),
@@ -43,6 +49,40 @@ impl Default for HyprlockConfig {
             grace_period: 0,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct WallpaperOverrides {
+    #[serde(default)]
+    pub volume: Option<i64>,
+    #[serde(default)]
+    pub silent: Option<bool>,
+    #[serde(default)]
+    pub scaling: Option<String>,
+    #[serde(default)]
+    pub fps: Option<u32>,
+    #[serde(default)]
+    pub disable_mouse: Option<bool>,
+    #[serde(default)]
+    pub disable_parallax: Option<bool>,
+    #[serde(default)]
+    pub disable_particles: Option<bool>,
+    #[serde(default)]
+    pub clamp: Option<String>,
+    #[serde(default)]
+    pub layer: Option<String>,
+    #[serde(default)]
+    pub no_automute: Option<bool>,
+    #[serde(default)]
+    pub no_audio_processing: Option<bool>,
+    #[serde(default)]
+    pub no_fullscreen_pause: Option<bool>,
+    #[serde(default)]
+    pub fullscreen_pause_only_active: Option<bool>,
+    #[serde(default)]
+    pub screenshot: Option<String>,
+    #[serde(default)]
+    pub custom_properties: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +116,10 @@ pub struct Config {
     pub autostart: bool,
     #[serde(default)]
     pub hyprlock: HyprlockConfig,
+    #[serde(default)]
+    pub wallpaper_overrides: HashMap<String, WallpaperOverrides>,
+    #[serde(default)]
+    pub steam_library_paths: Vec<PathBuf>,
 }
 
 fn default_opacity() -> f32 {
@@ -86,7 +130,79 @@ fn default_fps() -> u32 {
     60
 }
 
+fn humanize_title(stem: &str) -> String {
+    stem.split(['-', '_'])
+        .filter(|s| !s.is_empty())
+        .map(|w| {
+            let mut chars = w.chars();
+            match chars.next() {
+                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn scan_web_asset_bookmarks() -> Vec<WebBookmark> {
+    let mut bookmarks = Vec::new();
+    if let Some(web_dir) = resolve_web_assets_dir() {
+        if let Ok(entries) = fs::read_dir(&web_dir) {
+            let mut categories: Vec<PathBuf> = Vec::new();
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    categories.push(p);
+                } else if p.is_file() {
+                    if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                        if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+                            let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("wallpaper");
+                            bookmarks.push(WebBookmark {
+                                title: humanize_title(stem),
+                                url: format!("assets/web_wallpapers/{}", p.file_name().unwrap_or_default().to_string_lossy()),
+                                category: "3D WebGL".to_string(),
+                                is_demo: true,
+                            });
+                        }
+                    }
+                }
+            }
+
+            categories.sort_by_key(|c| c.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
+            for cat in categories {
+                let cat_name = cat.file_name().and_then(|n| n.to_str()).unwrap_or("Misc").to_string();
+                if let Ok(files) = fs::read_dir(&cat) {
+                    for f in files.flatten() {
+                        let p = f.path();
+                        if !p.is_file() {
+                            continue;
+                        }
+                        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                            if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+                                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("wallpaper");
+                                let url = format!("assets/web_wallpapers/{}/{}", cat_name, p.file_name().unwrap_or_default().to_string_lossy());
+                                bookmarks.push(WebBookmark {
+                                    title: humanize_title(stem),
+                                    url,
+                                    category: humanize_title(&cat_name),
+                                    is_demo: true,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    bookmarks
+}
+
 fn default_web_bookmarks() -> Vec<WebBookmark> {
+    let scanned = scan_web_asset_bookmarks();
+    if !scanned.is_empty() {
+        return scanned;
+    }
+
     vec![
         WebBookmark {
             title: "Neon OLED Liquid Fluid 3D (Mouse Follow)".to_string(),
@@ -194,6 +310,8 @@ impl Default for Config {
             saved_web_wallpapers: default_web_bookmarks(),
             autostart: Self::is_autostart_enabled(),
             hyprlock: HyprlockConfig::default(),
+            wallpaper_overrides: HashMap::new(),
+            steam_library_paths: Vec::new(),
         }
     }
 }
@@ -316,15 +434,37 @@ X-GNOME-Autostart-enabled=true
     }
 
     pub fn generate_hyprlock_conf(&self, active_wallpaper: Option<&str>) -> String {
-        let raw_bg = if !self.hyprlock.background_path.trim().is_empty() {
-            self.hyprlock.background_path.clone()
-        } else if let Some(wall) = active_wallpaper {
-            wall.to_string()
-        } else {
-            "screenshot".to_string()
+        let raw_bg = match self.hyprlock.screensaver_mode.as_str() {
+            "video" | "web" | "image" => {
+                if !self.hyprlock.asset_path.trim().is_empty() {
+                    self.hyprlock.asset_path.clone()
+                } else if !self.hyprlock.background_path.trim().is_empty() {
+                    self.hyprlock.background_path.clone()
+                } else if let Some(wall) = active_wallpaper {
+                    wall.to_string()
+                } else {
+                    "screenshot".to_string()
+                }
+            }
+            "gradient" => {
+                if !self.hyprlock.gradient_color.trim().is_empty() {
+                    self.hyprlock.gradient_color.clone()
+                } else {
+                    "#121826".to_string()
+                }
+            }
+            _ => {
+                if !self.hyprlock.background_path.trim().is_empty() {
+                    self.hyprlock.background_path.clone()
+                } else if let Some(wall) = active_wallpaper {
+                    wall.to_string()
+                } else {
+                    "screenshot".to_string()
+                }
+            }
         };
 
-        let bg_path = if raw_bg != "screenshot" {
+        let bg_path = if raw_bg != "screenshot" && !raw_bg.starts_with('#') {
             let ext = Path::new(&raw_bg).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
             if matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "html" | "htm" | "js") {
                 if let Some(thumb) = crate::gui::get_web_thumbnail_path(None, &raw_bg) {
@@ -431,6 +571,29 @@ X-GNOME-Autostart-enabled=true
         let content = self.generate_hyprlock_conf(active_wallpaper);
         fs::write(&conf_file, content).map_err(|e| e.to_string())?;
         Ok(conf_file)
+    }
+}
+
+pub fn resolve_web_assets_dir() -> Option<PathBuf> {
+    let relative = PathBuf::from("assets").join("web_wallpapers");
+    if let Some(home) = dirs::home_dir() {
+        let candidates = [
+            home.join(".local").join("share").join("omywall").join("assets").join("web_wallpapers"),
+            PathBuf::from("/usr/share/omywall").join("assets").join("web_wallpapers"),
+            PathBuf::from("/usr/local/share/omywall").join("assets").join("web_wallpapers"),
+            std::env::current_dir().unwrap_or_default().join(&relative),
+        ];
+        for c in &candidates {
+            if c.is_dir() {
+                return Some(c.to_path_buf());
+            }
+        }
+    }
+    let cwd = std::env::current_dir().unwrap_or_default().join(relative);
+    if cwd.is_dir() {
+        Some(cwd)
+    } else {
+        None
     }
 }
 

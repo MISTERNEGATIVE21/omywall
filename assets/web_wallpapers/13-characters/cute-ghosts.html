@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cute Shy Ghosts</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; image-rendering: pixelated; image-rendering: crisp-edges; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+  
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="label">Cute Shy Ghosts</div>
+<script>
+
+function pixel(ctx, x, y, size, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x * size, y * size, size, size);
+}
+function pixelArt(ctx, ox, oy, size, art, palette) {
+  for (let y = 0; y < art.length; y++) {
+    for (let x = 0; x < art[y].length; x++) {
+      const c = art[y][x];
+      if (c !== ' ' && c !== '.' && palette[c]) {
+        ctx.fillStyle = palette[c];
+        ctx.fillRect(ox + x * size, oy + y * size, size, size);
+      }
+    }
+  }
+}
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0;
+let mx = 0.5, my = 0.5;
+let ghosts = [], sparkles = [];
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+window.addEventListener('mousemove', e => { mx = e.clientX / w; my = e.clientY / h; });
+// ghost pixel art (16x16)
+const ghostArt = [
+  '....WWWWWWWW....',
+  '..WWWWWWWWWWWW..',
+  '.WWWWWWWWWWWWWW.',
+  '.WWWWWWWWWWWWWW.',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWBBWWWWBBWWWW',
+  'WWWWBBWWWWBBWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWPPWWWWPPWWWW',
+  'WWWWPPWWWWPPWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WWWWWWWWWWWWWWWW',
+  'WW.WW.WW.WW.WW.W',
+  'W..W..W..W..W..W',
+];
+const pal = {
+  W: '#ffffff',
+  B: '#3a3aff',
+  P: '#ff66aa',
+};
+const ghostShy = ghostArt.map((row, i) => {
+  if (i === 5 || i === 6) return row.replace(/B/g, '-');
+  if (i === 9 || i === 10) return row.replace(/P/g, '-');
+  return row;
+});
+const palShy = { ...pal, '-': '#aaaacc' };
+for (let i = 0; i < 8; i++) {
+  ghosts.push({
+    x: Math.random() * w,
+    y: Math.random() * h * 0.7 + h * 0.1,
+    vx: (Math.random() - 0.5) * 1,
+    vy: (Math.random() - 0.5) * 1,
+    phase: Math.random() * Math.PI * 2,
+    targetPhase: Math.random() * Math.PI * 2,
+    shy: 0,
+    hue: Math.random() < 0.5 ? 'white' : (Math.random() < 0.5 ? 'pink' : 'cyan')
+  });
+}
+function loop() {
+  t += 0.05;
+  // haunted mansion bg
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#1a0a2a');
+  bg.addColorStop(0.5, '#2a1a3a');
+  bg.addColorStop(1, '#1a0a20');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+  // moon
+  const moonX = w * 0.85;
+  const moonY = h * 0.2;
+  const moonR = 60;
+  const mg = ctx.createRadialGradient(moonX, moonY, 0, moonX, moonY, moonR * 2);
+  mg.addColorStop(0, 'rgba(255, 250, 220, 0.4)');
+  mg.addColorStop(1, 'rgba(255, 240, 200, 0)');
+  ctx.fillStyle = mg;
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#fff5b0';
+  ctx.beginPath();
+  ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
+  ctx.fill();
+  // moon craters
+  ctx.fillStyle = 'rgba(180, 170, 140, 0.4)';
+  ctx.beginPath();
+  ctx.arc(moonX - 15, moonY - 10, 8, 0, Math.PI * 2);
+  ctx.arc(moonX + 20, moonY + 5, 6, 0, Math.PI * 2);
+  ctx.arc(moonX - 5, moonY + 20, 7, 0, Math.PI * 2);
+  ctx.fill();
+  // stars
+  for (let i = 0; i < 100; i++) {
+    const sx = (i * 137.5) % w;
+    const sy = (i * 73.3) % (h * 0.7);
+    ctx.fillStyle = `rgba(255,255,255,${0.2 + Math.sin(t * 2 + i) * 0.3})`;
+    ctx.fillRect(sx, sy, 1.5, 1.5);
+  }
+  // spooky mansion silhouette
+  ctx.fillStyle = '#0a0510';
+  ctx.beginPath();
+  ctx.moveTo(0, h * 0.85);
+  ctx.lineTo(0, h * 0.7);
+  ctx.lineTo(w * 0.1, h * 0.6);
+  ctx.lineTo(w * 0.15, h * 0.7);
+  ctx.lineTo(w * 0.2, h * 0.6);
+  ctx.lineTo(w * 0.25, h * 0.7);
+  ctx.lineTo(w * 0.35, h * 0.55);
+  ctx.lineTo(w * 0.4, h * 0.6);
+  ctx.lineTo(w * 0.45, h * 0.5);
+  ctx.lineTo(w * 0.5, h * 0.6);
+  ctx.lineTo(w * 0.6, h * 0.55);
+  ctx.lineTo(w * 0.7, h * 0.65);
+  ctx.lineTo(w * 0.8, h * 0.6);
+  ctx.lineTo(w * 0.9, h * 0.7);
+  ctx.lineTo(w, h * 0.65);
+  ctx.lineTo(w, h * 0.85);
+  ctx.closePath();
+  ctx.fill();
+  // windows glowing
+  ctx.fillStyle = '#ffaa30';
+  ctx.fillRect(w * 0.45, h * 0.55, 8, 12);
+  ctx.fillRect(w * 0.48, h * 0.55, 8, 12);
+  ctx.fillRect(w * 0.1, h * 0.65, 6, 10);
+  ctx.fillRect(w * 0.8, h * 0.7, 6, 10);
+  // dead trees
+  ctx.strokeStyle = '#1a0a10';
+  ctx.lineWidth = 4;
+  for (let i = 0; i < 5; i++) {
+    const tx = w * (0.05 + i * 0.22);
+    const ty = h * 0.85;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx, ty - 100);
+    ctx.moveTo(tx, ty - 50);
+    ctx.lineTo(tx - 30, ty - 80);
+    ctx.moveTo(tx, ty - 60);
+    ctx.lineTo(tx + 30, ty - 90);
+    ctx.moveTo(tx, ty - 80);
+    ctx.lineTo(tx - 20, ty - 100);
+    ctx.moveTo(tx, ty - 90);
+    ctx.lineTo(tx + 25, ty - 110);
+    ctx.stroke();
+  }
+  // ground
+  ctx.fillStyle = '#0a0510';
+  ctx.fillRect(0, h * 0.85, w, h * 0.15);
+  // ghosts
+  for (const g of ghosts) {
+    g.phase += 0.02;
+    g.targetPhase += 0.01;
+    g.x += g.vx + Math.sin(g.phase) * 0.5;
+    g.y += g.vy + Math.cos(g.targetPhase) * 0.5;
+    if (g.x < -50) g.x = w + 50;
+    if (g.x > w + 50) g.x = -50;
+    if (g.y < 50) g.y = 50;
+    if (g.y > h * 0.8) g.y = h * 0.8;
+    // check if mouse near - go shy
+    const dx = mx * w - g.x;
+    const dy = my * h - g.y;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    g.shy = d < 150 ? 1 : Math.max(0, g.shy - 0.05);
+    const ps = Math.floor(Math.min(w, h) / 50);
+    const cx = g.x - ps * 8;
+    const cy = g.y - ps * 8 + Math.sin(g.phase * 2) * 5;
+    // tint
+    let tintPal = pal;
+    if (g.hue === 'pink') tintPal = { W: '#ffc0cb', B: '#3a3aff', P: '#ff66aa' };
+    if (g.hue === 'cyan') tintPal = { W: '#aaffff', B: '#3a3aff', P: '#ff66aa' };
+    const art = g.shy > 0.5 ? ghostShy : ghostArt;
+    pixelArt(ctx, cx, cy, ps, art, tintPal);
+    // glow
+    const gg = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, 50);
+    const glowColor = g.hue === 'pink' ? 'rgba(255, 192, 203, 0.2)' :
+                      g.hue === 'cyan' ? 'rgba(170, 255, 255, 0.2)' :
+                      'rgba(255, 255, 255, 0.2)';
+    gg.addColorStop(0, glowColor);
+    gg.addColorStop(1, 'transparent');
+    ctx.fillStyle = gg;
+    ctx.fillRect(g.x - 50, g.y - 50, 100, 100);
+  }
+  // sparkles
+  if (Math.random() < 0.2) {
+    sparkles.push({
+      x: Math.random() * w,
+      y: Math.random() * h * 0.7,
+      life: 1,
+      size: 1 + Math.random() * 2
+    });
+  }
+  for (let i = sparkles.length - 1; i >= 0; i--) {
+    const s = sparkles[i];
+    s.life -= 0.02;
+    s.y -= 0.3;
+    if (s.life <= 0) { sparkles.splice(i, 1); continue; }
+    ctx.fillStyle = `rgba(255, 255, 200, ${s.life})`;
+    ctx.fillRect(s.x, s.y, s.size, s.size);
+    if (s.life > 0.7) {
+      ctx.fillRect(s.x - 2, s.y, s.size + 4, s.size);
+      ctx.fillRect(s.x, s.y - 2, s.size, s.size + 4);
+    }
+  }
+  // hint
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.font = '14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Move mouse near ghosts to make them shy', w/2, h - 30);
+  ctx.textAlign = 'left';
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

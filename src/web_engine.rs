@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
-use crate::logger::{log_error, log_info};
+use crate::logger::log_info;
 
 pub struct WebEngineManager {
     web_child: Arc<Mutex<Option<Child>>>,
@@ -121,9 +121,8 @@ Gtk.main()
                 let mut test_child = child;
                 match test_child.try_wait() {
                     Ok(Some(status)) => {
-                        let err = format!("WebEngine Error: GTK Layer Shell runner exited with status {:?}", status);
-                        log_error(&err);
-                        Err(err)
+                        log_info(&format!("WebEngine: GTK Layer Shell runner exited with status {:?}, trying Chromium wallpaper fallback...", status));
+                        self.spawn_chromium_fallback(&target_url)
                     }
                     Ok(None) => {
                         log_info("WebEngine: Successfully launched native GTK Layer Shell + WebKit2 background surface");
@@ -137,11 +136,50 @@ Gtk.main()
                 }
             }
             Err(e) => {
-                let err = format!("WebEngine Error: Failed to spawn GTK Layer Shell WebKit process: {}", e);
-                log_error(&err);
-                Err(err)
+                log_info(&format!("WebEngine: Failed to spawn GTK Layer Shell process ({}), launching Chromium fallback...", e));
+                self.spawn_chromium_fallback(&target_url)
             }
         }
+    }
+
+    fn spawn_chromium_fallback(&self, target_url: &str) -> Result<(), String> {
+        let profile_dir = PathBuf::from("/tmp/omywall_browser_profile");
+        let _ = std::fs::create_dir_all(&profile_dir);
+
+        let child = Command::new("chromium")
+            .args([
+                format!("--app={}", target_url),
+                format!("--user-data-dir={}", profile_dir.display()),
+                "--autoplay-policy=no-user-gesture-required".to_string(),
+                "--allow-file-access-from-files".to_string(),
+                "--disable-session-crashed-bubble".to_string(),
+                "--disable-infobars".to_string(),
+                "--kiosk".to_string(),
+            ])
+            .spawn()
+            .or_else(|_| {
+                Command::new("google-chrome").args([
+                    format!("--app={}", target_url),
+                    format!("--user-data-dir={}", profile_dir.display()),
+                    "--autoplay-policy=no-user-gesture-required".to_string(),
+                    "--allow-file-access-from-files".to_string(),
+                    "--kiosk".to_string(),
+                ]).spawn()
+            })
+            .or_else(|_| {
+                Command::new("electron").args([
+                    "--title=omywall-web-wallpaper",
+                    target_url,
+                ]).spawn()
+            })
+            .map_err(|e| format!("Failed to launch fallback web wallpaper browser: {}", e))?;
+
+        let mut guard = self.web_child.lock().unwrap();
+        *guard = Some(child);
+        let mut url_guard = self.current_url.lock().unwrap();
+        *url_guard = Some(target_url.to_string());
+        log_info(&format!("WebEngine: Spawned browser wallpaper fallback for '{}'", target_url));
+        Ok(())
     }
 
     pub fn stop(&self) {

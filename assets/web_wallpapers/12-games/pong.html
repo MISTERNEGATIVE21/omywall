@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pong (AI vs AI)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+  .hud {
+    position: fixed; top: 16px; left: 20px; color: rgba(255,255,255,0.85);
+    font: bold 14px 'Courier New', monospace; pointer-events: none;
+    text-shadow: 0 0 8px rgba(0,0,0,0.8);
+  }
+  .controls {
+    position: fixed; top: 16px; right: 20px; color: rgba(255,255,255,0.6);
+    font: 11px 'Segoe UI', sans-serif; pointer-events: none;
+    text-align: right; line-height: 1.6;
+  }
+  
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="hud" id="hud"></div>
+<div class="controls" id="controls"></div>
+<div class="label">Pong (AI vs AI)</div>
+<script>
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0;
+let leftPaddle, rightPaddle, ball, particles, scoreL, scoreR;
+let playerControl = false;
+let mx = 0.5;
+const hud = document.getElementById('hud');
+const ctrl = document.getElementById('controls');
+ctrl.innerHTML = 'CLICK to take over left paddle<br>MOUSE: move<br>CLICK again: AI mode';
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; init(); }
+window.addEventListener('resize', resize);
+window.addEventListener('mousemove', e => { mx = e.clientY / h; });
+window.addEventListener('click', () => { playerControl = !playerControl; });
+function init() {
+  leftPaddle = { x: 30, y: h/2, h: 100, w: 12 };
+  rightPaddle = { x: w - 42, y: h/2, h: 100, w: 12 };
+  ball = { x: w/2, y: h/2, vx: 5 * (Math.random() < 0.5 ? -1 : 1), vy: (Math.random() - 0.5) * 6, r: 8, trail: [] };
+  particles = [];
+  scoreL = 0; scoreR = 0;
+}
+resize();
+function aiMove(paddle, ball, side) {
+  const target = ball.y;
+  const speed = 4;
+  if (Math.abs(paddle.y - target) > 5) {
+    paddle.y += Math.sign(target - paddle.y) * speed;
+  }
+  paddle.y = Math.max(paddle.h/2, Math.min(h - paddle.h/2, paddle.y));
+}
+function loop() {
+  t += 0.05;
+  // bg
+  ctx.fillStyle = '#000510';
+  ctx.fillRect(0, 0, w, h);
+  // grid lines
+  ctx.strokeStyle = 'rgba(100, 200, 255, 0.1)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 20; i++) {
+    ctx.beginPath();
+    ctx.arc(w/2, h/2, i * 40, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // center line
+  ctx.setLineDash([10, 10]);
+  ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
+  ctx.beginPath();
+  ctx.moveTo(w/2, 0); ctx.lineTo(w/2, h);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // AI moves
+  if (playerControl) {
+    leftPaddle.y = mx * h;
+    leftPaddle.y = Math.max(leftPaddle.h/2, Math.min(h - leftPaddle.h/2, leftPaddle.y));
+  } else {
+    aiMove(leftPaddle, ball, -1);
+  }
+  // right paddle always AI but smarter
+  aiMove(rightPaddle, ball, 1);
+  // ball
+  ball.trail.unshift({ x: ball.x, y: ball.y });
+  if (ball.trail.length > 20) ball.trail.pop();
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+  if (ball.y < ball.r) { ball.y = ball.r; ball.vy *= -1; }
+  if (ball.y > h - ball.r) { ball.y = h - ball.r; ball.vy *= -1; }
+  // paddle collision
+  function hitPaddle(p, side) {
+    if (ball.x - ball.r < p.x + p.w && ball.x + ball.r > p.x &&
+        ball.y > p.y - p.h/2 - ball.r && ball.y < p.y + p.h/2 + ball.r) {
+      if ((side === -1 && ball.vx < 0) || (side === 1 && ball.vx > 0)) {
+        ball.vx *= -1.05;
+        const hit = (ball.y - p.y) / (p.h/2);
+        ball.vy = hit * 6;
+        for (let i = 0; i < 10; i++) {
+          particles.push({
+            x: ball.x, y: ball.y,
+            vx: (Math.random() - 0.5) * 6, vy: (Math.random() - 0.5) * 6,
+            life: 1, hue: side === -1 ? 180 : 320, r: 2 + Math.random() * 2
+          });
+        }
+      }
+    }
+  }
+  hitPaddle(leftPaddle, -1);
+  hitPaddle(rightPaddle, 1);
+  // score
+  if (ball.x < 0) { scoreR++; resetBall(1); }
+  if (ball.x > w) { scoreL++; resetBall(-1); }
+  function resetBall(dir) {
+    ball.x = w/2; ball.y = h/2;
+    ball.vx = 5 * dir; ball.vy = (Math.random() - 0.5) * 6;
+    ball.trail = [];
+  }
+  // trail
+  for (let i = 0; i < ball.trail.length; i++) {
+    const p = ball.trail[i];
+    const a = (1 - i / ball.trail.length) * 0.5;
+    ctx.fillStyle = `rgba(255, 255, 255, ${a})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, ball.r * (1 - i / ball.trail.length), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // ball
+  const bg2 = ctx.createRadialGradient(ball.x, ball.y, 0, ball.x, ball.y, ball.r * 4);
+  bg2.addColorStop(0, 'rgba(255, 255, 255, 1)');
+  bg2.addColorStop(0.3, 'rgba(200, 220, 255, 0.5)');
+  bg2.addColorStop(1, 'rgba(200, 220, 255, 0)');
+  ctx.fillStyle = bg2;
+  ctx.fillRect(ball.x - ball.r * 4, ball.y - ball.r * 4, ball.r * 8, ball.r * 8);
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+  ctx.fill();
+  // paddles
+  ctx.fillStyle = '#00ffff';
+  ctx.shadowColor = '#00ffff';
+  ctx.shadowBlur = 15;
+  ctx.fillRect(leftPaddle.x, leftPaddle.y - leftPaddle.h/2, leftPaddle.w, leftPaddle.h);
+  ctx.fillStyle = '#ff00ff';
+  ctx.shadowColor = '#ff00ff';
+  ctx.fillRect(rightPaddle.x, rightPaddle.y - rightPaddle.h/2, rightPaddle.w, rightPaddle.h);
+  ctx.shadowBlur = 0;
+  // particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.life -= 0.03;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    ctx.fillStyle = `hsla(${p.hue}, 100%, 60%, ${p.life})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * p.life, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // scores
+  ctx.fillStyle = 'rgba(0, 255, 255, 0.7)';
+  ctx.font = 'bold 80px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(scoreL, w/2 - 80, 100);
+  ctx.fillStyle = 'rgba(255, 0, 255, 0.7)';
+  ctx.fillText(scoreR, w/2 + 80, 100);
+  ctx.textAlign = 'left';
+  hud.innerHTML = `${playerControl ? 'PLAYER' : 'AI'} vs AI<br>${scoreL} : ${scoreR}`;
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

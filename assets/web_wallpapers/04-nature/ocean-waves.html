@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ocean Waves</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="label">Ocean Waves</div>
+<script>
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0;
+let mx = 0.5, my = 0.5;
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+window.addEventListener('mousemove', e => { mx = e.clientX / w; my = e.clientY / h; });
+function loop() {
+  t += 0.012;
+  // sky/sunset
+  const sky = ctx.createLinearGradient(0, 0, 0, h * 0.55);
+  sky.addColorStop(0, '#0a1a3a');
+  sky.addColorStop(0.5, '#3a2a5a');
+  sky.addColorStop(1, '#ff6a3a');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h * 0.55);
+  // sun
+  const sunY = h * (0.45 + (my - 0.5) * 0.1);
+  const sunGrad = ctx.createRadialGradient(w/2, sunY, 0, w/2, sunY, 80);
+  sunGrad.addColorStop(0, 'rgba(255, 230, 150, 1)');
+  sunGrad.addColorStop(1, 'rgba(255, 100, 50, 0)');
+  ctx.fillStyle = sunGrad;
+  ctx.fillRect(0, 0, w, h);
+  // water layers
+  for (let layer = 0; layer < 6; layer++) {
+    const yBase = h * (0.55 + layer * 0.07);
+    const hue = 200 + layer * 8;
+    const light = 20 + layer * 3;
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (let x = 0; x <= w; x += 4) {
+      const wave = Math.sin(x * 0.005 + t * (1 + layer * 0.3)) * (8 + layer * 2)
+                 + Math.sin(x * 0.015 + t * 1.5 + layer) * 4
+                 + (mx - 0.5) * 10;
+      ctx.lineTo(x, yBase + wave);
+    }
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fillStyle = `hsl(${hue}, 60%, ${light}%)`;
+    ctx.fill();
+  }
+  // reflection of sun on water
+  const reflGrad = ctx.createLinearGradient(0, h * 0.55, 0, h);
+  reflGrad.addColorStop(0, 'rgba(255, 200, 100, 0.4)');
+  reflGrad.addColorStop(1, 'rgba(255, 100, 50, 0)');
+  ctx.fillStyle = reflGrad;
+  for (let i = 0; i < 30; i++) {
+    const y = h * 0.55 + i * (h * 0.45 / 30);
+    const wave = Math.sin(t * 2 + i) * 30;
+    ctx.fillRect(w/2 - 60 + wave, y, 120, 2);
+  }
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

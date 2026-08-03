@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Liquid Metal Blob</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; cursor: none; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="label">Liquid Metal Blob</div>
+<script>
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h;
+let mx = 0, my = 0;
+let blobs = [];
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+window.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
+// trailing blobs
+for (let i = 0; i < 8; i++) {
+  blobs.push({ x: w/2, y: h/2, r: 80 - i * 8, hue: 200 + i * 20 });
+}
+function loop() {
+  ctx.fillStyle = '#020008';
+  ctx.fillRect(0, 0, w, h);
+  // update positions - each blob follows the previous
+  blobs[0].x += (mx - blobs[0].x) * 0.2;
+  blobs[0].y += (my - blobs[0].y) * 0.2;
+  for (let i = 1; i < blobs.length; i++) {
+    blobs[i].x += (blobs[i-1].x - blobs[i].x) * 0.3;
+    blobs[i].y += (blobs[i-1].y - blobs[i].y) * 0.3;
+  }
+  ctx.globalCompositeOperation = 'screen';
+  const t = Date.now() * 0.001;
+  for (let i = blobs.length - 1; i >= 0; i--) {
+    const b = blobs[i];
+    const r = b.r + Math.sin(t + i) * 10;
+    const grad = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, r);
+    grad.addColorStop(0, `hsla(${b.hue}, 100%, 60%, 0.9)`);
+    grad.addColorStop(0.6, `hsla(${b.hue}, 100%, 50%, 0.4)`);
+    grad.addColorStop(1, `hsla(${b.hue}, 100%, 40%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

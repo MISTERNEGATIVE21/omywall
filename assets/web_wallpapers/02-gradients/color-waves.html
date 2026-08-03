@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Color Waves</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+  
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0;
+let mx = 0.5, my = 0.5;
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+window.addEventListener('mousemove', e => { mx = e.clientX / w; my = e.clientY / h; });
+function loop() {
+  t += 0.008;
+  // animated bg hue
+  const baseHue = (t * 20 + mx * 60) % 360;
+  ctx.fillStyle = `hsl(${baseHue}, 60%, 8%)`;
+  ctx.fillRect(0, 0, w, h);
+  const layers = 8;
+  for (let i = 0; i < layers; i++) {
+    const yBase = h * (0.2 + i * 0.1);
+    const hue = (baseHue + i * 30) % 360;
+    const alpha = 0.25 - i * 0.02;
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (let x = 0; x <= w; x += 6) {
+      const y = yBase
+        + Math.sin(x * 0.005 + t * (1 + i * 0.2) + i) * 40
+        + Math.sin(x * 0.012 + t * 0.6 + i * 0.7) * 20
+        + (my - 0.5) * 60;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, yBase - 80, 0, h);
+    grad.addColorStop(0, `hsla(${hue}, 90%, 60%, ${alpha})`);
+    grad.addColorStop(1, `hsla(${hue + 40}, 90%, 30%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

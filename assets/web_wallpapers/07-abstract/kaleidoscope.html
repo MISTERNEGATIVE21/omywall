@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kaleidoscope</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="label">Kaleidoscope</div>
+<script>
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0;
+let mx = 0.5, my = 0.5;
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+window.addEventListener('mousemove', e => { mx = e.clientX / w; my = e.clientY / h; });
+function loop() {
+  t += 0.01;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+  ctx.fillRect(0, 0, w, h);
+  const cx = w/2, cy = h/2;
+  const segments = 12;
+  const R = Math.min(w, h) * 0.45;
+  ctx.save();
+  ctx.translate(cx, cy);
+  for (let s = 0; s < segments; s++) {
+    ctx.save();
+    ctx.rotate((Math.PI * 2 / segments) * s);
+    if (s % 2 === 1) ctx.scale(1, -1);
+    // clip to wedge
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(R, 0);
+    ctx.arc(0, 0, R, 0, Math.PI * 2 / segments);
+    ctx.closePath();
+    ctx.clip();
+    // draw shapes
+    for (let i = 0; i < 5; i++) {
+      const angle = t * (1 + i * 0.3) + i * 0.5;
+      const r = R * (0.2 + i * 0.15) + Math.sin(t * 2 + i) * 20 + (mx - 0.5) * 30;
+      const px = Math.cos(angle) * r;
+      const py = Math.sin(angle) * r;
+      const hue = (t * 30 + i * 60 + (my - 0.5) * 60) % 360;
+      const size = 8 + i * 3 + Math.sin(t * 3 + i) * 4;
+      ctx.fillStyle = `hsla(${hue}, 90%, 60%, 0.7)`;
+      ctx.beginPath();
+      ctx.arc(px, py, size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `hsla(${hue + 30}, 100%, 70%, 0.5)`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(px, py);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

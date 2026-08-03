@@ -3,12 +3,17 @@
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod config;
+mod display;
 mod engine;
 mod gui;
 mod ipc;
 mod logger;
+mod lwe;
+mod steam_scanner;
+mod steam_workshop;
 mod tui;
 mod web_engine;
+mod webkit_render;
 
 use clap::{Parser, Subcommand};
 use std::fs;
@@ -41,12 +46,33 @@ enum Commands {
     Tui,
     /// Launch egui Desktop Settings & Catalog GUI (alias: g)
     #[command(alias = "g")]
-    Gui,
+    Gui {
+        /// Launch minimized in background / system tray
+        #[arg(short, long)]
+        minimize: bool,
+    },
     /// Set a local video/GIF/HTML file as wallpaper (alias: s)
     #[command(alias = "s")]
     Set {
         /// File path to video, GIF, or HTML file
         path: PathBuf,
+    },
+    /// Set a Steam Wallpaper Engine wallpaper directory as wallpaper
+    SetSteam {
+        /// Folder path to Steam Wallpaper Engine item (contains project.json)
+        path: PathBuf,
+        /// Target screen / monitor output name (e.g. eDP-1, HDMI-A-1)
+        #[arg(short, long)]
+        screen: Option<String>,
+    },
+    /// Detect connected displays and multi-monitor geometry
+    DetectDisplays,
+    /// Scan and list installed Steam Wallpaper Engine workshop items
+    SteamList,
+    /// View detailed metadata and properties of a Steam Wallpaper
+    SteamInfo {
+        /// Steam Wallpaper Workshop ID or folder name
+        id: String,
     },
     /// Stream a Web video URL or Web/JS site (alias: u)
     #[command(alias = "u")]
@@ -155,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Box::leak(Box::new(_lock));
             run_daemon(&mut cfg).await?;
         }
-        Some(Commands::Gui) | None => {
+        Some(Commands::Gui { minimize }) => {
             let _lock = match acquire_instance_lock("omywall-gui") {
                 Some(f) => f,
                 None => {
@@ -173,7 +199,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
             Box::leak(Box::new(_lock));
-            gui::run_gui(cfg)?;
+            gui::run_gui(cfg, minimize)?;
+        }
+        None => {
+            let _lock = match acquire_instance_lock("omywall-gui") {
+                Some(f) => f,
+                None => {
+                    let msg = "⚠️ OMYWALL Wallpaper Engine GUI process is already running!";
+                    println!("{}", msg);
+                    return Ok(());
+                }
+            };
+            Box::leak(Box::new(_lock));
+            gui::run_gui(cfg, false)?;
         }
         Some(Commands::Tui) => {
             let _lock = match acquire_instance_lock("omywall-tui") {
@@ -210,6 +248,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 path: abs_path.to_string_lossy().to_string(),
             };
             send_ipc_cmd(&cfg.socket_path, req).await;
+        }
+        Some(Commands::SetSteam { path, screen }) => {
+            let abs_path = fs::canonicalize(&path).unwrap_or(path);
+            let req = IpcRequest::SetSteamWallpaper {
+                path: abs_path.to_string_lossy().to_string(),
+                screen,
+                overrides: None,
+            };
+            send_ipc_cmd(&cfg.socket_path, req).await;
+        }
+        Some(Commands::DetectDisplays) => {
+            let displays = display::detect_displays();
+            println!("\x1b[1;36mDetected Displays / Monitors ({} connected):\x1b[0m", displays.len());
+            for d in displays {
+                println!("  • \x1b[1;33m{}\x1b[0m: {} @ {}Hz (pos: {},{}){}", d.name, d.resolution, d.refresh_rate, d.x, d.y, if d.primary { " [PRIMARY]" } else { "" });
+            }
+        }
+        Some(Commands::SteamList) => {
+            let wallpapers = steam_scanner::scan_steam_wallpapers();
+            println!("\x1b[1;36mFound {} Steam Wallpaper Engine Workshop Item(s):\x1b[0m", wallpapers.len());
+            for w in wallpapers {
+                println!("  • [\x1b[1;32m{}\x1b[0m] \x1b[1;37m{}\x1b[0m (type: {}, author: {})", w.id, w.title, w.wallpaper_type.as_str(), w.author);
+            }
+        }
+        Some(Commands::SteamInfo { id }) => {
+            let wallpapers = steam_scanner::scan_steam_wallpapers();
+            if let Some(w) = wallpapers.iter().find(|x| x.id == id || x.workshop_id == id) {
+                println!("\x1b[1;36mSteam Wallpaper Details:\x1b[0m");
+                println!("  ID:          {}", w.id);
+                println!("  Title:       {}", w.title);
+                println!("  Author:      {}", w.author);
+                println!("  Type:        {}", w.wallpaper_type.as_str());
+                println!("  Path:        {}", w.path.display());
+                println!("  Thumbnail:   {:?}", w.thumbnail);
+                println!("  Properties:  {} custom property definition(s)", w.properties.len());
+                for prop in &w.properties {
+                    println!("    - {} ({}, type: {})", prop.label, prop.key, prop.prop_type);
+                }
+            } else {
+                eprintln!("Steam Wallpaper with ID '{}' not found.", id);
+            }
         }
         Some(Commands::SetUrl { url }) => {
             let req = IpcRequest::SetUrl { url };
@@ -495,6 +574,36 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
 
             let mut quit_signal = false;
             let response = match req {
+                IpcRequest::GetDisplays => {
+                    let displays = display::detect_displays();
+                    IpcResponse::Displays { displays }
+                }
+                IpcRequest::QuerySteamWallpapers => {
+                    let wallpapers = steam_scanner::scan_steam_wallpapers();
+                    IpcResponse::SteamWallpapers { wallpapers }
+                }
+                IpcRequest::SetSteamWallpaper { path, screen, overrides } => {
+                    let path_buf = PathBuf::from(&path);
+                    let res = {
+                        let eng = engine.lock().unwrap();
+                        eng.set_steam_wallpaper(&path_buf, screen.as_deref(), overrides.as_ref())
+                    };
+                    match res {
+                        Ok(_) => {
+                            let mut cfg_guard = config_arc.lock().unwrap();
+                            cfg_guard.default_wallpaper = Some(path_buf);
+                            let _ = cfg_guard.save();
+                            log_info(&format!("IPC: Steam Wallpaper set to {}", path));
+                            IpcResponse::Ok {
+                                message: format!("Steam Wallpaper set to {}", path),
+                            }
+                        }
+                        Err(e) => {
+                            log_error(&format!("IPC SetSteam Error: {}", e));
+                            IpcResponse::Err { message: e }
+                        }
+                    }
+                }
                 IpcRequest::SetWallpaper { path } => {
                     let path_buf = PathBuf::from(&path);
                     let res = {

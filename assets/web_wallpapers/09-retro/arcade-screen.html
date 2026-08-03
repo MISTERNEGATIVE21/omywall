@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Arcade Screen</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+  
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="label">Arcade Screen</div>
+<script>
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0;
+let mx = 0.5, my = 0.5;
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+window.addEventListener('mousemove', e => { mx = e.clientX / w; my = e.clientY / h; });
+function loop() {
+  t += 0.015;
+  // deep gradient
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#000010');
+  g.addColorStop(0.5, '#1a0040');
+  g.addColorStop(1, '#000005');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  // stars
+  for (let i = 0; i < 100; i++) {
+    const sx = (i * 173) % w;
+    const sy = (i * 89) % (h * 0.5);
+    ctx.fillStyle = `rgba(255,255,255,${0.3 + Math.sin(t * 3 + i) * 0.3})`;
+    ctx.fillRect(sx, sy, 1.5, 1.5);
+  }
+  // mountain silhouette
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.moveTo(0, h * 0.7);
+  for (let x = 0; x <= w; x += 20) {
+    const y = h * 0.7 - Math.abs(Math.sin(x * 0.005 + mx * 2)) * 80 - Math.sin(x * 0.012) * 40;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(w, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fill();
+  // glowing sun
+  const sunY = h * (0.5 + (my - 0.5) * 0.15);
+  const sunR = Math.min(w, h) * 0.15;
+  const sg = ctx.createRadialGradient(w/2, sunY, 0, w/2, sunY, sunR * 2);
+  sg.addColorStop(0, '#ffeb3b');
+  sg.addColorStop(0.3, '#ff6f00');
+  sg.addColorStop(0.7, 'rgba(255, 0, 100, 0.4)');
+  sg.addColorStop(1, 'rgba(255, 0, 100, 0)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(0, 0, w, h);
+  // arcade text overlay
+  ctx.fillStyle = '#ff00ff';
+  ctx.shadowColor = '#ff00ff';
+  ctx.shadowBlur = 20;
+  ctx.font = 'bold ' + Math.floor(Math.min(w, h) * 0.08) + 'px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('INSERT COIN', w/2, h * 0.85);
+  ctx.shadowBlur = 0;
+  // blinking
+  if (Math.sin(t * 4) > 0) {
+    ctx.fillStyle = '#00ffff';
+    ctx.shadowColor = '#00ffff';
+    ctx.shadowBlur = 10;
+    ctx.font = Math.floor(Math.min(w, h) * 0.04) + 'px "Courier New", monospace';
+    ctx.fillText('PRESS START', w/2, h * 0.92);
+    ctx.shadowBlur = 0;
+  }
+  ctx.textAlign = 'left';
+  // scanlines
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+  for (let y = 0; y < h; y += 4) ctx.fillRect(0, y, w, 2);
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

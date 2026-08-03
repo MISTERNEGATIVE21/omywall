@@ -9,6 +9,7 @@ use crate::logger::{log_info, log_memory_diagnostic};
 
 pub struct WallpaperEngine {
     mpv_process: Arc<Mutex<Option<Child>>>,
+    lwe_process: Arc<Mutex<Option<Child>>>,
     web_engine: Arc<crate::web_engine::WebEngineManager>,
     widget_process: Arc<Mutex<Option<Child>>>,
     current_wallpaper: Arc<Mutex<Option<String>>>,
@@ -25,6 +26,10 @@ pub struct WallpaperEngine {
     widget_url: Arc<Mutex<Option<String>>>,
     _window_id: u64,
     socket_path: PathBuf,
+}
+
+pub fn find_lwe_binary() -> Option<PathBuf> {
+    crate::lwe::find_binary()
 }
 
 pub fn find_mpvpaper_binary() -> Option<PathBuf> {
@@ -68,6 +73,7 @@ impl WallpaperEngine {
 
         let engine = Self {
             mpv_process: Arc::new(Mutex::new(None)),
+            lwe_process: Arc::new(Mutex::new(None)),
             web_engine: Arc::new(crate::web_engine::WebEngineManager::new()),
             widget_process: Arc::new(Mutex::new(None)),
             current_wallpaper: Arc::new(Mutex::new(None)),
@@ -264,6 +270,33 @@ impl WallpaperEngine {
             return self.set_url(&resolved_str);
         }
 
+        if ext == "pkg" || crate::steam_scanner::is_pkg_file(resolved_path) {
+            let target_path = if resolved_path.is_file() {
+                if let Some(parent) = resolved_path.parent() {
+                    if parent.join("project.json").exists() {
+                        parent
+                    } else {
+                        resolved_path
+                    }
+                } else {
+                    resolved_path
+                }
+            } else {
+                resolved_path
+            };
+            return self.set_steam_wallpaper(target_path, None, None);
+        }
+
+        if resolved_path.is_dir() {
+            let has_project = resolved_path.join("project.json").exists();
+            let has_pkg = std::fs::read_dir(resolved_path).ok().map_or(false, |entries| {
+                entries.flatten().any(|e| crate::steam_scanner::is_pkg_file(&e.path()))
+            });
+            if has_project || has_pkg {
+                return self.set_steam_wallpaper(resolved_path, None, None);
+            }
+        }
+
         if !resolved_path.exists() {
             log_memory_diagnostic();
             return Err(format!("Wallpaper Exception: File does not exist at '{}'", resolved_path.display()));
@@ -432,6 +465,145 @@ impl WallpaperEngine {
         }
     }
 
+    fn stop_lwe_internal(&self) {
+        let mut proc_guard = self.lwe_process.lock().unwrap();
+        if let Some(mut child) = proc_guard.take() {
+            let pid = child.id();
+            let _ = child.kill();
+            let _ = child.wait();
+            if Command::new("kill").args(["-9", &pid.to_string()]).status().is_err() {
+                let _ = Command::new("/usr/bin/kill").args(["-9", &pid.to_string()]).status();
+            }
+        }
+        let _ = Command::new("pkill").args(["-9", "-f", "linux-wallpaperengine"]).status();
+    }
+
+    pub fn set_steam_wallpaper(
+        &self,
+        wallpaper_path: &Path,
+        screen: Option<&str>,
+        overrides: Option<&crate::config::WallpaperOverrides>,
+    ) -> Result<(), String> {
+        let lwe_bin = find_lwe_binary().ok_or_else(|| {
+            "linux-wallpaperengine binary not found. Please install linux-wallpaperengine.".to_string()
+        })?;
+
+        self.stop_mpv_internal();
+        self.web_engine.stop();
+        self.stop_lwe_internal();
+
+        let mut args = Vec::new();
+        let wallpaper_str = wallpaper_path.to_string_lossy().to_string();
+        if let Some(scr) = screen {
+            if !scr.is_empty() {
+                args.push("--screen-root".to_string());
+                args.push(scr.to_string());
+                args.push("--bg".to_string());
+                args.push(wallpaper_str);
+            } else {
+                args.push(wallpaper_str);
+            }
+        } else {
+            args.push(wallpaper_str);
+        }
+
+        let target_fps = overrides.and_then(|o| o.fps).unwrap_or(*self.target_fps.lock().unwrap());
+        if target_fps > 0 {
+            args.push("--fps".to_string());
+            args.push(target_fps.to_string());
+        }
+
+        let is_silent = overrides.and_then(|o| o.silent).unwrap_or(*self.mute.lock().unwrap());
+        if is_silent {
+            args.push("--silent".to_string());
+        } else {
+            let vol = overrides.and_then(|o| o.volume).unwrap_or(*self.volume.lock().unwrap());
+            args.push("--volume".to_string());
+            args.push(vol.to_string());
+        }
+
+        if let Some(scaling) = overrides.and_then(|o| o.scaling.as_ref()) {
+            if !scaling.is_empty() && scaling != "default" {
+                args.push("--scaling".to_string());
+                args.push(scaling.clone());
+            }
+        }
+
+        if overrides.and_then(|o| o.disable_mouse).unwrap_or(false) {
+            args.push("--disable-mouse".to_string());
+        }
+        if overrides.and_then(|o| o.disable_parallax).unwrap_or(false) {
+            args.push("--disable-parallax".to_string());
+        }
+        if overrides.and_then(|o| o.disable_particles).unwrap_or(false) {
+            args.push("--disable-particles".to_string());
+        }
+
+        if let Some(clamp) = overrides.and_then(|o| o.clamp.as_ref()) {
+            if !clamp.is_empty() && clamp != "default" {
+                args.push("--clamp".to_string());
+                args.push(clamp.clone());
+            }
+        }
+
+        if let Some(layer) = overrides.and_then(|o| o.layer.as_ref()) {
+            if !layer.is_empty() {
+                args.push("--layer".to_string());
+                args.push(layer.clone());
+            }
+        }
+
+        if overrides.and_then(|o| o.no_automute).unwrap_or(false) {
+            args.push("--noautomute".to_string());
+        }
+        if overrides.and_then(|o| o.no_audio_processing).unwrap_or(false) {
+            args.push("--no-audio-processing".to_string());
+        }
+        if overrides.and_then(|o| o.no_fullscreen_pause).unwrap_or(false) {
+            args.push("--no-fullscreen-pause".to_string());
+        }
+        if overrides.and_then(|o| o.fullscreen_pause_only_active).unwrap_or(false) {
+            args.push("--fullscreen-pause-only-active".to_string());
+        }
+
+        if let Some(shot) = overrides.and_then(|o| o.screenshot.as_ref()) {
+            if !shot.is_empty() {
+                args.push("--screenshot".to_string());
+                args.push(shot.clone());
+            }
+        }
+
+        if let Some(assets_dir) = crate::steam_scanner::resolve_wallpaper_engine_assets_dir() {
+            args.push("--assets-dir".to_string());
+            args.push(assets_dir.to_string_lossy().to_string());
+        }
+
+        if let Some(ov) = overrides {
+            for (key, val) in &ov.custom_properties {
+                args.push("--set-property".to_string());
+                args.push(format!("{}={}", key, val));
+            }
+        }
+
+        log_info(&format!("Spawning linux-wallpaperengine backend process: {:?} {:?}", lwe_bin.display(), args));
+
+        let mut cmd = Command::new(&lwe_bin);
+        cmd.args(&args);
+
+        let child = cmd.spawn().map_err(|e| format!("Failed to spawn linux-wallpaperengine: {}", e))?;
+        let mut proc_guard = self.lwe_process.lock().unwrap();
+        *proc_guard = Some(child);
+
+        let mut curr = self.current_wallpaper.lock().unwrap();
+        *curr = Some(wallpaper_path.to_string_lossy().to_string());
+        let mut st = self.user_stopped.lock().unwrap();
+        *st = false;
+        let mut p = self.is_paused.lock().unwrap();
+        *p = false;
+
+        Ok(())
+    }
+
     pub fn stop_wallpaper(&self) -> Result<(), String> {
         let mut st = self.user_stopped.lock().unwrap();
         *st = true;
@@ -441,6 +613,7 @@ impl WallpaperEngine {
         self.web_engine.stop();
         self.stop_widget_internal();
         self.stop_mpv_internal();
+        self.stop_lwe_internal();
 
         let mut curr = self.current_wallpaper.lock().unwrap();
         *curr = None;

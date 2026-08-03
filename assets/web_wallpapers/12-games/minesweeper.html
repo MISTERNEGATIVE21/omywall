@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Minesweeper (auto-play)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+  .hud {
+    position: fixed; top: 16px; left: 20px; color: rgba(255,255,255,0.85);
+    font: bold 14px 'Courier New', monospace; pointer-events: none;
+    text-shadow: 0 0 8px rgba(0,0,0,0.8);
+  }
+  .controls {
+    position: fixed; top: 16px; right: 20px; color: rgba(255,255,255,0.6);
+    font: 11px 'Segoe UI', sans-serif; pointer-events: none;
+    text-align: right; line-height: 1.6;
+  }
+  
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="hud" id="hud"></div>
+<div class="controls" id="controls"></div>
+<div class="label">Minesweeper (auto-play)</div>
+<script>
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0;
+let cellSize, gridW, gridH;
+let grid, revealed, flagged, gameOver, won, mineCount;
+let autoTimer = 0;
+const hud = document.getElementById('hud');
+const ctrl = document.getElementById('controls');
+ctrl.innerHTML = 'Auto-playing minesweeper<br>CLICK cell: reveal<br>RIGHT-CLICK: flag<br>R: restart';
+function resize() {
+  w = cv.width = innerWidth; h = cv.height = innerHeight;
+  cellSize = Math.max(20, Math.floor(Math.min(w, h) / 25));
+  gridW = Math.floor(w / cellSize);
+  gridH = Math.floor(h / cellSize);
+  init();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('click', e => {
+  const cx = Math.floor(e.clientX / cellSize);
+  const cy = Math.floor(e.clientY / cellSize);
+  if (cx >= 0 && cx < gridW && cy >= 0 && cy < gridH) reveal(cx, cy);
+});
+window.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const cx = Math.floor(e.clientX / cellSize);
+  const cy = Math.floor(e.clientY / cellSize);
+  if (cx >= 0 && cx < gridW && cy >= 0 && cy < gridH) flagged[cy][cx] = !flagged[cy][cx];
+});
+window.addEventListener('keydown', e => { if (e.key.toLowerCase() === 'r') init(); });
+function init() {
+  grid = []; revealed = []; flagged = [];
+  for (let y = 0; y < gridH; y++) {
+    grid.push([]); revealed.push([]); flagged.push([]);
+    for (let x = 0; x < gridW; x++) {
+      grid[y].push(0); revealed[y].push(false); flagged[y].push(false);
+    }
+  }
+  mineCount = Math.floor(gridW * gridH * 0.15);
+  // place mines
+  let placed = 0;
+  while (placed < mineCount) {
+    const x = Math.floor(Math.random() * gridW);
+    const y = Math.floor(Math.random() * gridH);
+    if (grid[y][x] !== -1) {
+      grid[y][x] = -1;
+      placed++;
+    }
+  }
+  // count neighbors
+  for (let y = 0; y < gridH; y++) {
+    for (let x = 0; x < gridW; x++) {
+      if (grid[y][x] === -1) continue;
+      let c = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && nx < gridW && ny >= 0 && ny < gridH && grid[ny][nx] === -1) c++;
+        }
+      }
+      grid[y][x] = c;
+    }
+  }
+  // reveal some random safe cells
+  for (let i = 0; i < 10; i++) {
+    const x = Math.floor(Math.random() * gridW);
+    const y = Math.floor(Math.random() * gridH);
+    if (grid[y][x] !== -1) reveal(x, y);
+  }
+  gameOver = false; won = false;
+}
+function reveal(x, y) {
+  if (x < 0 || x >= gridW || y < 0 || y >= gridH) return;
+  if (revealed[y][x] || flagged[y][x]) return;
+  revealed[y][x] = true;
+  if (grid[y][x] === -1) {
+    gameOver = true;
+    // reveal all mines
+    for (let yy = 0; yy < gridH; yy++) {
+      for (let xx = 0; xx < gridW; xx++) {
+        if (grid[yy][xx] === -1) revealed[yy][xx] = true;
+      }
+    }
+    return;
+  }
+  if (grid[y][x] === 0) {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        reveal(x + dx, y + dy);
+      }
+    }
+  }
+  // check win
+  let hidden = 0;
+  for (let y = 0; y < gridH; y++) {
+    for (let x = 0; x < gridW; x++) {
+      if (!revealed[y][x] && grid[y][x] !== -1) hidden++;
+    }
+  }
+  if (hidden === 0) won = true;
+}
+function autoPlay() {
+  // find a safe unrevealed cell to reveal
+  const candidates = [];
+  for (let y = 0; y < gridH; y++) {
+    for (let x = 0; x < gridW; x++) {
+      if (!revealed[y][x] && grid[y][x] !== -1 && !flagged[y][x]) {
+        // check if any neighbor is revealed with this count satisfied
+        candidates.push({ x, y });
+      }
+    }
+  }
+  if (candidates.length === 0) return;
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  reveal(pick.x, pick.y);
+}
+resize();
+function loop() {
+  t += 0.02;
+  // bg
+  const bg = ctx.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, '#0a0a1a');
+  bg.addColorStop(1, '#1a0a2a');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+  // auto play
+  if (!gameOver && !won) {
+    autoTimer++;
+    if (autoTimer > 8) {
+      autoPlay();
+      autoTimer = 0;
+    }
+  } else if (gameOver || won) {
+    autoTimer++;
+    if (autoTimer > 180) { init(); autoTimer = 0; }
+  }
+  // cells
+  const numberColors = ['', '#3a86ff', '#06ffa5', '#ffbe0b', '#fb5607', '#ff006e', '#8338ec', '#fff', '#aaa'];
+  for (let y = 0; y < gridH; y++) {
+    for (let x = 0; x < gridW; x++) {
+      const cx = x * cellSize;
+      const cy = y * cellSize;
+      if (revealed[y][x]) {
+        ctx.fillStyle = '#0a0510';
+        ctx.fillRect(cx + 1, cy + 1, cellSize - 2, cellSize - 2);
+        if (grid[y][x] === -1) {
+          ctx.fillStyle = '#ff006e';
+          ctx.beginPath();
+          ctx.arc(cx + cellSize/2, cy + cellSize/2, cellSize * 0.25, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (grid[y][x] > 0) {
+          ctx.fillStyle = numberColors[grid[y][x]];
+          ctx.font = 'bold ' + Math.floor(cellSize * 0.6) + 'px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(grid[y][x], cx + cellSize/2, cy + cellSize/2);
+        }
+      } else {
+        const grad = ctx.createLinearGradient(cx, cy, cx + cellSize, cy + cellSize);
+        grad.addColorStop(0, '#3a3a5a');
+        grad.addColorStop(1, '#2a2a4a');
+        ctx.fillStyle = grad;
+        ctx.fillRect(cx + 1, cy + 1, cellSize - 2, cellSize - 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.1)';
+        ctx.fillRect(cx + 1, cy + 1, cellSize - 2, 2);
+        if (flagged[y][x]) {
+          ctx.fillStyle = '#ff006e';
+          ctx.fillRect(cx + cellSize/2 - 1, cy + cellSize/4, 2, cellSize/2);
+          ctx.beginPath();
+          ctx.moveTo(cx + cellSize/2 + 1, cy + cellSize/4);
+          ctx.lineTo(cx + cellSize * 0.75, cy + cellSize/3);
+          ctx.lineTo(cx + cellSize/2 + 1, cy + cellSize * 0.42);
+          ctx.fill();
+        }
+      }
+    }
+  }
+  // game over / win
+  if (gameOver || won) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = won ? '#06ffa5' : '#ff006e';
+    ctx.font = 'bold 56px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(won ? 'CLEARED!' : 'BOOM!', w/2, h/2);
+    ctx.fillStyle = '#fff';
+    ctx.font = '22px "Segoe UI", sans-serif';
+    ctx.fillText('Restarting...', w/2, h/2 + 50);
+    ctx.textAlign = 'left';
+  }
+  let revCount = 0;
+  for (let y = 0; y < gridH; y++) for (let x = 0; x < gridW; x++) if (revealed[y][x]) revCount++;
+  hud.innerHTML = `MINES: ${mineCount}<br>REVEALED: ${revCount}/${gridW*gridH}`;
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

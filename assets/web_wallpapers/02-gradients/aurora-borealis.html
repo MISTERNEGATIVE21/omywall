@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Aurora Borealis</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+  
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0;
+let mx = 0.5, my = 0.5;
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+window.addEventListener('mousemove', e => { mx = e.clientX / w; my = e.clientY / h; });
+function loop() {
+  t += 0.005;
+  // dark sky
+  const sky = ctx.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, '#020410');
+  sky.addColorStop(0.7, '#0a1428');
+  sky.addColorStop(1, '#040818');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
+  // stars
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  for (let i = 0; i < 80; i++) {
+    const sx = (i * 137.5) % w;
+    const sy = (i * 89.7) % (h * 0.6);
+    const tw = 0.5 + Math.sin(t * 4 + i) * 0.5;
+    ctx.globalAlpha = 0.3 + tw * 0.5;
+    ctx.fillRect(sx, sy, 1.5, 1.5);
+  }
+  ctx.globalAlpha = 1;
+  // aurora bands
+  const bands = [
+    { hue: 140, alpha: 0.4, yOff: 0.3, amp: 80, freq: 0.004, speed: 1 },
+    { hue: 180, alpha: 0.35, yOff: 0.45, amp: 100, freq: 0.003, speed: 0.7 },
+    { hue: 280, alpha: 0.3, yOff: 0.6, amp: 70, freq: 0.005, speed: 1.3 }
+  ];
+  for (const b of bands) {
+    ctx.beginPath();
+    const baseY = h * b.yOff + (my - 0.5) * 50;
+    for (let x = 0; x <= w; x += 4) {
+      const y = baseY + Math.sin(x * b.freq + t * b.speed) * b.amp
+                      + Math.sin(x * b.freq * 2.3 + t * b.speed * 1.5) * b.amp * 0.4;
+      if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, baseY - b.amp, 0, h);
+    grad.addColorStop(0, `hsla(${b.hue}, 100%, 60%, 0)`);
+    grad.addColorStop(0.2, `hsla(${b.hue}, 100%, 60%, ${b.alpha})`);
+    grad.addColorStop(0.6, `hsla(${b.hue + 20}, 100%, 50%, ${b.alpha * 0.3})`);
+    grad.addColorStop(1, `hsla(${b.hue}, 100%, 30%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

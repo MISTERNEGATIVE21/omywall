@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ninja Bamboo Run</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; image-rendering: pixelated; image-rendering: crisp-edges; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+  
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="label">Ninja Bamboo Run</div>
+<script>
+
+function pixel(ctx, x, y, size, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x * size, y * size, size, size);
+}
+function pixelArt(ctx, ox, oy, size, art, palette) {
+  for (let y = 0; y < art.length; y++) {
+    for (let x = 0; x < art[y].length; x++) {
+      const c = art[y][x];
+      if (c !== ' ' && c !== '.' && palette[c]) {
+        ctx.fillStyle = palette[c];
+        ctx.fillRect(ox + x * size, oy + y * size, size, size);
+      }
+    }
+  }
+}
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0, scrollX = 0;
+let mx = 0.5, my = 0.5;
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+window.addEventListener('mousemove', e => { mx = e.clientX / w; my = e.clientY / h; });
+// ninja pixel art (16x20)
+const ninjaRun1 = [
+  '......OOOO......',
+  '.....OOOOOO.....',
+  '....OOOOOOOO....',
+  '....OYYYYYYO....',
+  '....OYKKKKYO....',
+  '....OYKWWKYO....',
+  '....OYKKKKYO....',
+  '....OOOOOOOO....',
+  '...RRRRRRRRRR...',
+  '..RRRRRRRRRRRR..',
+  '..RRROOOOOORRR..',
+  '..RRROOOOOORRR..',
+  '..RRRRRRRRRRRR..',
+  '...RRRRRRRRRR...',
+  '....RR....RR....',
+  '....BB....BB....',
+  '....BB....BB....',
+  '...BBB....BBB...',
+  '..BBBB....BBBB..',
+  '..SSSS....SSSS..',
+];
+const ninjaRun2 = ninjaRun1.map((r, i) => {
+  if (i === 16) return '...BB......BB...';
+  if (i === 17) return '..BBB......BBB..';
+  if (i === 18) return '.BBBB......BBBB.';
+  if (i === 19) return '.SSSS......SSSS.';
+  return r;
+});
+const ninjaJump = ninjaRun1.map((r, i) => {
+  if (i === 14) return '...RR......RR...';
+  if (i === 15) return '..RR........RR..';
+  if (i === 16) return '..BB........BB..';
+  if (i === 17) return '.BBB........BBB.';
+  if (i === 18) return 'BBBB........BBBB';
+  if (i === 19) return 'SSSS........SSSS';
+  return r;
+});
+const pal = {
+  O: '#1a1a1a',  // headband/hair (black)
+  Y: '#ffcc99',  // skin
+  K: '#3a1c00',  // eyes (brown)
+  W: '#fff',     // eye whites
+  R: '#ff8800',  // orange outfit
+  B: '#1a1a1a',  // pants/sandals
+  S: '#5a3a1a',  // shoes
+};
+// leaves
+const leaves = [];
+for (let i = 0; i < 50; i++) {
+  leaves.push({
+    x: Math.random() * w * 2,
+    y: Math.random() * h,
+    vx: -2 - Math.random() * 2,
+    vy: 0.5 + Math.random() * 1.5,
+    rot: Math.random() * Math.PI * 2,
+    vr: (Math.random() - 0.5) * 0.1,
+    size: 6 + Math.random() * 8,
+    hue: 30 + Math.random() * 60,
+    sway: Math.random() * Math.PI * 2
+  });
+}
+// bamboo forest background
+const bamboos = [];
+for (let i = 0; i < 30; i++) {
+  bamboos.push({
+    x: i * 80 + Math.random() * 30,
+    width: 8 + Math.random() * 8,
+    height: h * (0.6 + Math.random() * 0.4),
+    depth: Math.random(),
+    phase: Math.random() * Math.PI * 2
+  });
+}
+let jumpY = 0, jumpVY = 0;
+function loop() {
+  t += 0.05;
+  scrollX += 1.5 + (mx - 0.5) * 2;
+  // sky - sunset Japan
+  const sky = ctx.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, '#ff6b6b');
+  sky.addColorStop(0.4, '#ff8e72');
+  sky.addColorStop(0.7, '#ffb088');
+  sky.addColorStop(1, '#ffd4a3');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
+  // sun
+  const sunX = w * 0.7;
+  const sunY = h * 0.35;
+  const sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 200);
+  sunGrad.addColorStop(0, 'rgba(255, 220, 100, 1)');
+  sunGrad.addColorStop(0.3, 'rgba(255, 150, 80, 0.5)');
+  sunGrad.addColorStop(1, 'rgba(255, 100, 50, 0)');
+  ctx.fillStyle = sunGrad;
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#fff5b0';
+  ctx.beginPath();
+  ctx.arc(sunX, sunY, 60, 0, Math.PI * 2);
+  ctx.fill();
+  // distant mountains (Fuji)
+  ctx.fillStyle = '#5a3a4a';
+  ctx.beginPath();
+  ctx.moveTo(w * 0.3, h * 0.65);
+  ctx.lineTo(w * 0.5, h * 0.35);
+  ctx.lineTo(w * 0.7, h * 0.65);
+  ctx.closePath();
+  ctx.fill();
+  // snow cap
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(w * 0.43, h * 0.5);
+  ctx.lineTo(w * 0.5, h * 0.35);
+  ctx.lineTo(w * 0.57, h * 0.5);
+  ctx.lineTo(w * 0.54, h * 0.48);
+  ctx.lineTo(w * 0.5, h * 0.52);
+  ctx.lineTo(w * 0.46, h * 0.48);
+  ctx.closePath();
+  ctx.fill();
+  // bamboo forest (back to front)
+  bamboos.sort((a, b) => a.depth - b.depth);
+  for (const b of bamboos) {
+    const bx = ((b.x - scrollX * (0.2 + b.depth * 0.5)) % (w + 200) + w + 200) % (w + 200) - 100;
+    const sway = Math.sin(t * 0.5 + b.phase + (mx - 0.5) * 2) * 4;
+    const alpha = 0.4 + b.depth * 0.6;
+    const hue = 90 + b.depth * 20;
+    ctx.fillStyle = `hsla(${hue}, 50%, ${20 + b.depth * 20}%, ${alpha})`;
+    ctx.fillRect(bx + sway, h - b.height, b.width, b.height);
+    // segments
+    ctx.fillStyle = `hsla(${hue}, 50%, ${10 + b.depth * 15}%, ${alpha})`;
+    for (let s = 0; s < 10; s++) {
+      ctx.fillRect(bx + sway - 1, h - b.height + s * b.height / 10, b.width + 2, 3);
+    }
+    // leaves at top
+    ctx.fillStyle = `hsla(${hue + 20}, 60%, ${30 + b.depth * 20}%, ${alpha})`;
+    for (let l = 0; l < 5; l++) {
+      ctx.save();
+      ctx.translate(bx + sway + b.width/2, h - b.height + l * 10);
+      ctx.rotate((l % 2 ? -1 : 1) * 0.7 + Math.sin(t + l) * 0.1);
+      ctx.beginPath();
+      ctx.ellipse(15, 0, 15, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  // ground
+  ctx.fillStyle = '#2a3a1a';
+  ctx.fillRect(0, h - 60, w, 60);
+  ctx.fillStyle = '#3a5a2a';
+  ctx.fillRect(0, h - 60, w, 6);
+  // jumping physics
+  jumpVY += 0.5;
+  jumpY += jumpVY;
+  if (jumpY > 0) { jumpY = 0; jumpVY = 0; }
+  // auto jump
+  if (Math.floor(t * 2) % 4 === 0 && jumpY === 0) {
+    jumpVY = -12;
+  }
+  // ninja
+  const ps = Math.floor(Math.min(w, h) / 35);
+  const px = w * 0.3;
+  const py = h - 60 - ps * 20 + jumpY;
+  const art = jumpY < -5 ? ninjaJump : (Math.floor(t * 8) % 2 === 0 ? ninjaRun1 : ninjaRun2);
+  pixelArt(ctx, px, py, ps, art, pal);
+  // speed lines
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 8; i++) {
+    const ly = py + ps * (3 + i * 2);
+    const lx = ((i * 60 - scrollX * 3) % w + w) % w;
+    ctx.beginPath();
+    ctx.moveTo(lx, ly);
+    ctx.lineTo(lx + 25, ly);
+    ctx.stroke();
+  }
+  // leaves
+  for (const l of leaves) {
+    l.sway += 0.05;
+    l.x += l.vx + Math.sin(l.sway) * 0.5;
+    l.y += l.vy;
+    l.rot += l.vr;
+    if (l.x < -30) { l.x = w + 30; l.y = Math.random() * h; }
+    if (l.y > h + 20) { l.y = -20; l.x = Math.random() * w + w; }
+    ctx.save();
+    ctx.translate(l.x, l.y);
+    ctx.rotate(l.rot);
+    ctx.fillStyle = `hsl(${l.hue}, 70%, 50%)`;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, l.size, l.size * 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = `hsl(${l.hue}, 80%, 30%)`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-l.size, 0); ctx.lineTo(l.size, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // HUD
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 3;
+  ctx.font = 'bold 18px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.strokeText('CHAKRA: 100%', 20, 20);
+  ctx.fillText('CHAKRA: 100%', 20, 20);
+  ctx.strokeText('DISTANCE: ' + Math.floor(scrollX / 10) + 'm', 20, 48);
+  ctx.fillText('DISTANCE: ' + Math.floor(scrollX / 10) + 'm', 20, 48);
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

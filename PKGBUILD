@@ -1,39 +1,30 @@
 # Maintainer: MisterNegative <misternegative21@gmail.com>
 pkgname=omywall
-pkgver=0.1.0.r27.g2c5c9c9
+pkgver=4.5.0
 pkgrel=1
 pkgdesc="Ultra-Lightweight Hardware-Accelerated Video, Web 3D & Desktop Wallpaper Engine with NVIDIA/CUDA Acceleration & Hyprlock Screensaver Integration"
 arch=('x86_64')
 url="https://github.com/MISTERNEGATIVE21/omywall"
 license=('MIT')
 depends=('mpv' 'mpvpaper' 'ffmpeg' 'python' 'python-gobject' 'gtk3' 'gtk-layer-shell' 'webkit2gtk' 'libnotify' 'jq' 'hicolor-icon-theme')
-makedepends=('cargo' 'git')
+makedepends=('cargo')
 optdepends=(
     'hyprlock: Wayland screensaver lockscreen support'
     'hyprland: Wayland tiling compositor support'
     'sway: Sway/wlroots tiling compositor support'
 )
-source=("git+https://github.com/MISTERNEGATIVE21/omywall.git")
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/MISTERNEGATIVE21/omywall/archive/refs/tags/v${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
-pkgver() {
-    cd "${srcdir}/${pkgname}" 2>/dev/null || cd "${pkgname}" 2>/dev/null || true
-    local ver=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
-    if [ -z "$ver" ]; then
-        ver="0.1.0.r$(git rev-list --count HEAD 2>/dev/null || echo 1).g$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
-    fi
-    echo "$ver"
-}
-
 build() {
-    cd "${srcdir}/${pkgname}" 2>/dev/null || cd "${pkgname}" 2>/dev/null || true
+    cd "${srcdir}/${pkgname}-${pkgver}"
     export CARGO_PROFILE_RELEASE_DEBUG=false
     export CARGO_BUILD_JOBS=$(nproc)
     cargo build --release
 }
 
 package() {
-    cd "${srcdir}/${pkgname}" 2>/dev/null || cd "${pkgname}" 2>/dev/null || true
+    cd "${srcdir}/${pkgname}-${pkgver}"
 
     install -Dm755 "target/release/${pkgname}" "${pkgdir}/usr/bin/${pkgname}"
     install -Dm644 "omywall.desktop" "${pkgdir}/usr/share/applications/${pkgname}.desktop"

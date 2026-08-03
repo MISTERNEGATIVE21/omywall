@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mesh Gradient</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  .label {
+    position: fixed; bottom: 16px; right: 20px; color: rgba(255,255,255,0.45);
+    font: 12px 'Segoe UI', system-ui, sans-serif; pointer-events: none;
+    letter-spacing: 0.05em;
+  }
+  
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let w, h, t = 0;
+let mx = 0.5, my = 0.5;
+function resize() { w = cv.width = innerWidth; h = cv.height = innerHeight; }
+window.addEventListener('resize', resize); resize();
+window.addEventListener('mousemove', e => { mx = e.clientX / w; my = e.clientY / h; });
+const blobs = [
+  { x: 0.2, y: 0.3, r: 0.4, hue: 320, sx: 0.0007, sy: 0.0011 },
+  { x: 0.8, y: 0.2, r: 0.35, hue: 260, sx: 0.0009, sy: 0.0006 },
+  { x: 0.5, y: 0.8, r: 0.45, hue: 200, sx: 0.0006, sy: 0.0013 },
+  { x: 0.1, y: 0.9, r: 0.3, hue: 30, sx: 0.0012, sy: 0.0008 },
+  { x: 0.9, y: 0.7, r: 0.4, hue: 160, sx: 0.0008, sy: 0.001 }
+];
+function loop() {
+  t += 16;
+  ctx.fillStyle = '#0a0612';
+  ctx.fillRect(0, 0, w, h);
+  for (const b of blobs) {
+    const x = (b.x + Math.sin(t * b.sx) * 0.15 + (mx - 0.5) * 0.1) * w;
+    const y = (b.y + Math.cos(t * b.sy) * 0.15 + (my - 0.5) * 0.1) * h;
+    const r = b.r * Math.min(w, h);
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, `hsla(${b.hue}, 90%, 55%, 0.75)`);
+    grad.addColorStop(0.5, `hsla(${b.hue}, 90%, 50%, 0.25)`);
+    grad.addColorStop(1, `hsla(${b.hue}, 90%, 40%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+  requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+</body>
+</html>

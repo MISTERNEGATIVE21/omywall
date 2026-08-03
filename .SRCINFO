@@ -1,12 +1,11 @@
 pkgbase = omywall
 	pkgdesc = Ultra-Lightweight Hardware-Accelerated Video, Web 3D & Desktop Wallpaper Engine with NVIDIA/CUDA Acceleration & Hyprlock Screensaver Integration
-	pkgver = 0.1.0.r27.g2c5c9c9
+	pkgver = 4.5.0
 	pkgrel = 1
 	url = https://github.com/MISTERNEGATIVE21/omywall
 	arch = x86_64
 	license = MIT
 	makedepends = cargo
-	makedepends = git
 	depends = mpv
 	depends = mpvpaper
 	depends = ffmpeg
@@ -21,7 +20,7 @@ pkgbase = omywall
 	optdepends = hyprlock: Wayland screensaver lockscreen support
 	optdepends = hyprland: Wayland tiling compositor support
 	optdepends = sway: Sway/wlroots tiling compositor support
-	source = git+https://github.com/MISTERNEGATIVE21/omywall.git
+	source = omywall-4.5.0.tar.gz::https://github.com/MISTERNEGATIVE21/omywall/archive/refs/tags/v4.5.0.tar.gz
 	sha256sums = SKIP
 
 pkgname = omywall
