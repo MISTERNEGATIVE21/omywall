@@ -851,11 +851,17 @@ from gi.repository import Gtk, WebKit2, GLib
 url = sys.argv[1]
 out = sys.argv[2]
 
-win = Gtk.Window()
+if not (url.startswith('http://') or url.startswith('https://') or url.startswith('file://') or url.startswith('data:')):
+    url = 'file://' + os.path.abspath(url)
+
+win = Gtk.Window(Gtk.WindowType.TOPLEVEL)
 win.set_default_size(640, 360)
 win.set_decorated(False)
+win.set_opacity(0.0)
+win.move(-10000, -10000)
 
 webview = WebKit2.WebView()
+webview.connect('load-failed', lambda *args: True)
 settings = webview.get_settings()
 settings.set_enable_webgl(True)
 settings.set_enable_media_stream(True)

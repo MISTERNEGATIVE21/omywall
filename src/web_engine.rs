@@ -59,6 +59,8 @@ except Exception as e:
     sys.exit(1)
 
 target_url = sys.argv[1]
+if not (target_url.startswith('http://') or target_url.startswith('https://') or target_url.startswith('file://') or target_url.startswith('data:')):
+    target_url = 'file://' + os.path.abspath(target_url)
 
 window = Gtk.Window()
 GtkLayerShell.init_for_window(window)
@@ -74,6 +76,7 @@ window.set_support_multidevice(True)
 window.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.POINTER_MOTION_HINT_MASK)
 
 webview = WebKit2.WebView()
+webview.connect('load-failed', lambda *args: True)
 settings = webview.get_settings()
 settings.set_enable_developer_extras(False)
 settings.set_enable_webgl(True)
