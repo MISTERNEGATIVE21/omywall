@@ -26,6 +26,11 @@ struct GifAnim {
 }
 
 pub fn notify_thumb_updated(path: PathBuf) {
+    if let Ok(mut guard) = DECODED_IMAGES.lock() {
+        if let Some(ref mut map) = *guard {
+            map.remove(&path);
+        }
+    }
     if let Ok(mut guard) = UPDATED_THUMBS.lock() {
         let set = guard.get_or_insert_with(HashSet::new);
         set.insert(path);
@@ -97,6 +102,9 @@ fn request_background_image_decode(ctx: egui::Context, path: PathBuf) {
             image::open(&path)
         };
 
+        let is_ok = loaded.is_ok();
+        let is_temp_thumb = path_str.starts_with("/tmp/omywall_thumbs") || path_str.starts_with("/tmp/omywall_workshop_thumbs");
+
         let color_img = match loaded {
             Ok(img) => {
                 let resized = img.thumbnail(384, 216);
@@ -112,8 +120,7 @@ fn request_background_image_decode(ctx: egui::Context, path: PathBuf) {
                     let factor = (x + y) as f32 / (width + height) as f32;
                     let r = (15.0 * (1.0 - factor) + 8.0 * factor) as u8;
                     let g = (20.0 * (1.0 - factor) + 12.0 * factor) as u8;
-                    let b = (35.0 * (1.0 - factor) + 25.0 * factor) as u8;
-                    *pixel = image::Rgb([r, g, b]);
+                    *pixel = image::Rgb([r, g, (35.0 * (1.0 - factor) + 25.0 * factor) as u8]);
                 }
                 for x in 4..=315 {
                     imgbuf.put_pixel(x, 4, image::Rgb([0, 240, 255]));
@@ -129,12 +136,14 @@ fn request_background_image_decode(ctx: egui::Context, path: PathBuf) {
             }
         };
 
-        if let Ok(mut decoded) = DECODED_IMAGES.lock() {
-            let map = decoded.get_or_insert_with(HashMap::new);
-            if map.len() > 120 {
-                map.clear();
+        if is_ok || !is_temp_thumb {
+            if let Ok(mut decoded) = DECODED_IMAGES.lock() {
+                let map = decoded.get_or_insert_with(HashMap::new);
+                if map.len() > 120 {
+                    map.clear();
+                }
+                map.insert(path.clone(), color_img);
             }
-            map.insert(path.clone(), color_img);
         }
         ctx.request_repaint();
 
