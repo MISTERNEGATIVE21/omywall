@@ -799,34 +799,6 @@ fn decode_gif_frames(path: &Path) -> Vec<egui::ColorImage> {
     out
 }
 
-fn generate_web_fallback_image(target_path: &Path) {
-    let width = 320u32;
-    let height = 180u32;
-    let mut imgbuf = image::RgbImage::new(width, height);
-
-    for (x, y, pixel) in imgbuf.enumerate_pixels_mut() {
-        let factor = (x + y) as f32 / (width + height) as f32;
-        let r = (18.0 * (1.0 - factor) + 10.0 * factor) as u8;
-        let g = (23.0 * (1.0 - factor) + 16.0 * factor) as u8;
-        let b = (38.0 * (1.0 - factor) + 28.0 * factor) as u8;
-        *pixel = image::Rgb([r, g, b]);
-    }
-
-    for x in 8..=311 {
-        imgbuf.put_pixel(x, 8, image::Rgb([0, 240, 255]));
-        imgbuf.put_pixel(x, 9, image::Rgb([0, 240, 255]));
-        imgbuf.put_pixel(x, 170, image::Rgb([0, 240, 255]));
-        imgbuf.put_pixel(x, 171, image::Rgb([0, 240, 255]));
-    }
-    for y in 8..=171 {
-        imgbuf.put_pixel(8, y, image::Rgb([0, 240, 255]));
-        imgbuf.put_pixel(9, y, image::Rgb([0, 240, 255]));
-        imgbuf.put_pixel(310, y, image::Rgb([0, 240, 255]));
-        imgbuf.put_pixel(311, y, image::Rgb([0, 240, 255]));
-    }
-
-    let _ = imgbuf.save(target_path);
-}
 
 pub fn get_web_thumbnail_path(ctx: Option<egui::Context>, target: &str) -> Option<PathBuf> {
     let resolved = crate::config::resolve_asset_path(target);
@@ -842,12 +814,11 @@ pub fn get_web_thumbnail_path(ctx: Option<egui::Context>, target: &str) -> Optio
 
     let key = resolved.clone();
     let hash = format!("{:x}", md5_hash(key.as_bytes()));
-    let thumb_file = cache_dir.join(format!("web_{}.jpg", &hash[..8]));
+    let thumb_file = cache_dir.join(format!("web_{}.png", &hash[..8]));
 
     if !thumb_file.exists() {
-        generate_web_fallback_image(&thumb_file);
-        notify_thumb_updated(thumb_file.clone());
         request_web_thumbnail_render(ctx, &resolved, &thumb_file);
+        return None;
     }
 
     Some(thumb_file)
@@ -882,8 +853,7 @@ if not (url.startswith('http://') or url.startswith('https://') or url.startswit
 win = Gtk.Window(Gtk.WindowType.TOPLEVEL)
 win.set_default_size(640, 360)
 win.set_decorated(False)
-win.set_opacity(0.0)
-win.move(-10000, -10000)
+win.realize()
 
 webview = WebKit2.WebView()
 webview.connect('load-failed', lambda *args: True)
@@ -893,6 +863,11 @@ settings.set_enable_media_stream(True)
 settings.set_enable_mediasource(True)
 settings.set_media_playback_requires_user_gesture(False)
 settings.set_allow_file_access_from_file_urls(True)
+try:
+    settings.set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.ALWAYS)
+except Exception:
+    pass
+
 webview.load_uri(url)
 win.add(webview)
 win.show_all()
@@ -903,21 +878,25 @@ def done(webview, res):
         if surface is not None:
             surface.write_to_png(out)
     except Exception as e:
-        sys.stderr.write(str(e) + "\n")
+        sys.stderr.write(f"Snapshot write error: {e}\n")
     Gtk.main_quit()
     return True
 
 def snap():
-    webview.get_snapshot(WebKit2.SnapshotRegion.FULL_DOCUMENT, WebKit2.SnapshotOptions.NONE, None, done)
+    try:
+        webview.get_snapshot(WebKit2.SnapshotRegion.FULL_DOCUMENT, WebKit2.SnapshotOptions.NONE, None, done)
+    except Exception as e:
+        sys.stderr.write(f"Snapshot req error: {e}\n")
+        Gtk.main_quit()
     return False
 
 def on_load(webview, event):
     if event == WebKit2.LoadEvent.FINISHED:
-        GLib.timeout_add(600, snap)
+        GLib.timeout_add(800, snap)
     return True
 
 webview.connect('load-changed', on_load)
-GLib.timeout_add(9000, Gtk.main_quit)
+GLib.timeout_add(10000, Gtk.main_quit)
 Gtk.main()
 "#;
     let _ = std::fs::write(&py_runner, code);
