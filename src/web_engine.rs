@@ -105,6 +105,7 @@ Gtk.main()
         py_cmd.args([py_runner_path.to_string_lossy().as_ref(), &target_url]);
         py_cmd.env("WEBKIT_FORCE_COMPOSITING_MODE", "1");
         py_cmd.env("WEBKIT_DISABLE_COMPOSITING_MODE", "0");
+        py_cmd.env("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
         py_cmd.env("LIBGL_ALWAYS_SOFTWARE", "0");
 
         let is_nvidia = crate::config::detect_system_gpus().iter().any(|g| g.vendor == "NVIDIA");

@@ -852,11 +852,18 @@ pub fn get_web_thumbnail_path(ctx: Option<egui::Context>, target: &str) -> Optio
     Some(thumb_file)
 }
 
+static ACTIVE_WEB_THUMB_RENDERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 fn request_web_thumbnail_render(ctx: Option<egui::Context>, url: &str, out_file: &Path) {
     if let Some(renderer) = crate::webkit_render::global_renderer() {
         renderer.render_thumbnail(url, out_file);
         return;
     }
+
+    if ACTIVE_WEB_THUMB_RENDERS.load(std::sync::atomic::Ordering::Relaxed) >= 1 {
+        return;
+    }
+    ACTIVE_WEB_THUMB_RENDERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     let py_runner = PathBuf::from("/tmp/omywall_web_thumb.py");
     let code = r#"import sys, os
@@ -921,9 +928,13 @@ Gtk.main()
         let _ = Command::new("python3")
             .args([py_runner.to_string_lossy().as_ref(), &url_owned, &out_str])
             .env("WEBKIT_FORCE_COMPOSITING_MODE", "1")
+            .env("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1")
             .env("__NV_PRIME_RENDER_OFFLOAD", "1")
             .env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
             .output();
+
+        ACTIVE_WEB_THUMB_RENDERS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+
         if Path::new(&out_str).exists() {
             notify_thumb_updated(PathBuf::from(&out_str));
             if let Some(c) = ctx_clone {
