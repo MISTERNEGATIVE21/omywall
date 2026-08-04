@@ -69,7 +69,7 @@ pub fn find_mpvpaper_binary() -> Option<PathBuf> {
 impl WallpaperEngine {
     pub fn new(hwdec: &str, gpu_device: Option<String>, target_fps: u32, volume: i64, mute: bool, window_id: u64, screen_id: i64) -> Result<Self, String> {
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
-        let socket_path = PathBuf::from(runtime_dir).join("omywall-mpv.sock");
+        let socket_path = PathBuf::from(runtime_dir).join(format!("omywall-mpv-{}.sock", std::process::id()));
 
         let engine = Self {
             mpv_process: Arc::new(Mutex::new(None)),
@@ -153,7 +153,7 @@ impl WallpaperEngine {
 
             if let Some(mpvpaper_bin) = mpvpaper_path {
                 let mut mpv_opts = format!(
-                    "--input-ipc-server={} --loop-file=inf --image-display-duration=inf --no-osc --no-osd-bar --hwdec={} --volume={} --mute={} --panscan=1.0",
+                    "--config=no --input-ipc-server={} --loop-file=inf --image-display-duration=inf --no-osc --no-osd-bar --hwdec={} --volume={} --mute={} --panscan=1.0",
                     socket_str,
                     effective_hwdec,
                     volume,
@@ -185,6 +185,8 @@ impl WallpaperEngine {
 
                 let mut cmd = Command::new(&mpvpaper_bin);
                 cmd.args(&mpvpaper_args);
+                cmd.env("MPV_HOME", "/tmp/omywall_mpv_isolated");
+                cmd.env("XDG_CONFIG_HOME", "/tmp/omywall_mpv_isolated");
 
                 if is_nvidia {
                     cmd.env("__NV_PRIME_RENDER_OFFLOAD", "1");
@@ -204,6 +206,7 @@ impl WallpaperEngine {
                 log_info("Engine: Falling back to direct mpv background renderer...");
                 let mpv_bin = PathBuf::from("/usr/bin/mpv");
                 let mut mpv_args = vec![
+                    "--config=no".to_string(),
                     format!("--input-ipc-server={}", socket_str),
                     "--loop-file=inf".to_string(),
                     format!("--hwdec={}", effective_hwdec),

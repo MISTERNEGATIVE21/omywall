@@ -1601,9 +1601,10 @@ impl OmywallGuiApp {
         let is_video = matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "flv" | "m4v" | "wmv");
         let is_selected = self.selected_wallpaper.as_ref() == Some(&path.to_path_buf());
         let path_str = path.to_string_lossy();
+        let is_pip_or_active = hovered || is_selected || size.x > 300.0;
 
         if is_video {
-            if hovered || is_selected || size.x > 300.0 {
+            if is_pip_or_active {
                 if let Some(gif_path) = get_gif_preview_path(Some(ctx.clone()), path) {
                     if gif_path.exists() {
                         if let Some(anim) = self.get_gif_animation(ctx, &gif_path) {
@@ -1615,14 +1616,14 @@ impl OmywallGuiApp {
                         }
                     }
                 }
-            }
-            if let Some(video_thumb) = get_thumbnail_path(Some(ctx.clone()), path) {
-                if let Some(tex) = self.get_cached_texture(ctx, &video_thumb) {
-                    ui.add(egui::Image::new(tex).max_size(size).rounding(4.0));
-                    return;
+                if let Some(video_thumb) = get_thumbnail_path(Some(ctx.clone()), path) {
+                    if let Some(tex) = self.get_cached_texture(ctx, &video_thumb) {
+                        ui.add(egui::Image::new(tex).max_size(size).rounding(4.0));
+                        return;
+                    }
                 }
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
             }
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         } else if path_str.starts_with("http://") || path_str.starts_with("https://") || matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp") {
             if let Some(tex) = self.get_cached_texture(ctx, path) {
                 ui.add(egui::Image::new(tex).max_size(size).rounding(4.0));
@@ -1630,16 +1631,22 @@ impl OmywallGuiApp {
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         } else {
-            if let Some(thumb_path) = get_web_thumbnail_path(Some(ctx.clone()), &path_str) {
-                if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
+            let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
+            let hash = format!("{:x}", md5_hash(path_str.as_bytes()));
+            let thumb_file = cache_dir.join(format!("web_{}.png", &hash[..8]));
+
+            if thumb_file.exists() {
+                if let Some(tex) = self.get_cached_texture(ctx, &thumb_file) {
                     ui.add(egui::Image::new(tex).max_size(size).rounding(4.0));
                     return;
                 }
+            } else if is_pip_or_active {
+                request_web_thumbnail_render(Some(ctx.clone()), &path_str, &thumb_file);
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
             }
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
-        // Sleek placeholder while loading
+        // Sleek placeholder while loading or unselected
         egui::Frame::none()
             .fill(egui::Color32::from_rgb(18, 24, 38))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 180, 255)))
