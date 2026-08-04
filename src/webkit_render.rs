@@ -9,11 +9,22 @@ use webkit2gtk::WebViewExt;
 
 pub enum RenderCmd {
     Thumbnail { url: String, out: PathBuf },
+    Live { url: String, out: PathBuf },
+    LiveStop,
+    Shutdown,
+}
+
+#[derive(Clone)]
+struct LiveTarget {
+    out: PathBuf,
+    last_shot: Option<std::time::Instant>,
+    ready_since: Option<std::time::Instant>,
 }
 
 struct State {
     thumb_queue: VecDeque<(String, PathBuf)>,
     current_url: Option<String>,
+    live: Option<LiveTarget>,
 }
 
 pub struct WebkitRenderer {
@@ -21,6 +32,7 @@ pub struct WebkitRenderer {
 }
 
 static GLOBAL_RENDERER: std::sync::Mutex<Option<Arc<WebkitRenderer>>> = std::sync::Mutex::new(None);
+static RENDER_THREAD: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(None);
 
 pub fn init_global_renderer() -> bool {
     let mut guard = match GLOBAL_RENDERER.lock() {
@@ -46,8 +58,13 @@ impl WebkitRenderer {
             .name("omywall-webkit-render".into())
             .spawn(move || render_thread(rx, ready_tx));
 
-        if thread.is_err() {
-            return None;
+        match thread {
+            Err(_) => return None,
+            Ok(handle) => {
+                if let Ok(mut t) = RENDER_THREAD.lock() {
+                    *t = Some(handle);
+                }
+            }
         }
 
         match ready_rx.recv_timeout(Duration::from_secs(4)) {
@@ -61,6 +78,49 @@ impl WebkitRenderer {
             url: to_uri(url),
             out: out.to_path_buf(),
         });
+    }
+
+    pub fn start_live(&self, url: &str, out: &Path) {
+        let _ = self.tx.send(RenderCmd::Live {
+            url: to_uri(url),
+            out: out.to_path_buf(),
+        });
+    }
+
+    pub fn stop_live(&self) {
+        let _ = self.tx.send(RenderCmd::LiveStop);
+    }
+
+    pub fn shutdown(&self) {
+        let _ = self.tx.send(RenderCmd::Shutdown);
+    }
+}
+
+pub fn start_live_pip(url: &str, out: &Path) {
+    if let Some(r) = global_renderer() {
+        r.start_live(url, out);
+    }
+}
+
+pub fn stop_live_pip() {
+    if let Some(r) = global_renderer() {
+        r.stop_live();
+    }
+}
+
+pub fn shutdown_global_renderer() {
+    let mut guard = match GLOBAL_RENDERER.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    if let Some(r) = guard.take() {
+        r.shutdown();
+    }
+    drop(guard);
+    if let Ok(mut t) = RENDER_THREAD.lock() {
+        if let Some(handle) = t.take() {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -79,6 +139,9 @@ fn to_uri(url: &str) -> String {
 
 fn load_url(wv: &webkit2gtk::WebView, st: &Mutex<State>, url: &str) {
     let mut s = st.lock().unwrap();
+    if let Some(live) = s.live.as_mut() {
+        live.ready_since = None;
+    }
     if s.current_url.as_deref() == Some(url) {
         wv.reload();
     } else {
@@ -106,8 +169,12 @@ fn render_thread(rx: Receiver<RenderCmd>, ready: Sender<Result<(), String>>) {
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_decorated(false);
     window.set_default_size(640, 360);
+    window.set_size_request(640, 360);
     window.set_opacity(0.0);
     window.move_(-10000, -10000);
+    window.set_skip_taskbar_hint(true);
+    window.set_skip_pager_hint(true);
+    window.set_accept_focus(false);
 
     let webview = webkit2gtk::WebView::builder().settings(&settings).build();
     window.add(&webview);
@@ -116,6 +183,7 @@ fn render_thread(rx: Receiver<RenderCmd>, ready: Sender<Result<(), String>>) {
     let state = Arc::new(Mutex::new(State {
         thumb_queue: VecDeque::new(),
         current_url: None,
+        live: None,
     }));
 
     let st = state.clone();
@@ -124,7 +192,10 @@ fn render_thread(rx: Receiver<RenderCmd>, ready: Sender<Result<(), String>>) {
         if event != webkit2gtk::LoadEvent::Finished {
             return;
         }
-        let guard = st.lock().unwrap();
+        let mut guard = st.lock().unwrap();
+        if let Some(live) = guard.live.as_mut() {
+            live.ready_since = Some(std::time::Instant::now());
+        }
         if let Some((_url, out)) = guard.thumb_queue.front() {
             let out = out.clone();
             let st2 = st.clone();
@@ -144,13 +215,78 @@ fn render_thread(rx: Receiver<RenderCmd>, ready: Sender<Result<(), String>>) {
                 RenderCmd::Thumbnail { url, out } => {
                     let should_load = {
                         let mut s = state.lock().unwrap();
-                        let was_empty = s.thumb_queue.is_empty();
-                        s.thumb_queue.push_back((url.clone(), out));
-                        was_empty
+                        s.live = None;
+                        if s.thumb_queue.len() > 64 || s.thumb_queue.iter().any(|(u, o)| u == &url && o == &out) {
+                            false
+                        } else {
+                            let was_empty = s.thumb_queue.is_empty();
+                            s.thumb_queue.push_back((url.clone(), out));
+                            was_empty
+                        }
                     };
                     if should_load {
                         load_url(&webview, &state, &url);
                     }
+                }
+                RenderCmd::Live { url, out } => {
+                    let changed = {
+                        let mut s = state.lock().unwrap();
+                        s.thumb_queue.clear();
+                        s.live = Some(LiveTarget {
+                            out,
+                            last_shot: None,
+                            ready_since: None,
+                        });
+                        s.current_url.as_deref() != Some(url.as_str())
+                    };
+                    if changed {
+                        load_url(&webview, &state, &url);
+                    }
+                }
+                RenderCmd::LiveStop => {
+                    let next_url = {
+                        let mut s = state.lock().unwrap();
+                        s.live = None;
+                        s.thumb_queue.front().map(|(u, _)| u.clone())
+                    };
+                    if let Some(url) = next_url {
+                        load_url(&webview, &state, &url);
+                    }
+                }
+                RenderCmd::Shutdown => {
+                    drop(window);
+                    return;
+                }
+            }
+        }
+
+        {
+            let shot = {
+                let mut s = state.lock().unwrap();
+                if let Some(live) = s.live.as_mut() {
+                    let now = std::time::Instant::now();
+                    let page_ready = live
+                        .ready_since
+                        .map(|t| now.duration_since(t) >= Duration::from_millis(400))
+                        .unwrap_or(false);
+                    let due = page_ready
+                        && live
+                            .last_shot
+                            .map(|t| now.duration_since(t) >= Duration::from_millis(200))
+                            .unwrap_or(true);
+                    if due {
+                        live.last_shot = Some(now);
+                        Some(live.out.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+            if let Some(out) = shot {
+                if capture_widget(&webview, &out) {
+                    crate::gui::notify_thumb_updated(out);
                 }
             }
         }
@@ -193,16 +329,13 @@ fn capture_widget(wv: &webkit2gtk::WebView, target: &Path) -> bool {
 fn request_snapshot(wv: &webkit2gtk::WebView, st: &Arc<Mutex<State>>, target: PathBuf) {
     {
         let s = st.lock().unwrap();
-        if s.thumb_queue.is_empty() {
+        if s.thumb_queue.is_empty() || s.live.is_some() {
             return;
         }
     }
 
     if capture_widget(wv, &target) {
         crate::gui::notify_thumb_updated(target.clone());
-        if let Some(ctx) = crate::gui::global_egui_ctx() {
-            ctx.request_repaint();
-        }
     }
 
     let next_url = {
@@ -220,23 +353,51 @@ fn request_snapshot(wv: &webkit2gtk::WebView, st: &Arc<Mutex<State>>, target: Pa
 mod tests {
     use super::*;
 
+    static WEBKIT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    static WEBKIT_TESTS_REMAINING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(2);
+
+    /// GTK may only be initialized once per process, so the shared renderer
+    /// thread must be torn down only after the very last webkit test finishes.
+    fn release_shared_renderer() {
+        if WEBKIT_TESTS_REMAINING.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+            shutdown_global_renderer();
+        }
+    }
+
     fn shared() -> Arc<WebkitRenderer> {
         assert!(init_global_renderer(), "in-process WebKit renderer should initialize");
         global_renderer().expect("global renderer available")
     }
 
     fn wait_for_png(path: &Path) -> bool {
-        for _ in 0..60 {
-            std::thread::sleep(Duration::from_millis(200));
+        for _ in 0..80 {
+            std::thread::sleep(Duration::from_millis(150));
             if path.exists() && path.metadata().map(|m| m.len()).unwrap_or(0) > 0 {
-                return true;
+                if let Ok(img) = image::open(path) {
+                    let img = img.to_rgba8();
+                    let non_black = img.pixels().filter(|p| p.0[0] > 40 || p.0[1] > 40 || p.0[2] > 40).count();
+                    if non_black > 50 {
+                        return true;
+                    }
+                }
             }
         }
         false
     }
 
+    fn open_image_retry(path: &Path) -> image::DynamicImage {
+        for _ in 0..10 {
+            if let Ok(img) = image::open(path) {
+                return img;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        image::open(path).expect("valid PNG after retry")
+    }
+
     #[test]
     fn renders_html_thumbnail_in_process() {
+        let _guard = WEBKIT_TEST_LOCK.lock();
         let renderer = shared();
         let out = std::env::temp_dir().join("omywall_webkit_test.png");
         let _ = std::fs::remove_file(&out);
@@ -247,13 +408,17 @@ mod tests {
         );
 
         assert!(wait_for_png(&out), "thumbnail PNG should be written by the in-process renderer");
-        let img = image::open(&out).expect("valid PNG");
+        let img = open_image_retry(&out).to_rgba8();
         assert!(img.width() > 0 && img.height() > 0);
+        let non_black = img.pixels().filter(|p| p.0[0] > 40 || p.0[1] > 40 || p.0[2] > 40).count();
+        assert!(non_black > 100, "offscreen capture should contain content, got {} non-black px", non_black);
         let _ = std::fs::remove_file(&out);
+        release_shared_renderer();
     }
 
     #[test]
     fn animating_canvas_renders_live_frames() {
+        let _guard = WEBKIT_TEST_LOCK.lock();
         let renderer = shared();
 
         let page = r#"data:text/html,<html><body style='margin:0;background:rgb(20,20,30)'><canvas id='c' width='320' height='180'></canvas>
@@ -271,21 +436,27 @@ mod tests {
         </script></body></html>"#;
 
         let png1 = std::env::temp_dir().join("omywall_anim_test_1.png");
-        let png2 = std::env::temp_dir().join("omywall_anim_test_2.png");
         let _ = std::fs::remove_file(&png1);
-        let _ = std::fs::remove_file(&png2);
 
-        renderer.render_thumbnail(page, &png1);
-        std::thread::sleep(Duration::from_millis(800));
-        renderer.render_thumbnail(page, &png2);
-        std::thread::sleep(Duration::from_millis(800));
+        renderer.start_live(page, &png1);
 
-        assert!(wait_for_png(&png1) && wait_for_png(&png2), "both animation frames should render");
+        assert!(wait_for_png(&png1), "live animation frame 1 should render");
+        let img1 = open_image_retry(&png1).to_rgba8();
 
-        let img1 = image::open(&png1).unwrap().to_rgba8();
-        let img2 = image::open(&png2).unwrap().to_rgba8();
+        // Wait for live loop (runs every 200ms) to capture updated animation frames
+        std::thread::sleep(Duration::from_millis(600));
 
+        let mut img2 = open_image_retry(&png1).to_rgba8();
         let non_black = |img: &image::RgbaImage| img.pixels().filter(|p| p.0[0] > 40 || p.0[1] > 40 || p.0[2] > 40).count();
+        for _ in 0..20 {
+            if non_black(&img2) > 100 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(150));
+            img2 = open_image_retry(&png1).to_rgba8();
+        }
+        renderer.stop_live();
+
         assert!(non_black(&img1) > 100, "frame 1 should contain visible content");
         assert!(non_black(&img2) > 100, "frame 2 should contain visible content");
 
@@ -293,6 +464,6 @@ mod tests {
         assert!(diff > 50, "frames should differ (animation running), diff={}", diff);
 
         let _ = std::fs::remove_file(&png1);
-        let _ = std::fs::remove_file(&png2);
+        release_shared_renderer();
     }
 }

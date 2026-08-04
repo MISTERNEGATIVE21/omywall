@@ -1,6 +1,6 @@
 # Maintainer: MisterNegative <misternegative21@gmail.com>
 pkgname=omywall
-pkgver=4.5.0
+pkgver=5.0.0
 pkgrel=1
 pkgdesc="Ultra-Lightweight Hardware-Accelerated Video, Web 3D & Desktop Wallpaper Engine with NVIDIA/CUDA Acceleration & Hyprlock Screensaver Integration"
 arch=('x86_64')

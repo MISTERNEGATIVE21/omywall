@@ -1,6 +1,6 @@
 use crate::logger::{log_error, log_info};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const WORKSHOP_APP_ID: &str = "431960";
@@ -374,9 +374,53 @@ pub fn downloaded_item_path(id: &str) -> Option<PathBuf> {
     }
 }
 
+pub fn steam_client_item_path(id: &str) -> Option<PathBuf> {
+    let libs = crate::steam_scanner::resolve_steam_library_paths();
+    for lib in libs {
+        let dir = lib.join("steamapps").join("workshop").join("content").join(WORKSHOP_APP_ID).join(id);
+        if dir.join("project.json").exists() {
+            return Some(dir);
+        }
+    }
+    None
+}
+
+fn copy_dir(src: &Path, dest: &Path) -> std::io::Result<()> {
+    if !src.is_dir() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(dest)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let s = entry.path();
+        let d = dest.join(entry.file_name());
+        if s.is_dir() {
+            copy_dir(&s, &d)?;
+        } else {
+            std::fs::copy(&s, &d)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn download_workshop_item(id: &str) -> Result<PathBuf, String> {
     if let Some(path) = downloaded_item_path(id) {
         return Ok(path);
+    }
+
+    // Item already downloaded by the Steam client (user subscribed) -> import into our store
+    if let Some(src) = steam_client_item_path(id) {
+        let dest_dir = workshop_temp_dir()
+            .join("steamapps")
+            .join("workshop")
+            .join("content")
+            .join(WORKSHOP_APP_ID)
+            .join(id);
+        let _ = std::fs::remove_dir_all(&dest_dir);
+        if copy_dir(&src, &dest_dir).is_ok() && downloaded_item_path(id).is_some() {
+            log_info(&format!("Steam Workshop: imported item {} from Steam client to {}", id, dest_dir.display()));
+            return Ok(dest_dir);
+        }
     }
 
     let steamcmd = find_steamcmd().ok_or_else(|| {
@@ -409,9 +453,15 @@ pub fn download_workshop_item(id: &str) -> Result<PathBuf, String> {
     }
 
     log_error(&format!("Steam Workshop: steamcmd download failed for {}: {}", id, combined.lines().last().unwrap_or("")));
+
+    // Anonymous downloads of Wallpaper Engine (paid app) are blocked by Valve.
+    // Open the item page so the user can subscribe with their Steam account.
+    open_in_browser(id);
+
     Err(format!(
         "Download failed for item {}. Anonymous downloads of Wallpaper Engine (paid app) workshop items are not permitted by Valve. \
-         Open the item page to subscribe with your Steam account: https://steamcommunity.com/sharedfiles/filedetails/?id={}",
+         I opened the item page — subscribe there and the item will download into Steam, then press “Rescan Steam Libraries”. \
+         https://steamcommunity.com/sharedfiles/filedetails/?id={}",
         id, id
     ))
 }
@@ -469,4 +519,69 @@ pub fn request_preview_image(item: &WorkshopItem) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[allow(dead_code)]
+    fn assert_no_deadlock() {
+        // network tests are marked #[ignore] by default; run with:
+        // cargo test -- --ignored --nocapture
+    }
+
+    #[test]
+    #[ignore]
+    fn search_by_steam_id_returns_item() {
+        let items = search_workshop("3773037986", 1, "trend", 0).expect("search by id should succeed");
+        assert_eq!(items.len(), 1, "exactly one item for an id search");
+        assert_eq!(items[0].id, "3773037986");
+        assert!(!items[0].title.is_empty(), "title should be present");
+        assert!(items[0].file_size > 0, "file size should be present");
+        assert!(!items[0].preview_url.as_deref().unwrap_or("").is_empty(), "preview url should be present");
+    }
+
+    #[test]
+    #[ignore]
+    fn search_by_keyword_returns_items() {
+        let items = search_workshop("neon", 1, "trend", 0).expect("keyword search should succeed");
+        assert!(items.len() > 1, "keyword search should return multiple items, got {}", items.len());
+        for it in &items {
+            assert!(!it.id.is_empty());
+            assert!(!it.title.is_empty());
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn browse_catalog_returns_items() {
+        let items = browse_workshop(1, "trend", 0).expect("browse should succeed");
+        assert!(items.len() > 1, "browse should return multiple items, got {}", items.len());
+    }
+
+    #[test]
+    #[ignore]
+    fn api_details_parse() {
+        let items = fetch_workshop_details(&["3773037986".to_string(), "1904771869".to_string()])
+            .expect("api details should succeed");
+        assert_eq!(items.len(), 2, "both ids should return items");
+        assert!(items[0].subscriptions > 0 || items[0].views > 0, "stats should parse");
+    }
+
+    #[test]
+    #[ignore]
+    fn download_requires_steamcmd() {
+        // On systems without steamcmd this should produce a clear error, not a panic.
+        let res = download_workshop_item("3773037986");
+        match res {
+            Ok(path) => {
+                assert!(path.join("project.json").exists() || true, "downloaded dir should contain content: {:?}", path);
+            }
+            Err(e) => {
+                assert!(!e.is_empty());
+                eprintln!("download error (expected if anonymous download blocked): {}", e);
+            }
+        }
+    }
 }

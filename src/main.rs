@@ -6,6 +6,7 @@ mod config;
 mod display;
 mod engine;
 mod gui;
+mod iced_gui;
 mod ipc;
 mod logger;
 mod lwe;
@@ -13,7 +14,10 @@ mod steam_scanner;
 mod steam_workshop;
 mod tui;
 mod web_engine;
+mod web_layer;
 mod webkit_render;
+pub mod video_render;
+pub mod servo_render;
 
 use clap::{Parser, Subcommand};
 use std::fs;
@@ -146,6 +150,12 @@ enum Commands {
     /// Stop background daemon (alias: k)
     #[command(alias = "k")]
     Stop,
+    /// Internal: render a web URL as a background layer-shell surface
+    #[command(hide = true)]
+    WebLayer {
+        /// URL or local path to render as wallpaper
+        url: String,
+    },
 }
 
 struct SlideshowState {
@@ -381,6 +391,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Stop) => {
             send_ipc_cmd(&cfg.socket_path, IpcRequest::QuitDaemon).await;
+        }
+        Some(Commands::WebLayer { url }) => {
+            crate::web_layer::run(&url)?;
         }
     }
 

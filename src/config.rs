@@ -282,7 +282,8 @@ fn default_web_bookmarks() -> Vec<WebBookmark> {
 impl Default for Config {
     fn default() -> Self {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/user"));
-        let default_wall_dir = home.join("Pictures").join("Wallpapers");
+        let default_wall_dir = home.join(".local").join("share").join("omywall").join("wallpapers");
+        let _ = std::fs::create_dir_all(&default_wall_dir);
 
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
             .map(PathBuf::from)
@@ -319,24 +320,36 @@ impl Default for Config {
 impl Config {
     pub fn config_path() -> PathBuf {
         let base_config = dirs::config_dir().unwrap_or_else(|| PathBuf::from("/home/user/.config"));
-        let new_path = base_config.join("omywall").join("config.toml");
+        let lua_path = base_config.join("omywall").join("config.lua");
+        let toml_path = base_config.join("omywall").join("config.toml");
         let old_path = base_config.join("omarchy-wall").join("config.toml");
 
-        if !new_path.exists() && old_path.exists() {
-            // Migrate old config if present
-            if let Some(parent) = new_path.parent() {
-                let _ = fs::create_dir_all(parent);
+        if !lua_path.exists() {
+            if toml_path.exists() {
+                if let Ok(content) = fs::read_to_string(&toml_path) {
+                    if let Ok(cfg) = toml::from_str::<Config>(&content) {
+                        let _ = cfg.save_lua_to_path(&lua_path);
+                    }
+                }
+            } else if old_path.exists() {
+                if let Ok(content) = fs::read_to_string(&old_path) {
+                    if let Ok(cfg) = toml::from_str::<Config>(&content) {
+                        let _ = cfg.save_lua_to_path(&lua_path);
+                    }
+                }
             }
-            let _ = fs::copy(&old_path, &new_path);
         }
-        new_path
+        lua_path
     }
 
     pub fn load() -> Self {
         let path = Self::config_path();
         if path.exists() {
             if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(mut cfg) = toml::from_str::<Config>(&content) {
+                let lua = mlua::Lua::new();
+                use mlua::LuaSerdeExt;
+                let parsed: Result<Config, _> = lua.load(&content).eval::<mlua::Value>().and_then(|val| lua.from_value::<Config>(val));
+                if let Ok(mut cfg) = parsed {
                     cfg.saved_web_wallpapers.retain(|b| {
                         if b.url.contains("clock.html") || b.url.contains("cyber_clock.html") {
                             return false;
@@ -362,15 +375,21 @@ impl Config {
         cfg
     }
 
+
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         let path = Self::config_path();
+        self.save_lua_to_path(&path)
+    }
+
+    pub fn save_lua_to_path(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let content = toml::to_string_pretty(self)?;
-        fs::write(path, content)?;
+        let lua_content = format_config_as_lua(self)?;
+        fs::write(path, lua_content)?;
         Ok(())
     }
+
 
     pub fn is_autostart_enabled() -> bool {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/user"));
@@ -467,7 +486,7 @@ X-GNOME-Autostart-enabled=true
         let bg_path = if raw_bg != "screenshot" && !raw_bg.starts_with('#') {
             let ext = Path::new(&raw_bg).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
             if matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "html" | "htm" | "js") {
-                if let Some(thumb) = crate::gui::get_web_thumbnail_path(None, &raw_bg) {
+                if let Some(thumb) = crate::gui::get_web_thumbnail_path(&raw_bg) {
                     thumb.to_string_lossy().to_string()
                 } else {
                     raw_bg
@@ -747,7 +766,7 @@ pub fn get_available_hwdec_options() -> Vec<(&'static str, &'static str, &'stati
 static LAST_CPU_IDLE: AtomicU64 = AtomicU64::new(0);
 static LAST_CPU_TOTAL: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SystemMetrics {
     pub cpu_usage: f32,
     pub ram_used_mb: u64,
@@ -763,7 +782,7 @@ pub fn get_system_metrics() -> SystemMetrics {
     let mut ram_total_mb = 0u64;
     let mut gpu_usage = 0.0f32;
     let mut vram_used_mb = 0u64;
-    let mut gpu_name = "Integrated Graphics".to_string();
+    let mut gpu_name = String::new();
 
     if let Ok(stat) = fs::read_to_string("/proc/stat") {
         if let Some(first_line) = stat.lines().next() {
@@ -825,14 +844,20 @@ pub fn get_system_metrics() -> SystemMetrics {
     }
 
     if gpu_name.is_empty() {
-        let gpus = detect_system_gpus();
-        if let Ok(busy) = fs::read_to_string("/sys/class/drm/card0/device/gpu_busy_percent")
-            .or_else(|_| fs::read_to_string("/sys/class/drm/card1/device/gpu_busy_percent"))
-        {
-            gpu_usage = busy.trim().parse().unwrap_or(0.0);
+        for card_idx in 0..=3 {
+            let busy_path = format!("/sys/class/drm/card{}/device/gpu_busy_percent", card_idx);
+            if let Ok(busy) = fs::read_to_string(&busy_path) {
+                if let Ok(val) = busy.trim().parse::<f32>() {
+                    gpu_usage = val;
+                    break;
+                }
+            }
         }
+        let gpus = detect_system_gpus();
         if let Some(gpu) = gpus.first() {
             gpu_name = gpu.name.clone();
+        } else {
+            gpu_name = "Auto Graphics Processing Unit".to_string();
         }
     }
 
@@ -845,3 +870,69 @@ pub fn get_system_metrics() -> SystemMetrics {
         gpu_name,
     }
 }
+
+fn is_valid_lua_identifier(s: &str) -> bool {
+    let keywords = [
+        "and", "break", "do", "else", "elseif", "end", "false", "for",
+        "function", "goto", "if", "in", "local", "nil", "not", "or",
+        "repeat", "return", "then", "true", "until", "while",
+    ];
+    if keywords.contains(&s) || s.is_empty() {
+        return false;
+    }
+    let mut chars = s.chars();
+    let first = chars.next().unwrap();
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn json_val_to_lua(val: &serde_json::Value, indent: usize) -> String {
+    let ind = "  ".repeat(indent);
+    match val {
+        serde_json::Value::Null => "nil".to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => format!("{:?}", s),
+        serde_json::Value::Array(arr) => {
+            if arr.is_empty() {
+                "{}".to_string()
+            } else {
+                let inner_ind = "  ".repeat(indent + 1);
+                let items: Vec<String> = arr.iter().map(|item| format!("{}{}", inner_ind, json_val_to_lua(item, indent + 1))).collect();
+                format!("{{\n{}\n{}}}", items.join(",\n"), ind)
+            }
+        }
+        serde_json::Value::Object(obj) => {
+            if obj.is_empty() {
+                "{}".to_string()
+            } else {
+                let inner_ind = "  ".repeat(indent + 1);
+                let mut keys: Vec<&String> = obj.keys().collect();
+                keys.sort();
+                let items: Vec<String> = keys
+                    .into_iter()
+                    .map(|k| {
+                        let v = &obj[k];
+                        let key_str = if is_valid_lua_identifier(k) {
+                            k.clone()
+                        } else {
+                            format!("[{:?}]", k)
+                        };
+                        format!("{}{key_str} = {}", inner_ind, json_val_to_lua(v, indent + 1))
+                    })
+                    .collect();
+                format!("{{\n{}\n{}}}", items.join(",\n"), ind)
+            }
+        }
+
+    }
+}
+
+pub fn format_config_as_lua(cfg: &Config) -> Result<String, Box<dyn std::error::Error>> {
+    let json_val = serde_json::to_value(cfg)?;
+    let lua_tbl = json_val_to_lua(&json_val, 0);
+    Ok(format!("-- OMYWALL Wallpaper Engine Configuration (Lua Script)\nreturn {}\n", lua_tbl))
+}
+
