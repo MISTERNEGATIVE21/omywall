@@ -52,6 +52,65 @@ fn http_get(url: &str) -> Result<String, String> {
     resp.text().map_err(|e| format!("http read error: {}", e))
 }
 
+pub fn search_workshop(query: &str, page: u32, sort: &str, days: i64) -> Result<Vec<WorkshopItem>, String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return browse_workshop(page, sort, days);
+    }
+
+    if trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return fetch_workshop_details(&[trimmed.to_string()]);
+    }
+
+    let mut encoded = String::new();
+    for c in trimmed.chars() {
+        match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => encoded.push(c),
+            ' ' => encoded.push_str("+"),
+            _ => encoded.push_str(&format!("%{:02X}", c as u32)),
+        }
+    }
+
+    let mut url = format!("https://steamcommunity.com/workshop/browse/?appid=431960&section=readytouseitems&searchtext={}&p={}", encoded, page.max(1));
+    let sort_key = match sort {
+        "trend" => "trend",
+        "top_rated" => "toprated",
+        "most_subscribed" => "totaluniquesubscribers",
+        "newest" => "timeupdated",
+        _ => "trend",
+    };
+    url.push_str("&browsesort=");
+    url.push_str(sort_key);
+    if days > 0 {
+        url.push_str("&days=");
+        url.push_str(&days.to_string());
+    }
+
+    let html = http_get(&url)?;
+    let mut ids = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for cap in html.match_indices("sharedfiles/filedetails/?id=") {
+        let start = cap.0 + "sharedfiles/filedetails/?id=".len();
+        let id: String = html[start..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if !id.is_empty() && seen.insert(id.clone()) {
+            ids.push(id);
+        }
+    }
+
+    if ids.is_empty() {
+        return parse_browse_html(&html);
+    }
+
+    match fetch_workshop_details(&ids) {
+        Ok(items) if !items.is_empty() => Ok(items),
+        _ => parse_browse_html(&html),
+    }
+}
+
 pub fn browse_workshop(page: u32, sort: &str, days: i64) -> Result<Vec<WorkshopItem>, String> {
     let mut url = format!("{}&p={}", BROWSE_URL, page.max(1));
     let sort_key = match sort {

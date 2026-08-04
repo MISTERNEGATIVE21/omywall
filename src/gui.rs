@@ -414,6 +414,7 @@ struct OmywallGuiApp {
     workshop_page: u32,
     workshop_sort: String,
     workshop_days: i64,
+    workshop_query: String,
     workshop_loading: bool,
     workshop_status: String,
     workshop_downloading: Option<String>,
@@ -1001,6 +1002,7 @@ impl OmywallGuiApp {
             workshop_page: 1,
             workshop_sort: "trend".to_string(),
             workshop_days: 7,
+            workshop_query: String::new(),
             workshop_loading: false,
             workshop_status: String::new(),
             workshop_downloading: None,
@@ -1618,17 +1620,20 @@ impl OmywallGuiApp {
     fn draw_asset_thumb(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, path: &Path, hovered: bool, size: egui::Vec2) {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
         let is_video = matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "flv" | "m4v" | "wmv");
-
         let is_selected = self.selected_wallpaper.as_ref() == Some(&path.to_path_buf());
-        if (hovered || is_selected) && is_video {
-            if let Some(gif_path) = get_gif_preview_path(Some(ctx.clone()), path) {
-                if gif_path.exists() {
-                    if let Some(anim) = self.get_gif_animation(ctx, &gif_path) {
-                        let time = ui.input(|i| i.time);
-                        let idx = ((time * 1000.0) / anim.frame_delay_ms as f64) as usize % anim.frames.len();
-                        ui.add(egui::Image::new(&anim.frames[idx]).fit_to_exact_size(size).rounding(4.0));
-                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(anim.frame_delay_ms.max(50)));
-                        return;
+        let path_str = path.to_string_lossy();
+
+        if is_video {
+            if hovered || is_selected || size.x > 300.0 {
+                if let Some(gif_path) = get_gif_preview_path(Some(ctx.clone()), path) {
+                    if gif_path.exists() {
+                        if let Some(anim) = self.get_gif_animation(ctx, &gif_path) {
+                            let time = ui.input(|i| i.time);
+                            let idx = ((time * 1000.0) / anim.frame_delay_ms as f64) as usize % anim.frames.len();
+                            ui.add(egui::Image::new(&anim.frames[idx]).fit_to_exact_size(size).rounding(4.0));
+                            ui.ctx().request_repaint_after(std::time::Duration::from_millis(anim.frame_delay_ms.max(50)));
+                            return;
+                        }
                     }
                 }
             }
@@ -1638,32 +1643,35 @@ impl OmywallGuiApp {
                     return;
                 }
             }
-        }
-
-        let path_str = path.to_string_lossy();
-        if path_str.starts_with("http://") || path_str.starts_with("https://") || matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp") {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        } else if path_str.starts_with("http://") || path_str.starts_with("https://") || matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp") {
             if let Some(tex) = self.get_cached_texture(ctx, path) {
                 ui.add(egui::Image::new(tex).max_size(size).rounding(4.0));
                 return;
             }
-        }
-
-        if let Some(thumb_path) = get_web_thumbnail_path(Some(ctx.clone()), &path_str) {
-            if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
-                ui.add(egui::Image::new(tex).max_size(size).rounding(4.0));
-                return;
-            }
-            ctx.request_repaint_after(std::time::Duration::from_millis(150));
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         } else {
-            ctx.request_repaint_after(std::time::Duration::from_millis(150));
+            if let Some(thumb_path) = get_web_thumbnail_path(Some(ctx.clone()), &path_str) {
+                if let Some(tex) = self.get_cached_texture(ctx, &thumb_path) {
+                    ui.add(egui::Image::new(tex).max_size(size).rounding(4.0));
+                    return;
+                }
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
 
+        // Sleek placeholder while loading
         egui::Frame::none()
-            .fill(egui::Color32::from_rgb(14, 18, 28))
+            .fill(egui::Color32::from_rgb(18, 24, 38))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 180, 255)))
             .rounding(4.0)
             .show(ui, |ui| {
                 ui.set_width(size.x);
                 ui.set_height(size.y);
+                ui.centered_and_justified(|ui| {
+                    let label = if is_video { "🎬 Video" } else if matches!(ext.as_str(), "html" | "htm" | "js") { "🌐 Web 3D" } else { "🖼 Media" };
+                    ui.label(egui::RichText::new(label).color(egui::Color32::from_rgb(0, 240, 255)).small().strong());
+                });
             });
     }
 }
@@ -2183,7 +2191,47 @@ impl eframe::App for OmywallGuiApp {
                                 });
                             }
 
-                            // Browse controls
+                            // Search & Browse controls
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("🔍 Search ID / Query:").strong().color(egui::Color32::from_rgb(0, 240, 255)));
+                                let search_edit = ui.add(egui::TextEdit::singleline(&mut self.workshop_query).hint_text("Enter Workshop ID (e.g. 3773037986) or keyword...").desired_width(240.0));
+                                let search_btn = egui::Button::new(egui::RichText::new("🔍 Search").strong()).fill(egui::Color32::from_rgb(0, 140, 255)).rounding(6.0);
+                                if ui.add(search_btn).clicked() || (search_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                                    self.workshop_loading = true;
+                                    self.workshop_status = format!("Searching Workshop for '{}'...", self.workshop_query);
+                                    let query = self.workshop_query.clone();
+                                    let page = self.workshop_page;
+                                    let sort = self.workshop_sort.clone();
+                                    let days = self.workshop_days;
+                                    let ctx2 = ctx.clone();
+                                    std::thread::spawn(move || {
+                                        let res = crate::steam_workshop::search_workshop(&query, page, &sort, days);
+                                        if let Ok(mut g) = WORKSHOP_BROWSE_RESULT.lock() {
+                                            *g = Some(res);
+                                        }
+                                        ctx2.request_repaint();
+                                    });
+                                }
+                                if !self.workshop_query.is_empty() {
+                                    if ui.button("✖ Clear").clicked() {
+                                        self.workshop_query.clear();
+                                        self.workshop_loading = true;
+                                        self.workshop_status = "Loading Workshop catalog...".to_string();
+                                        let page = self.workshop_page;
+                                        let sort = self.workshop_sort.clone();
+                                        let days = self.workshop_days;
+                                        let ctx2 = ctx.clone();
+                                        std::thread::spawn(move || {
+                                            let res = crate::steam_workshop::browse_workshop(page, &sort, days);
+                                            if let Ok(mut g) = WORKSHOP_BROWSE_RESULT.lock() {
+                                                *g = Some(res);
+                                            }
+                                            ctx2.request_repaint();
+                                        });
+                                    }
+                                }
+                            });
+                            ui.add_space(6.0);
                             ui.horizontal(|ui| {
                                 ui.label(egui::RichText::new("Browse:").strong().color(egui::Color32::from_rgb(255, 190, 50)));
                                 egui::ComboBox::from_id_salt("ws_sort_combo")
@@ -2204,12 +2252,13 @@ impl eframe::App for OmywallGuiApp {
                                     self.workshop_page -= 1;
                                     self.workshop_loading = true;
                                     self.workshop_status = format!("Loading page {}...", self.workshop_page);
+                                    let query = self.workshop_query.clone();
                                     let page = self.workshop_page;
                                     let sort = self.workshop_sort.clone();
                                     let days = self.workshop_days;
                                     let ctx2 = ctx.clone();
                                     std::thread::spawn(move || {
-                                        let res = crate::steam_workshop::browse_workshop(page, &sort, days);
+                                        let res = crate::steam_workshop::search_workshop(&query, page, &sort, days);
                                         if let Ok(mut g) = WORKSHOP_BROWSE_RESULT.lock() {
                                             *g = Some(res);
                                         }
@@ -2221,30 +2270,13 @@ impl eframe::App for OmywallGuiApp {
                                     self.workshop_page += 1;
                                     self.workshop_loading = true;
                                     self.workshop_status = format!("Loading page {}...", self.workshop_page);
+                                    let query = self.workshop_query.clone();
                                     let page = self.workshop_page;
                                     let sort = self.workshop_sort.clone();
                                     let days = self.workshop_days;
                                     let ctx2 = ctx.clone();
                                     std::thread::spawn(move || {
-                                        let res = crate::steam_workshop::browse_workshop(page, &sort, days);
-                                        if let Ok(mut g) = WORKSHOP_BROWSE_RESULT.lock() {
-                                            *g = Some(res);
-                                        }
-                                        ctx2.request_repaint();
-                                    });
-                                }
-                                let browse_btn = egui::Button::new(egui::RichText::new("🔍 Search Workshop").strong())
-                                    .fill(egui::Color32::from_rgb(0, 120, 255))
-                                    .rounding(6.0);
-                                if ui.add(browse_btn).clicked() {
-                                    self.workshop_loading = true;
-                                    self.workshop_status = "Loading Workshop catalog...".to_string();
-                                    let page = self.workshop_page;
-                                    let sort = self.workshop_sort.clone();
-                                    let days = self.workshop_days;
-                                    let ctx2 = ctx.clone();
-                                    std::thread::spawn(move || {
-                                        let res = crate::steam_workshop::browse_workshop(page, &sort, days);
+                                        let res = crate::steam_workshop::search_workshop(&query, page, &sort, days);
                                         if let Ok(mut g) = WORKSHOP_BROWSE_RESULT.lock() {
                                             *g = Some(res);
                                         }
