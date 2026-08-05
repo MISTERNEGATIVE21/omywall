@@ -1,8 +1,9 @@
 use iced::theme::Theme;
 use iced::widget::{
     button, checkbox, column, container, image, mouse_area,
-    row, rule, scrollable, slider, space, text,
+    row, rule, scrollable, slider, space, text, text_input,
 };
+
 use iced::window;
 use iced::{Background, Border, Color, Element, Length, Subscription, Task};
 
@@ -22,16 +23,19 @@ use crate::steam_workshop::WorkshopItem;
 
 type Elem<'a> = Element<'a, Message>;
 
-const CYAN: Color = Color::from_rgb(0.0, 0.94, 1.0);
-const EMERALD: Color = Color::from_rgb(0.0, 1.0, 0.59);
-const AMBER: Color = Color::from_rgb(1.0, 0.75, 0.2);
-const SOFT_TEXT: Color = Color::from_rgb(0.55, 0.61, 0.71);
-const DIM_TEXT: Color = Color::from_rgb(0.35, 0.41, 0.51);
-const CARD_BG: Color = Color::from_rgb(0.086, 0.106, 0.165);
-const CARD_BG_SEL: Color = Color::from_rgb(0.118, 0.188, 0.294);
-const CARD_BG_ACTIVE: Color = Color::from_rgb(0.047, 0.157, 0.11);
-const CARD_STROKE: Color = Color::from_rgb(0.137, 0.176, 0.255);
-const PANEL_BG: Color = Color::from_rgb(0.039, 0.047, 0.078);
+const CYAN: Color = Color::from_rgb(0.18, 0.83, 0.78);
+
+const EMERALD: Color = Color::from_rgb(0.06, 0.92, 0.55);
+const AMBER: Color = Color::from_rgb(0.98, 0.65, 0.12);
+const PURPLE: Color = Color::from_rgb(0.66, 0.33, 0.97);
+const SOFT_TEXT: Color = Color::from_rgb(0.58, 0.64, 0.76);
+const DIM_TEXT: Color = Color::from_rgb(0.38, 0.44, 0.56);
+const CARD_BG: Color = Color::from_rgb(0.06, 0.08, 0.14);
+const CARD_BG_SEL: Color = Color::from_rgb(0.09, 0.15, 0.26);
+const CARD_BG_ACTIVE: Color = Color::from_rgb(0.04, 0.14, 0.10);
+const CARD_STROKE: Color = Color::from_rgb(0.12, 0.16, 0.26);
+const PANEL_BG: Color = Color::from_rgb(0.04, 0.05, 0.09);
+
 
 // ---------------------------------------------------------------------------
 // Background-result plumbing (shared with webkit_render + steam_workshop)
@@ -101,8 +105,10 @@ enum AppTab {
     Installed,
     SteamWorkshop,
     Displays,
+    Screensaver,
     Settings,
 }
+
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum CategoryFilter {
@@ -163,6 +169,107 @@ fn theme_for(scheme: ThemeScheme) -> Theme {
     }
 }
 
+fn btn_primary<'a>(txt: &'a str) -> iced::widget::Button<'a, Message> {
+    button(text(txt).size(13).color(CYAN))
+        .padding([8, 14])
+        .style(|_theme, status| {
+            let bg = match status {
+                iced::widget::button::Status::Hovered => Color::from_rgb(0.08, 0.16, 0.28),
+                iced::widget::button::Status::Pressed => Color::from_rgb(0.04, 0.10, 0.20),
+                _ => CARD_BG,
+            };
+            iced::widget::button::Style {
+                background: Some(Background::Color(bg)),
+                text_color: CYAN,
+                border: Border {
+                    color: CYAN,
+                    width: 1.5,
+                    radius: 8.0.into(),
+                },
+                shadow: iced::Shadow::default(),
+                snap: true,
+            }
+        })
+}
+
+fn btn_tab<'a>(txt: &'a str, is_active: bool) -> iced::widget::Button<'a, Message> {
+    let text_color = if is_active { CYAN } else { SOFT_TEXT };
+    let border_color = if is_active { CYAN } else { CARD_STROKE };
+    let bg_color = if is_active { CARD_BG_SEL } else { CARD_BG };
+
+    button(text(txt).size(13).color(text_color))
+        .padding([8, 16])
+        .style(move |_theme, status| {
+            let bg = match status {
+                iced::widget::button::Status::Hovered => CARD_BG_SEL,
+                _ => bg_color,
+            };
+            iced::widget::button::Style {
+                background: Some(Background::Color(bg)),
+                text_color,
+                border: Border {
+                    color: border_color,
+                    width: if is_active { 2.0 } else { 1.0 },
+                    radius: 8.0.into(),
+                },
+                shadow: iced::Shadow::default(),
+                snap: true,
+            }
+        })
+}
+
+fn btn_pill<'a>(txt: impl iced::widget::text::IntoFragment<'a>, is_active: bool) -> iced::widget::Button<'a, Message> {
+
+    let text_color = if is_active { Color::from_rgb(0.04, 0.06, 0.10) } else { SOFT_TEXT };
+    let bg_color = if is_active { CYAN } else { CARD_BG };
+
+    button(text(txt).size(12).color(text_color))
+        .padding([6, 14])
+        .style(move |_theme, status| {
+            let bg = match status {
+                iced::widget::button::Status::Hovered => if is_active { CYAN } else { CARD_BG_SEL },
+                _ => bg_color,
+            };
+            iced::widget::button::Style {
+                background: Some(Background::Color(bg)),
+                text_color,
+                border: Border {
+                    color: if is_active { CYAN } else { CARD_STROKE },
+                    width: 1.0,
+                    radius: 16.0.into(),
+                },
+                shadow: iced::Shadow::default(),
+                snap: true,
+            }
+        })
+}
+
+
+fn btn_danger<'a>(txt: &'a str) -> iced::widget::Button<'a, Message> {
+    let danger_red = Color::from_rgb(0.95, 0.25, 0.25);
+    button(text(txt).size(13).color(danger_red))
+        .padding([8, 14])
+        .style(move |_theme, status| {
+            let bg = match status {
+                iced::widget::button::Status::Hovered => Color::from_rgb(0.25, 0.08, 0.08),
+                _ => CARD_BG,
+            };
+            iced::widget::button::Style {
+                background: Some(Background::Color(bg)),
+                text_color: danger_red,
+                border: Border {
+                    color: danger_red,
+                    width: 1.5,
+                    radius: 8.0.into(),
+                },
+                shadow: iced::Shadow::default(),
+                snap: true,
+            }
+        })
+}
+
+
+
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
@@ -180,7 +287,15 @@ enum Message {
     GotLweProps(Result<Vec<crate::lwe::WallpaperProperty>, String>),
     GotLogs(String),
     ThumbDecoded(PathBuf, SystemTime, Result<(u32, u32, Vec<u8>), String>),
+    OpenFolderPicker,
+    OpenFilePicker,
     FolderPicked(Option<PathBuf>),
+    FilePicked(Option<PathBuf>),
+    OpenWebPreview(String),
+    OpenVideoPreview(String),
+    OpenImagePreview(String),
+
+
 
     Tab(AppTab),
     ThemeChanged(ThemeScheme),
@@ -243,7 +358,11 @@ enum Message {
     ToggleGpuSettings,
     TestScreensaver,
     SaveHyprlockConf,
+    ScreensaverEnabledToggled(bool),
+    ScreensaverModeChanged(String),
+    ScreensaverClockColorChanged(String),
     RunInstaller,
+
 
     // Steam tuning
     QueryProps,
@@ -405,10 +524,11 @@ fn load_window_icon() -> Option<(Vec<u8>, u32, u32)> {
 
 impl IcedGuiApp {
     fn new(config: Config, start_minimized: bool) -> Self {
+        crate::webkit_render::init_global_renderer();
         let wallpapers = Self::scan_wallpapers(&config.wallpaper_dir);
         let selected_wallpaper = wallpapers.first().cloned();
-        crate::webkit_render::init_global_renderer();
         let mut app = IcedGuiApp {
+
             config,
             window_id: None,
             status: None,
@@ -552,10 +672,17 @@ async fn poll_status(socket: PathBuf) -> Result<DaemonStatus, String> {
 }
 
 async fn send_req(socket: PathBuf, req: IpcRequest) -> Result<DaemonStatus, String> {
-    let _ = send_ipc_request(&socket, &req).await;
+    let mut res = send_ipc_request(&socket, &req).await;
+    if res.is_err() {
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe).arg("daemon").spawn();
+            tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+            res = send_ipc_request(&socket, &req).await;
+        }
+    }
     match send_ipc_request(&socket, &IpcRequest::GetStatus).await {
         Ok(IpcResponse::Status(st)) => Ok(st),
-        Ok(_) => Err("unexpected response".to_string()),
+        Ok(_) => Err(res.err().unwrap_or_else(|| "unexpected response".to_string())),
         Err(e) => Err(e),
     }
 }
@@ -712,9 +839,7 @@ pub fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
     let thumb_file = cache_dir.join(format!("web_{}.png", &hash[..8]));
 
     if !thumb_file.exists() {
-        if let Some(renderer) = crate::webkit_render::global_renderer() {
-            renderer.render_thumbnail(&resolved, &thumb_file);
-        }
+        crate::electron_preview::render_shot(&resolved, &thumb_file);
         return None;
     }
     Some(thumb_file)
@@ -780,7 +905,7 @@ fn manage_hover_stream(app: &mut IcedGuiApp, hovered: &Path) {
     app.hover_stream_mtime = None;
 
     if is_web {
-        crate::webkit_render::start_live_pip(&path_str, Path::new(HOVER_WEB_LIVE_PATH));
+        crate::electron_preview::start_live(&path_str, Path::new(HOVER_WEB_LIVE_PATH));
     } else if is_video {
         if let Ok(player) = crate::video_render::MadamiruVideoPlayer::new(hovered) {
             app.madamiru_player = Some(player);
@@ -791,6 +916,7 @@ fn manage_hover_stream(app: &mut IcedGuiApp, hovered: &Path) {
 }
 
 fn stop_hover_stream(app: &mut IcedGuiApp) {
+    crate::electron_preview::stop_live();
     crate::webkit_render::stop_live_pip();
     stop_hover_video_stream(app);
     app.hover_streaming = None;
@@ -995,8 +1121,12 @@ fn parse_color_value(value: &str) -> [f32; 4] {
 }
 
 fn subscription(_app: &IcedGuiApp) -> Subscription<Message> {
-    iced::time::every(Duration::from_millis(500)).map(|_| Message::Tick)
+    Subscription::batch([
+        iced::time::every(Duration::from_millis(500)).map(|_| Message::Tick),
+        window::events().map(|(id, event)| Message::WindowEvent(id, event)),
+    ])
 }
+
 
 fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
     match message {
@@ -1015,6 +1145,16 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                 manage_hover_stream(app, &hovered);
             }
 
+            // Keep the spotlight player previewing the active catalog item
+            // (HTML/web and video) even without hovering.
+            if app.hover_streaming.is_none() {
+                if let Some(active) = active_carousel_item(app) {
+                    if is_live_item(&active) {
+                        manage_hover_stream(app, &active);
+                    }
+                }
+            }
+
             if let Some(ref player) = app.madamiru_player {
                 if let Some(frame) = player.get_current_frame() {
                     let handle = iced::widget::image::Handle::from_rgba(frame.width, frame.height, frame.data);
@@ -1025,25 +1165,44 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                 }
             }
 
-            // Decode live WebKit PiP frame if updated
+            // Decode live web preview frame if updated (batched with catalog
+            // decodes so a continuously-updating live stream can't starve the
+            // wallpaper thumbnail queue).
+            let mut decode_tasks: Vec<Task<Message>> = Vec::new();
             let web_live = PathBuf::from(HOVER_WEB_LIVE_PATH);
             if web_live.exists() {
                 let mtime = std::fs::metadata(&web_live).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
                 let cached_mtime = app.image_cache.get(&web_live).map(|c| c.mtime).unwrap_or(SystemTime::UNIX_EPOCH);
                 if mtime > cached_mtime && !app.pending_decodes.contains(&web_live) {
                     app.pending_decodes.insert(web_live.clone());
-                    return Task::perform(decode_thumb(web_live), |(p, m, r)| Message::ThumbDecoded(p, m, r));
+                    decode_tasks.push(Task::perform(decode_thumb(web_live), |(p, m, r)| Message::ThumbDecoded(p, m, r)));
                 }
             }
 
-            // Asynchronously decode next pending catalog wallpaper thumbnail
+            // Asynchronously decode catalog wallpaper thumbnails, prioritizing
+            // the wallpaper currently shown in the spotlight player.
+            let filtered = filtered_wallpapers(app);
+            if !filtered.is_empty() {
+                let active_idx = app.carousel_index.min(filtered.len() - 1);
+                if let Some(thumb_path) = get_web_thumbnail_path(&filtered[active_idx].to_string_lossy()) {
+                    if thumb_path.exists() && !app.image_cache.contains_key(&thumb_path) && !app.pending_decodes.contains(&thumb_path) {
+                        app.pending_decodes.insert(thumb_path.clone());
+                        decode_tasks.push(Task::perform(decode_thumb(thumb_path), |(p, m, r)| Message::ThumbDecoded(p, m, r)));
+                    }
+                }
+            }
             for w in app.wallpapers.iter().take(60) {
                 if let Some(thumb_path) = get_web_thumbnail_path(&w.to_string_lossy()) {
                     if thumb_path.exists() && !app.image_cache.contains_key(&thumb_path) && !app.pending_decodes.contains(&thumb_path) {
                         app.pending_decodes.insert(thumb_path.clone());
-                        return Task::perform(decode_thumb(thumb_path), |(p, m, r)| Message::ThumbDecoded(p, m, r));
+                        decode_tasks.push(Task::perform(decode_thumb(thumb_path), |(p, m, r)| Message::ThumbDecoded(p, m, r)));
+                        break;
                     }
                 }
+            }
+
+            if !decode_tasks.is_empty() {
+                return Task::batch(decode_tasks);
             }
             Task::none()
         }
@@ -1060,7 +1219,7 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         Message::WindowEvent(_id, event) => {
             if let window::Event::CloseRequested = event {
                 if let Some(win_id) = app.window_id {
-                    return minimize_gui_window(win_id);
+                    return window::close::<Message>(win_id);
                 }
             }
             Task::none()
@@ -1137,6 +1296,37 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        Message::OpenFolderPicker => {
+            Task::perform(
+                async {
+                    rfd::AsyncFileDialog::new()
+                        .set_title("Select Wallpaper Directory")
+                        .pick_folder()
+                        .await
+                        .map(|f| f.path().to_path_buf())
+                },
+                Message::FolderPicked,
+            )
+        }
+        Message::OpenFilePicker => {
+            Task::perform(
+                async {
+                    rfd::AsyncFileDialog::new()
+                        .set_title("Select External Wallpaper File (Video, Web HTML, Image)")
+                        .add_filter(
+                            "All Supported Wallpapers",
+                            &["mp4", "mkv", "webm", "avi", "mov", "gif", "html", "htm", "png", "jpg", "jpeg", "webp"],
+                        )
+                        .add_filter("Videos", &["mp4", "mkv", "webm", "avi", "mov", "gif"])
+                        .add_filter("Web / HTML", &["html", "htm", "js"])
+                        .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+                        .pick_file()
+                        .await
+                        .map(|f| f.path().to_path_buf())
+                },
+                Message::FilePicked,
+            )
+        }
         Message::FolderPicked(Some(dir)) => {
             app.config.wallpaper_dir = dir.clone();
             let _ = app.config.save();
@@ -1145,6 +1335,57 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::FolderPicked(None) => Task::none(),
+        Message::FilePicked(Some(file_path)) => {
+            if !app.wallpapers.contains(&file_path) {
+                app.wallpapers.insert(0, file_path.clone());
+            }
+            app.selected_wallpaper = Some(file_path.clone());
+            Task::perform(
+                send_req(
+                    app.config.socket_path.clone(),
+                    IpcRequest::SetWallpaper {
+                        path: file_path.to_string_lossy().to_string(),
+                    },
+                ),
+                Message::GotStatus,
+            )
+        }
+        Message::FilePicked(None) => Task::none(),
+        Message::OpenWebPreview(url) => {
+            let target_url = if url.starts_with("http://") || url.starts_with("https://") || url.starts_with("file://") {
+                url
+            } else {
+                format!("file://{}", crate::config::resolve_asset_path(&url))
+            };
+            std::thread::spawn(move || {
+                if Command::new("electron").args(["--title=OMYWALL Web Preview", &target_url]).spawn().is_err() {
+                    if Command::new("chromium").args([format!("--app={}", target_url)]).spawn().is_err() {
+                        if Command::new("google-chrome").args([format!("--app={}", target_url)]).spawn().is_err() {
+                            let _ = Command::new("firefox").args([&target_url]).spawn();
+                        }
+                    }
+                }
+            });
+            Task::none()
+        }
+        Message::OpenVideoPreview(path) => {
+            std::thread::spawn(move || {
+                let _ = Command::new("mpv").args(["--title=OMYWALL Video Preview", "--autofit=640x360", &path]).spawn();
+            });
+            Task::none()
+        }
+        Message::OpenImagePreview(path) => {
+            std::thread::spawn(move || {
+                if Command::new("imv").arg(&path).spawn().is_err() {
+                    if Command::new("mpv").args(["--title=OMYWALL Image Preview", &path]).spawn().is_err() {
+                        let _ = Command::new("xdg-open").arg(&path).spawn();
+                    }
+                }
+            });
+            Task::none()
+        }
+
+
         Message::Tab(tab) => {
             app.active_tab = tab;
             match tab {
@@ -1179,6 +1420,11 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         Message::CarouselNext => {
             if !app.wallpapers.is_empty() {
                 app.carousel_index = (app.carousel_index + 1) % app.wallpapers.len();
+                if let Some(active) = active_carousel_item(app) {
+                    if app.hover_streaming.as_deref() != Some(&active) {
+                        stop_hover_stream(app);
+                    }
+                }
             }
             Task::none()
         }
@@ -1188,6 +1434,11 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                     app.carousel_index = app.wallpapers.len() - 1;
                 } else {
                     app.carousel_index -= 1;
+                }
+                if let Some(active) = active_carousel_item(app) {
+                    if app.hover_streaming.as_deref() != Some(&active) {
+                        stop_hover_stream(app);
+                    }
                 }
             }
             Task::none()
@@ -1209,13 +1460,27 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::CardClicked(path) => {
-            app.selected_wallpaper = Some(path);
+            app.selected_wallpaper = Some(path.clone());
+            if let Some(idx) = app.wallpapers.iter().position(|w| w == &path) {
+                app.carousel_index = idx;
+            }
+            if app.hover_streaming.as_deref() != Some(&path) {
+                stop_hover_stream(app);
+            }
             Task::none()
         }
+
         Message::CardDoubleClicked(path) => {
             app.selected_wallpaper = Some(path.clone());
-            Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetWallpaper { path: path.to_string_lossy().to_string() }), Message::GotStatus)
+            if let Some(idx) = app.wallpapers.iter().position(|w| w == &path) {
+                app.carousel_index = idx;
+            }
+            if app.hover_streaming.as_deref() != Some(&path) {
+                stop_hover_stream(app);
+            }
+            Task::none()
         }
+
         Message::ApplyPath(path) => {
             Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetWallpaper { path: path.to_string_lossy().to_string() }), Message::GotStatus)
         }
@@ -1313,17 +1578,30 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::SaveWebBookmark => {
-            if !app.new_web_title.trim().is_empty() && !app.web_url_input.trim().is_empty() {
+            let raw_url = app.web_url_input.trim().to_string();
+            if !raw_url.is_empty() {
+                let title = if app.new_web_title.trim().is_empty() {
+                    raw_url.clone()
+                } else {
+                    app.new_web_title.trim().to_string()
+                };
                 app.config.add_web_bookmark(
-                    app.new_web_title.trim().to_string(),
-                    app.web_url_input.trim().to_string(),
+                    title.clone(),
+                    raw_url.clone(),
                     app.new_web_category.clone(),
                 );
                 let _ = app.config.save();
+                let url_path = PathBuf::from(&raw_url);
+                if !app.wallpapers.contains(&url_path) {
+                    app.wallpapers.insert(0, url_path.clone());
+                }
+                app.selected_wallpaper = Some(url_path);
+                app.status_message = format!("Saved Web / YouTube URL: {}", title);
                 app.new_web_title.clear();
             }
             Task::none()
         }
+
         Message::RemoveWebBookmark(url) => {
             app.config.remove_web_bookmark(&url);
             let _ = app.config.save();
@@ -1429,9 +1707,37 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::TestScreensaver => {
-            let _ = Command::new("hyprlock").spawn();
+            let active_wall = app.selected_wallpaper.as_ref().map(|p| p.to_string_lossy().to_string());
+            let _ = app.config.save_hyprlock_conf(active_wall.as_deref());
+            if Command::new("hyprlock").spawn().is_err() {
+                if Command::new("swaylock").spawn().is_err() {
+                    let _ = Command::new("gtklock").spawn();
+                }
+            }
             Task::none()
         }
+        Message::ScreensaverEnabledToggled(enabled) => {
+            app.config.hyprlock.enabled = enabled;
+            let _ = app.config.save();
+            let active_wall = app.selected_wallpaper.as_ref().map(|p| p.to_string_lossy().to_string());
+            let _ = app.config.save_hyprlock_conf(active_wall.as_deref());
+            Task::none()
+        }
+        Message::ScreensaverModeChanged(mode) => {
+            app.config.hyprlock.screensaver_mode = mode;
+            let _ = app.config.save();
+            let active_wall = app.selected_wallpaper.as_ref().map(|p| p.to_string_lossy().to_string());
+            let _ = app.config.save_hyprlock_conf(active_wall.as_deref());
+            Task::none()
+        }
+        Message::ScreensaverClockColorChanged(color) => {
+            app.config.hyprlock.clock_color = color;
+            let _ = app.config.save();
+            let active_wall = app.selected_wallpaper.as_ref().map(|p| p.to_string_lossy().to_string());
+            let _ = app.config.save_hyprlock_conf(active_wall.as_deref());
+            Task::none()
+        }
+
         Message::SaveHyprlockConf => Task::none(),
         Message::RunInstaller => {
             app.status_message = run_installer_script();
@@ -1506,7 +1812,9 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
     let path_str = path.to_string_lossy().to_string();
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     let ext_upper = ext.to_uppercase();
-    let is_web = matches!(ext.as_str(), "html" | "htm" | "js") || path_str.starts_with("http://");
+    let is_web = matches!(ext.as_str(), "html" | "htm" | "js")
+        || path_str.starts_with("http://")
+        || path_str.starts_with("https://");
 
     let is_hovered_and_streaming = app.hover_streaming.as_ref() == Some(path);
 
@@ -1544,6 +1852,13 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
             image(cached.handle.clone())
                 .width(260)
                 .height(146)
+                .content_fit(iced::ContentFit::Cover)
+                .into()
+        } else if thumb_path.exists() {
+            image(thumb_path)
+                .width(260)
+                .height(146)
+                .content_fit(iced::ContentFit::Cover)
                 .into()
         } else {
             container(text(format!("[ {} ]", ext_upper)).color(AMBER).size(15))
@@ -1554,6 +1869,7 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
                 .into()
         }
     } else {
+
         container(text(format!("[ {} ]", ext_upper)).color(AMBER).size(15))
             .width(260)
             .height(146)
@@ -1577,7 +1893,8 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
         ]
         .spacing(4)
         .align_y(iced::Alignment::Center),
-        button(text("▶ Set Wallpaper")).on_press(Message::ApplyPath(path.clone())),
+        btn_primary("▶ Set Wallpaper").on_press(Message::ApplyPath(path.clone())),
+
     ]
     .spacing(6)
     .padding(6);
@@ -1629,6 +1946,45 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
     .into()
 }
 
+fn filtered_wallpapers(app: &IcedGuiApp) -> Vec<PathBuf> {
+    app.wallpapers.iter().filter(|w| {
+        let path_str = w.to_string_lossy().to_string();
+        let ext = w.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        let is_web = matches!(ext.as_str(), "html" | "htm" | "js")
+        || path_str.starts_with("http://")
+        || path_str.starts_with("https://");
+        let is_vid = matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "flv");
+        let is_img = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp");
+
+        match app.category_filter {
+            CategoryFilter::All => true,
+            CategoryFilter::Videos => is_vid,
+            CategoryFilter::WebWidgets => is_web,
+            CategoryFilter::StaticImages => is_img,
+            CategoryFilter::SteamWorkshop => true,
+        }
+    }).cloned().collect()
+}
+
+fn active_carousel_item(app: &IcedGuiApp) -> Option<PathBuf> {
+    let filtered = filtered_wallpapers(app);
+    if filtered.is_empty() {
+        return None;
+    }
+    let active_idx = app.carousel_index.min(filtered.len() - 1);
+    Some(filtered[active_idx].clone())
+}
+
+fn is_live_item(path: &Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let path_str = path.to_string_lossy().to_string();
+    let is_web = matches!(ext.as_str(), "html" | "htm" | "js")
+        || path_str.starts_with("http://")
+        || path_str.starts_with("https://");
+    let is_video = matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "flv" | "m4v" | "wmv");
+    is_web || is_video
+}
+
 fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Element<'a, Message> {
     if filtered.is_empty() {
         return container(text("No wallpapers match the selected category filter.").color(AMBER).size(16))
@@ -1642,7 +1998,9 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
     let name = target.file_name().and_then(|n| n.to_str()).unwrap_or("Wallpaper").to_string();
     let path_str = target.to_string_lossy().to_string();
     let ext = target.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-    let is_web = matches!(ext.as_str(), "html" | "htm" | "js") || path_str.starts_with("http://");
+    let is_web = matches!(ext.as_str(), "html" | "htm" | "js")
+        || path_str.starts_with("http://")
+        || path_str.starts_with("https://");
 
     let live_path = if is_web {
         PathBuf::from(HOVER_WEB_LIVE_PATH)
@@ -1652,22 +2010,21 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
 
     let is_live = app.hover_streaming.as_ref() == Some(target);
 
-    let spotlight_img: Element<'a, Message> = if is_live && (app.image_cache.contains_key(&live_path) || live_path.exists()) {
-        if let Some(cached) = app.image_cache.get(&live_path) {
-            image(cached.handle.clone()).width(600).height(337).into()
-        } else {
-            container(text("Decoding Spotlight Frame...").color(CYAN).size(16))
-                .width(600)
-                .height(337)
-                .align_x(iced::Alignment::Center)
-                .align_y(iced::Alignment::Center)
-                .into()
-        }
+    let is_img = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif");
+
+    let spotlight_img: Element<'a, Message> = if is_img && Path::new(&path_str).exists() {
+        image(PathBuf::from(&path_str)).width(600).height(337).content_fit(iced::ContentFit::Cover).into()
+    } else if let Some(cached) = app.image_cache.get(target) {
+        image(cached.handle.clone()).width(600).height(337).content_fit(iced::ContentFit::Cover).into()
+    } else if let Some(cached) = app.image_cache.get(&live_path) {
+        image(cached.handle.clone()).width(600).height(337).content_fit(iced::ContentFit::Cover).into()
     } else if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
         if let Some(cached) = app.image_cache.get(&thumb_path) {
-            image(cached.handle.clone()).width(600).height(337).into()
+            image(cached.handle.clone()).width(600).height(337).content_fit(iced::ContentFit::Cover).into()
+        } else if thumb_path.exists() {
+            image(thumb_path).width(600).height(337).content_fit(iced::ContentFit::Cover).into()
         } else {
-            container(text(if is_web { "Rendering WebKit2GTK..." } else { "Rendering Video Preview..." }).color(AMBER).size(16))
+            container(text(if is_web { "🌐 Web 3D Preset Preview" } else { "🎥 Video Wallpaper Preview" }).color(AMBER).size(18))
                 .width(600)
                 .height(337)
                 .align_x(iced::Alignment::Center)
@@ -1675,7 +2032,7 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
                 .into()
         }
     } else {
-        container(text("Spotlight Player Ready").color(SOFT_TEXT).size(16))
+        container(text("🌌 OMYWALL Spotlight Preview Player").color(CYAN).size(18))
             .width(600)
             .height(337)
             .align_x(iced::Alignment::Center)
@@ -1683,46 +2040,55 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
             .into()
     };
 
-    let spotlight_card = container(
-        column![
-            row![
-                text(format!("● SPOTLIGHT PLAYER ({}/{})", active_idx + 1, filtered.len()))
-                    .color(if is_live { EMERALD } else { CYAN })
-                    .size(14),
+
+    let target_click = target.clone();
+    let interactive_img = mouse_area(spotlight_img)
+        .on_press(Message::CardClicked(target_click));
+
+    let spotlight_card = mouse_area(
+        container(
+            column![
+                row![
+                    text(format!("● SPOTLIGHT PLAYER ({}/{})", active_idx + 1, filtered.len()))
+                        .color(if is_live { EMERALD } else { CYAN })
+                        .size(14),
                 space().width(Length::Fill),
-                text(if is_web { "WebKit2GTK Web App" } else { "MPV Hardware Video" }).color(AMBER).size(13),
+                text(if is_web { "WebKit2GTK Wayland Layer Shell" } else { "MPV Hardware Video" }).color(AMBER).size(13),
             ]
             .spacing(12)
             .align_y(iced::Alignment::Center),
-            spotlight_img,
+            interactive_img,
             text(name).color(Color::WHITE).size(18),
             text(path_str).color(DIM_TEXT).size(12),
             row![
-                button(text("◀ Previous")).on_press(Message::CarouselPrev),
-                button(text("▶ Set Wallpaper")).on_press(Message::ApplyPath(target.clone())),
-                button(text("Next ▶")).on_press(Message::CarouselNext),
+                btn_primary("◀ Previous").on_press(Message::CarouselPrev),
+                btn_primary("▶ Set Wallpaper").on_press(Message::ApplyPath(target.clone())),
+                if is_web {
+                    btn_primary("👁 Preview Web (Electron/Browser)").on_press(Message::OpenWebPreview(target.to_string_lossy().to_string()))
+                } else if is_img {
+                    btn_primary("👁 Preview Image").on_press(Message::OpenImagePreview(target.to_string_lossy().to_string()))
+                } else {
+                    btn_primary("👁 Preview Video (MPV)").on_press(Message::OpenVideoPreview(target.to_string_lossy().to_string()))
+                },
+                btn_primary("Next ▶").on_press(Message::CarouselNext),
             ]
-            .spacing(16),
+            .spacing(12),
         ]
         .spacing(12)
         .padding(16)
+        )
+        .style(|_| container::Style {
+            background: Some(Background::Color(CARD_BG_SEL)),
+            border: Border {
+                color: CYAN,
+                width: 2.0,
+                radius: 12.0.into(),
+            },
+            ..Default::default()
+        })
     )
-    .style(|_| container::Style {
-        background: Some(Background::Color(CARD_BG_SEL)),
-        border: Border {
-            color: CYAN,
-            width: 2.0,
-            radius: 12.0.into(),
-        },
-        ..Default::default()
-    });
-
-    let target_enter = target.clone();
-    let target_exit = target.clone();
-
-    let interactive_spotlight = mouse_area(spotlight_card)
-        .on_enter(Message::CardEntered(target_enter))
-        .on_exit(Message::CardExited(target_exit));
+    .on_enter(Message::CardEntered(target.clone()))
+    .on_exit(Message::CardExited(target.clone()));
 
     let mut filmstrip = row![].spacing(8);
     for (idx, w) in filtered.iter().enumerate().take(12) {
@@ -1731,13 +2097,16 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
         let truncated = if w_name.len() > 14 { format!("{}...", &w_name[..12]) } else { w_name.to_string() };
         let path_clone = w.clone();
         filmstrip = filmstrip.push(
-            button(text(truncated).size(12).color(if is_current { CYAN } else { Color::WHITE }))
+            btn_pill(truncated, is_current)
                 .on_press(Message::CardClicked(path_clone))
         );
     }
 
+
+
+
     column![
-        interactive_spotlight,
+        spotlight_card,
         scrollable(filmstrip).width(Length::Fill),
     ]
     .spacing(16)
@@ -1746,9 +2115,10 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
 }
 
 fn view(app: &IcedGuiApp) -> Element<'_, Message> {
-    let header_title = text("OMYWALL Wallpaper Engine v4.5")
-        .size(22)
+    let header_title = text("OMYWALL")
+        .size(24)
         .color(CYAN);
+
 
     let status_indicator = if let Some(st) = &app.status {
         let active = st.current_wallpaper.as_deref().unwrap_or("None");
@@ -1808,60 +2178,77 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
     .spacing(12)
     .align_y(iced::Alignment::Center);
 
-    let tab_installed = button(text("🖼 Installed Wallpapers"))
+    let tab_installed = btn_tab("🖼 Installed Wallpapers", app.active_tab == AppTab::Installed)
         .on_press(Message::Tab(AppTab::Installed));
-    let tab_workshop = button(text("🌐 Steam Workshop"))
+    let tab_workshop = btn_tab("🌐 Steam Workshop", app.active_tab == AppTab::SteamWorkshop)
         .on_press(Message::Tab(AppTab::SteamWorkshop));
-    let tab_displays = button(text("📺 Display Manager"))
+    let tab_displays = btn_tab("📺 Display Manager", app.active_tab == AppTab::Displays)
         .on_press(Message::Tab(AppTab::Displays));
-    let tab_settings = button(text("⚙ Settings"))
+    let tab_screensaver = btn_tab("🔒 Screensaver", app.active_tab == AppTab::Screensaver)
+        .on_press(Message::Tab(AppTab::Screensaver));
+    let tab_settings = btn_tab("⚙ Settings", app.active_tab == AppTab::Settings)
         .on_press(Message::Tab(AppTab::Settings));
 
-    let nav_bar = row![tab_installed, tab_workshop, tab_displays, tab_settings].spacing(8);
+    let nav_bar = row![tab_installed, tab_workshop, tab_displays, tab_screensaver, tab_settings].spacing(10);
+
+
 
     let body_content: Element<'_, Message> = match app.active_tab {
         AppTab::Installed => {
-            let filtered_wallpapers: Vec<PathBuf> = app.wallpapers.iter().filter(|w| {
-                let path_str = w.to_string_lossy().to_string();
-                let ext = w.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-                let is_web = matches!(ext.as_str(), "html" | "htm" | "js") || path_str.starts_with("http://");
-                let is_vid = matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "flv");
-                let is_img = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp");
-
-                match app.category_filter {
-                    CategoryFilter::All => true,
-                    CategoryFilter::Videos => is_vid,
-                    CategoryFilter::WebWidgets => is_web,
-                    CategoryFilter::StaticImages => is_img,
-                    CategoryFilter::SteamWorkshop => true,
-                }
-            }).cloned().collect();
+            let filtered_wallpapers = filtered_wallpapers(app);
 
             let cat_pills = row![
-                button(text(if app.category_filter == CategoryFilter::All { "[ All ]" } else { "All" }))
+                btn_pill("All", app.category_filter == CategoryFilter::All)
                     .on_press(Message::Category(CategoryFilter::All)),
-                button(text(if app.category_filter == CategoryFilter::Videos { "[ 🎥 Videos ]" } else { "🎥 Videos" }))
+                btn_pill("🎥 Videos", app.category_filter == CategoryFilter::Videos)
                     .on_press(Message::Category(CategoryFilter::Videos)),
-                button(text(if app.category_filter == CategoryFilter::WebWidgets { "[ 🌐 Web Apps ]" } else { "🌐 Web Apps" }))
+                btn_pill("🌐 Web Apps", app.category_filter == CategoryFilter::WebWidgets)
                     .on_press(Message::Category(CategoryFilter::WebWidgets)),
-                button(text(if app.category_filter == CategoryFilter::StaticImages { "[ 🖼 Images ]" } else { "🖼 Images" }))
+                btn_pill("🖼 Images", app.category_filter == CategoryFilter::StaticImages)
                     .on_press(Message::Category(CategoryFilter::StaticImages)),
-            ].spacing(6);
+            ].spacing(8);
 
             let view_mode_toggle = row![
-                button(text(if app.view_mode == ViewMode::Grid { "[ ⣿ Grid ]" } else { "⣿ Grid" }))
+                btn_pill("⣿ Grid", app.view_mode == ViewMode::Grid)
                     .on_press(Message::ViewMode(ViewMode::Grid)),
-                button(text(if app.view_mode == ViewMode::Carousel { "[ 🎠 Carousel ]" } else { "🎠 Carousel" }))
+                btn_pill("🎠 Carousel", app.view_mode == ViewMode::Carousel)
                     .on_press(Message::ViewMode(ViewMode::Carousel)),
-            ].spacing(6);
+            ].spacing(8);
 
-            let top_bar = row![
-                text("Local Wallpaper Catalog").size(18).color(CYAN),
-                space().width(12),
-                cat_pills,
-                space().width(Length::Fill),
-                view_mode_toggle,
-            ].align_y(iced::Alignment::Center);
+            let file_folder_buttons = row![
+                btn_primary("📁 Select Folder").on_press(Message::OpenFolderPicker),
+                btn_primary("➕ Select File").on_press(Message::OpenFilePicker),
+            ].spacing(8);
+
+
+            let url_input_row = row![
+                text_input("Paste Web or YouTube URL (https://...)", &app.web_url_input)
+                    .on_input(Message::WebUrlChanged)
+                    .padding(6)
+                    .width(340),
+                text_input("Title (optional)", &app.new_web_title)
+                    .on_input(Message::WebTitleChanged)
+                    .padding(6)
+                    .width(180),
+                btn_primary("💾 Save & Add URL").on_press(Message::SaveWebBookmark),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center);
+
+            let top_bar = column![
+                row![
+                    text("Local & Web Catalog").size(18).color(CYAN),
+                    space().width(12),
+                    cat_pills,
+                    space().width(Length::Fill),
+                    file_folder_buttons,
+                    space().width(8),
+                    view_mode_toggle,
+                ].align_y(iced::Alignment::Center),
+                url_input_row,
+            ]
+            .spacing(8);
+
 
             if app.view_mode == ViewMode::Carousel {
                 column![
@@ -1896,8 +2283,8 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
                 text("Steam Workshop Browser").size(18).color(CYAN),
                 text(&app.workshop_status).color(SOFT_TEXT).size(14),
                 row![
-                    button(text("🔍 Refresh Workshop")).on_press(Message::WorkshopSearch),
-                    button(text("📂 Scan Installed Steam Wallpapers")).on_press(Message::WorkshopRescanSteam),
+                    btn_primary("🔍 Refresh Workshop").on_press(Message::WorkshopSearch),
+                    btn_primary("📂 Scan Installed Steam Wallpapers").on_press(Message::WorkshopRescanSteam),
                 ].spacing(8),
             ]
             .spacing(12)
@@ -1906,7 +2293,7 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
         AppTab::Displays => {
             let mut disp_col = column![
                 text("Connected Displays").size(18).color(CYAN),
-                button(text("🔄 Rescan Displays")).on_press(Message::RescanDisplays),
+                btn_primary("🔄 Rescan Displays").on_press(Message::RescanDisplays),
             ].spacing(12);
 
             for d in &app.displays {
@@ -1915,9 +2302,126 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
             }
             scrollable(disp_col).into()
         }
+        AppTab::Screensaver => {
+            let mode_selector = row![
+                text("Screensaver Mode:").size(14),
+                btn_pill("🌌 Active Live", app.config.hyprlock.screensaver_mode == "active")
+                    .on_press(Message::ScreensaverModeChanged("active".to_string())),
+                btn_pill("🌀 Blurred Static", app.config.hyprlock.screensaver_mode == "blur")
+                    .on_press(Message::ScreensaverModeChanged("blur".to_string())),
+                btn_pill("🎨 Solid Color", app.config.hyprlock.screensaver_mode == "color")
+                    .on_press(Message::ScreensaverModeChanged("color".to_string())),
+            ].spacing(8).align_y(iced::Alignment::Center);
+
+            let enabled_row = row![
+                text("Lockscreen & Screensaver Status:").size(14),
+                checkbox(app.config.hyprlock.enabled).on_toggle(Message::ScreensaverEnabledToggled),
+                text(if app.config.hyprlock.enabled { "Enabled" } else { "Disabled" })
+                    .color(if app.config.hyprlock.enabled { EMERALD } else { SOFT_TEXT }).size(14),
+            ].spacing(12).align_y(iced::Alignment::Center);
+
+            let clock_color_row = row![
+                text("Clock Accent Color:").size(14),
+                text(&app.config.hyprlock.clock_color).color(CYAN).size(14),
+                btn_pill("Cyan", app.config.hyprlock.clock_color == "#00f0ff")
+                    .on_press(Message::ScreensaverClockColorChanged("#00f0ff".to_string())),
+                btn_pill("White", app.config.hyprlock.clock_color == "#ffffff")
+                    .on_press(Message::ScreensaverClockColorChanged("#ffffff".to_string())),
+                btn_pill("Emerald", app.config.hyprlock.clock_color == "#10b981")
+                    .on_press(Message::ScreensaverClockColorChanged("#10b981".to_string())),
+                btn_pill("Amber", app.config.hyprlock.clock_color == "#f59e0b")
+                    .on_press(Message::ScreensaverClockColorChanged("#f59e0b".to_string())),
+                btn_pill("Purple", app.config.hyprlock.clock_color == "#a855f7")
+                    .on_press(Message::ScreensaverClockColorChanged("#a855f7".to_string())),
+            ].spacing(8).align_y(iced::Alignment::Center);
+
+            let screensaver_preview_box = container(
+                column![
+                    row![
+                        text("🔒 SCREENSAVER LIVE PREVIEW").color(CYAN).size(14),
+                        space().width(Length::Fill),
+                        text(format!("Mode: {}", app.config.hyprlock.screensaver_mode.to_uppercase())).color(AMBER).size(13),
+                    ]
+                    .spacing(12)
+                    .align_y(iced::Alignment::Center),
+                    container(
+                        column![
+                            text("12:45").size(54).color(match app.config.hyprlock.clock_color.as_str() {
+                                "#10b981" => EMERALD,
+                                "#f59e0b" => AMBER,
+                                "#a855f7" => Color::from_rgb(0.66, 0.33, 0.97),
+                                "#ffffff" => Color::WHITE,
+                                _ => CYAN,
+                            }),
+                            text("Wednesday, August 5").size(16).color(SOFT_TEXT),
+                            space().height(12),
+                            container(text("🔒 Lockscreen Secured").color(Color::WHITE).size(13))
+                                .padding([6, 16])
+                                .style(|_| container::Style {
+                                    background: Some(Background::Color(Color::from_rgba(0.1, 0.15, 0.25, 0.8))),
+                                    border: Border { color: CYAN, width: 1.0, radius: 20.0.into() },
+                                    ..Default::default()
+                                }),
+                        ]
+                        .spacing(6)
+                        .align_x(iced::Alignment::Center)
+                    )
+                    .width(540)
+                    .height(220)
+                    .align_x(iced::Alignment::Center)
+                    .align_y(iced::Alignment::Center)
+                    .style(|_| container::Style {
+                        background: Some(Background::Color(Color::from_rgb(0.04, 0.06, 0.10))),
+                        border: Border { color: CARD_STROKE, width: 1.5, radius: 12.0.into() },
+                        ..Default::default()
+                    }),
+                    row![
+                        btn_primary("👁 Live Fullscreen Test").on_press(Message::TestScreensaver),
+                        btn_primary("💾 Save Screensaver Config").on_press(Message::SaveHyprlockConf),
+                    ]
+                    .spacing(12),
+                ]
+                .spacing(12)
+                .padding(16)
+            )
+            .style(|_| container::Style {
+                background: Some(Background::Color(CARD_BG_SEL)),
+                border: Border { color: CYAN, width: 2.0, radius: 12.0.into() },
+                ..Default::default()
+            });
+
+            column![
+                text("Screensaver & Lockscreen Control").size(18).color(CYAN),
+                enabled_row,
+                mode_selector,
+                clock_color_row,
+                screensaver_preview_box,
+            ]
+            .spacing(16)
+            .into()
+        }
+
+
         AppTab::Settings => {
             column![
                 text("Engine Settings").size(18).color(CYAN),
+                row![
+                    text("Theme Colorscheme:").size(14),
+                    btn_pill("🌌 Dark Glass", app.theme_scheme == ThemeScheme::DarkGlass)
+                        .on_press(Message::ThemeChanged(ThemeScheme::DarkGlass)),
+                    btn_pill("⚡ Steam Amber", app.theme_scheme == ThemeScheme::SteamAmber)
+                        .on_press(Message::ThemeChanged(ThemeScheme::SteamAmber)),
+                    btn_pill("🔮 Cyber Light", app.theme_scheme == ThemeScheme::HardLightCyber)
+                        .on_press(Message::ThemeChanged(ThemeScheme::HardLightCyber)),
+                    btn_pill("🖤 OLED Black", app.theme_scheme == ThemeScheme::OledPitchBlack)
+                        .on_press(Message::ThemeChanged(ThemeScheme::OledPitchBlack)),
+                ].spacing(8).align_y(iced::Alignment::Center),
+                row![
+                    text(format!("Wallpaper Directory: {}", app.config.wallpaper_dir.display())).size(14).color(SOFT_TEXT),
+                    btn_primary("📁 Change Folder").on_press(Message::OpenFolderPicker),
+                    btn_primary("➕ Select External File").on_press(Message::OpenFilePicker),
+                ].spacing(12).align_y(iced::Alignment::Center),
+
                 row![
                     text("Volume:").size(14),
                     slider(0.0..=100.0, app.volume_slider as f32, |v| Message::VolumeChanged(v as i64)).width(200),
@@ -1928,15 +2432,16 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
                     checkbox(app.autostart_enabled).on_toggle(|_| Message::AutostartToggled),
                 ].spacing(12),
                 row![
-                    button(text("▶ Start Daemon")).on_press(Message::StartDaemon),
-                    button(text("⏹ Stop Daemon")).on_press(Message::StopWallpaper),
-                    button(text("⏯ Toggle Pause")).on_press(Message::TogglePause),
+                    btn_primary("▶ Start Daemon").on_press(Message::StartDaemon),
+                    btn_danger("⏹ Stop Daemon").on_press(Message::StopWallpaper),
+                    btn_primary("⏯ Toggle Pause").on_press(Message::TogglePause),
                 ].spacing(8),
-                button(text("🛠 Run Dependency Installer Script")).on_press(Message::RunInstaller),
+                btn_primary("🛠 Run Dependency Installer Script").on_press(Message::RunInstaller),
             ]
             .spacing(16)
             .into()
         }
+
     };
 
     let content = column![

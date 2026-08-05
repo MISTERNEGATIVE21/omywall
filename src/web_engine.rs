@@ -49,7 +49,8 @@ impl WebEngineManager {
 
         let mut web_cmd = Command::new(exe);
         web_cmd.arg("web-layer").arg(&target_url);
-        web_cmd.env("WEBKIT_DISABLE_COMPOSITING_MODE", "0");
+        web_cmd.env("GDK_BACKEND", "wayland");
+        web_cmd.env("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
         web_cmd.env("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
         web_cmd.env("LIBGL_ALWAYS_SOFTWARE", "0");
 
@@ -66,7 +67,7 @@ impl WebEngineManager {
 
         match web_cmd.spawn() {
             Ok(child) => {
-                std::thread::sleep(std::time::Duration::from_millis(150));
+                std::thread::sleep(std::time::Duration::from_millis(600));
                 let mut test_child = child;
                 match test_child.try_wait() {
                     Ok(Some(status)) => {
@@ -89,6 +90,7 @@ impl WebEngineManager {
                 self.spawn_chromium_fallback(&target_url)
             }
         }
+
     }
 
     fn spawn_chromium_fallback(&self, target_url: &str) -> Result<(), String> {
@@ -99,6 +101,8 @@ impl WebEngineManager {
             .args([
                 format!("--app={}", target_url),
                 format!("--user-data-dir={}", profile_dir.display()),
+                "--ozone-platform=wayland".to_string(),
+                "--enable-features=UseOzonePlatform".to_string(),
                 "--autoplay-policy=no-user-gesture-required".to_string(),
                 "--allow-file-access-from-files".to_string(),
                 "--disable-session-crashed-bubble".to_string(),
@@ -110,6 +114,8 @@ impl WebEngineManager {
                 Command::new("google-chrome").args([
                     format!("--app={}", target_url),
                     format!("--user-data-dir={}", profile_dir.display()),
+                    "--ozone-platform=wayland".to_string(),
+                    "--enable-features=UseOzonePlatform".to_string(),
                     "--autoplay-policy=no-user-gesture-required".to_string(),
                     "--allow-file-access-from-files".to_string(),
                     "--kiosk".to_string(),
@@ -118,10 +124,13 @@ impl WebEngineManager {
             .or_else(|_| {
                 Command::new("electron").args([
                     "--title=omywall-web-wallpaper",
+                    "--enable-features=UseOzonePlatform",
+                    "--ozone-platform=wayland",
                     target_url,
                 ]).spawn()
             })
             .map_err(|e| format!("Failed to launch fallback web wallpaper browser: {}", e))?;
+
 
         let mut guard = self.web_child.lock().unwrap();
         *guard = Some(child);
@@ -134,13 +143,15 @@ impl WebEngineManager {
     pub fn stop(&self) {
         let mut guard = self.web_child.lock().unwrap();
         if let Some(mut child) = guard.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+            std::thread::spawn(move || {
+                let _ = child.kill();
+                let _ = child.wait();
+            });
         }
-        let _ = Command::new("pkill").args(["-9", "-f", "web-layer"]).status();
         let mut url_guard = self.current_url.lock().unwrap();
         *url_guard = None;
     }
+
 
     #[allow(dead_code)]
     pub fn current_url(&self) -> Option<String> {

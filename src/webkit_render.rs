@@ -178,7 +178,7 @@ fn render_thread(rx: Receiver<RenderCmd>, ready: Sender<Result<(), String>>) {
 
     let webview = webkit2gtk::WebView::builder().settings(&settings).build();
     window.add(&webview);
-    window.show_all();
+
 
     let state = Arc::new(Mutex::new(State {
         thumb_queue: VecDeque::new(),

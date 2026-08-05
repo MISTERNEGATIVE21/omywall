@@ -14,6 +14,7 @@ pub struct WallpaperEngine {
     widget_process: Arc<Mutex<Option<Child>>>,
     current_wallpaper: Arc<Mutex<Option<String>>>,
     is_paused: Arc<Mutex<bool>>,
+    is_hidden: Arc<Mutex<bool>>,
     user_stopped: Arc<Mutex<bool>>,
     hwdec: Arc<Mutex<String>>,
     gpu_device: Arc<Mutex<Option<String>>>,
@@ -66,7 +67,15 @@ pub fn find_mpvpaper_binary() -> Option<PathBuf> {
 
 
 
+fn kill_child_async(mut child: std::process::Child) {
+    std::thread::spawn(move || {
+        let _ = child.kill();
+        let _ = child.wait();
+    });
+}
+
 impl WallpaperEngine {
+
     pub fn new(hwdec: &str, gpu_device: Option<String>, target_fps: u32, volume: i64, mute: bool, window_id: u64, screen_id: i64) -> Result<Self, String> {
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
         let socket_path = PathBuf::from(runtime_dir).join(format!("omywall-mpv-{}.sock", std::process::id()));
@@ -78,6 +87,7 @@ impl WallpaperEngine {
             widget_process: Arc::new(Mutex::new(None)),
             current_wallpaper: Arc::new(Mutex::new(None)),
             is_paused: Arc::new(Mutex::new(false)),
+            is_hidden: Arc::new(Mutex::new(false)),
             user_stopped: Arc::new(Mutex::new(false)),
             hwdec: Arc::new(Mutex::new(hwdec.to_string())),
             gpu_device: Arc::new(Mutex::new(gpu_device)),
@@ -353,7 +363,10 @@ impl WallpaperEngine {
         }
 
         self.stop_mpv_internal();
+        self.stop_lwe_internal();
+        self.stop_widget_internal();
         self.web_engine.apply_web_wallpaper(trimmed)?;
+
 
         let mut curr = self.current_wallpaper.lock().unwrap();
         *curr = Some(trimmed.to_string());
@@ -391,27 +404,15 @@ impl WallpaperEngine {
 
 
 
+
+
     fn stop_mpv_internal(&self) {
         if self.socket_path.exists() {
             let _ = self.send_mpv_command(serde_json::json!(["quit"]));
         }
         let mut proc_guard = self.mpv_process.lock().unwrap();
-        if let Some(mut child) = proc_guard.take() {
-            let pid = child.id();
-            let _ = child.kill();
-            let _ = child.wait();
-            if Command::new("kill").args(["-9", &pid.to_string()]).status().is_err() {
-                let _ = Command::new("/usr/bin/kill").args(["-9", &pid.to_string()]).status();
-            }
-        }
-        if Command::new("pkill").args(["-9", "-f", "omywall-wallpaper"]).status().is_err() {
-            let _ = Command::new("/usr/bin/pkill").args(["-9", "-f", "omywall-wallpaper"]).status();
-        }
-        if Command::new("pkill").args(["-9", "-f", "mpvpaper"]).status().is_err() {
-            let _ = Command::new("/usr/bin/pkill").args(["-9", "-f", "mpvpaper"]).status();
-        }
-        if Command::new("pkill").args(["-9", "-f", "mpv"]).status().is_err() {
-            let _ = Command::new("/usr/bin/pkill").args(["-9", "-f", "mpv"]).status();
+        if let Some(child) = proc_guard.take() {
+            kill_child_async(child);
         }
         if self.socket_path.exists() {
             let _ = std::fs::remove_file(&self.socket_path);
@@ -463,23 +464,18 @@ impl WallpaperEngine {
 
     fn stop_widget_internal(&self) {
         let mut proc_guard = self.widget_process.lock().unwrap();
-        if let Some(mut child) = proc_guard.take() {
-            let _ = child.kill();
+        if let Some(child) = proc_guard.take() {
+            kill_child_async(child);
         }
     }
 
     fn stop_lwe_internal(&self) {
         let mut proc_guard = self.lwe_process.lock().unwrap();
-        if let Some(mut child) = proc_guard.take() {
-            let pid = child.id();
-            let _ = child.kill();
-            let _ = child.wait();
-            if Command::new("kill").args(["-9", &pid.to_string()]).status().is_err() {
-                let _ = Command::new("/usr/bin/kill").args(["-9", &pid.to_string()]).status();
-            }
+        if let Some(child) = proc_guard.take() {
+            kill_child_async(child);
         }
-        let _ = Command::new("pkill").args(["-9", "-f", "linux-wallpaperengine"]).status();
     }
+
 
     pub fn set_steam_wallpaper(
         &self,
@@ -676,6 +672,37 @@ impl WallpaperEngine {
 
         log_info(&format!("Engine: Toggled pause state to {}", new_state));
         Ok(new_state)
+    }
+
+    pub fn hide(&self) -> Result<(), String> {
+        let mut h = self.is_hidden.lock().unwrap();
+        *h = true;
+        let _ = self.pause();
+        log_info("Engine: Wallpaper hidden / paused for hypridle / user command.");
+        Ok(())
+    }
+
+    pub fn show(&self) -> Result<(), String> {
+        let mut h = self.is_hidden.lock().unwrap();
+        *h = false;
+        let _ = self.resume();
+        log_info("Engine: Wallpaper restored / resumed from hide.");
+        Ok(())
+    }
+
+    pub fn toggle_hide(&self) -> Result<bool, String> {
+        let current_state = *self.is_hidden.lock().unwrap();
+        let new_state = !current_state;
+        if new_state {
+            let _ = self.hide();
+        } else {
+            let _ = self.show();
+        }
+        Ok(new_state)
+    }
+
+    pub fn is_hidden(&self) -> bool {
+        *self.is_hidden.lock().unwrap()
     }
 
     pub fn is_paused(&self) -> Result<bool, String> {

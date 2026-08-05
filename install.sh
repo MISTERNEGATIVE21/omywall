@@ -22,7 +22,7 @@ rm -rf "$ASSETS_DEST" "$TMPDIR/*" /tmp/omywall_thumbs /tmp/omywall_web_layer.py 
 mkdir -p "$BIN_DIR" "$DESKTOP_DIR" "$ICON_PNG_DIR" "$ICON_SVG_DIR" "$ASSETS_DEST"
 
 echo "Building release binary..."
-cargo build --release
+cargo build --release -j 4
 
 echo "Installing clean binary to $BIN_DIR/omywall..."
 install -m 755 "target/release/omywall" "$BIN_DIR/omywall"

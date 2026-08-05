@@ -7,9 +7,15 @@ use webkit2gtk::WebViewExt;
 /// pure Rust GTK3 + WebKit2GTK. Replaces the former `python3` GTK layer-shell
 /// runner so no external interpreter is required.
 pub fn run(url: &str) -> Result<(), String> {
+    std::env::set_var("GDK_BACKEND", "wayland");
+    std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
+
     if gtk::init().is_err() {
         return Err("WebLayer: gtk::init() failed".into());
     }
+
+
 
     let target_url = resolve_target_url(url);
 
@@ -57,6 +63,17 @@ pub fn run(url: &str) -> Result<(), String> {
 
 fn resolve_target_url(raw: &str) -> String {
     let trimmed = raw.trim();
+    if trimmed.contains("youtube.com/watch?v=") || trimmed.contains("youtu.be/") {
+        if let Some(id_start) = trimmed.find("v=") {
+            let id = &trimmed[id_start + 2..];
+            let id = id.split('&').next().unwrap_or(id);
+            return format!("https://www.youtube.com/embed/{}?autoplay=1&mute=1&loop=1&playlist={}", id, id);
+        } else if let Some(id_start) = trimmed.find("youtu.be/") {
+            let id = &trimmed[id_start + 9..];
+            let id = id.split('?').next().unwrap_or(id);
+            return format!("https://www.youtube.com/embed/{}?autoplay=1&mute=1&loop=1&playlist={}", id, id);
+        }
+    }
     if trimmed.starts_with("http://")
         || trimmed.starts_with("https://")
         || trimmed.starts_with("file://")
@@ -74,3 +91,4 @@ fn resolve_target_url(raw: &str) -> String {
         format!("file://{}", resolved)
     }
 }
+

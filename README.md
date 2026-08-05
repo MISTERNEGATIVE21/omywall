@@ -82,10 +82,49 @@ omywall set-url "https://html5test.com"
 omywall pause
 omywall resume
 omywall toggle
+omywall hide         # Hide/pause wallpaper engine & GUI when idle (hypridle)
+omywall show         # Restore/resume wallpaper engine when returning from idle
+omywall toggle-hide  # Toggle hide/visible state
+omywall minimize     # Minimize GUI window and pause playback
 omywall clear
+
+# Waybar & Hypridle integration setup
+omywall waybar             # Output JSON status formatted for Waybar custom module
+omywall hypridle-config    # Print recommended hypridle.conf snippet
+omywall waybar-config      # Print recommended Waybar config.jsonc & style.css
 
 # Enable automated slideshow (300 seconds interval)
 omywall slideshow --interval 300 --shuffle
+```
+
+---
+
+## 🔒 Hypridle & 📊 Waybar Integration
+
+### 🔒 Hypridle (`~/.config/hypr/hypridle.conf`)
+Automatically pause and hide the wallpaper engine when your system goes idle to save 100% CPU and GPU resources:
+```ini
+listener {
+    timeout = 300                                # 5 minutes idle
+    on-timeout = omywall hide                   # Pause & hide wallpaper engine
+    on-resume = omywall show                    # Restore & resume wallpaper playback
+}
+```
+
+### 📊 Waybar (`~/.config/waybar/config.jsonc`)
+Add interactive wallpaper status widget to Waybar:
+```json
+"custom/omywall": {
+    "format": "{}",
+    "return-type": "json",
+    "exec": "omywall waybar",
+    "interval": 2,
+    "on-click": "omywall toggle",
+    "on-click-right": "omywall toggle-hide",
+    "on-click-middle": "omywall minimize",
+    "on-scroll-up": "omywall next",
+    "on-scroll-down": "omywall prev"
+}
 ```
 
 ---

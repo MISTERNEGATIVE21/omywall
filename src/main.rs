@@ -4,6 +4,7 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod config;
 mod display;
+mod electron_preview;
 mod engine;
 mod gui;
 mod iced_gui;
@@ -95,6 +96,25 @@ enum Commands {
     /// Toggle pause / play (alias: p, tog)
     #[command(alias = "p", alias = "tog")]
     Toggle,
+    /// Hide / pause wallpaper rendering engine & GUI for hypridle / system lock (alias: h, hide-wallpaper)
+    #[command(alias = "h", alias = "hide-wallpaper")]
+    Hide,
+    /// Show / resume wallpaper rendering engine & GUI after hypridle / system unlock (alias: unhide, unminimize)
+    #[command(alias = "unhide", alias = "unminimize")]
+    Show,
+    /// Toggle wallpaper visibility / hide state (alias: th, toggle-visibility)
+    #[command(alias = "th", alias = "toggle-visibility")]
+    ToggleHide,
+    /// Minimize GUI window & pause background playback for hypridle or waybar (alias: m, min)
+    #[command(alias = "m", alias = "min")]
+    Minimize,
+    /// Output JSON status for Waybar custom module (alias: w)
+    #[command(alias = "w")]
+    Waybar,
+    /// Print recommended hypridle.conf configuration snippet
+    HypridleConfig,
+    /// Print recommended waybar config.jsonc & style.css configuration snippets
+    WaybarConfig,
     /// Switch to next wallpaper (alias: n)
     #[command(alias = "n")]
     Next,
@@ -164,9 +184,15 @@ struct SlideshowState {
     shuffle: bool,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to build tokio runtime")
+        .block_on(future)
+}
 
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let mut cfg = Config::load();
 
@@ -185,7 +211,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
             Box::leak(Box::new(_lock));
-            run_daemon(&mut cfg).await?;
+            block_on(run_daemon(&mut cfg))?;
         }
         Some(Commands::Gui { minimize }) => {
             let _lock = match acquire_instance_lock("omywall-gui") {
@@ -232,7 +258,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
             Box::leak(Box::new(_lock));
-            tui::run_tui(&cfg).await?;
+            block_on(tui::run_tui(&cfg))?;
         }
         Some(Commands::Logs) => {
             let log_path = get_log_path();
@@ -253,7 +279,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let req = IpcRequest::SetWallpaper {
                 path: abs_path.to_string_lossy().to_string(),
             };
-            send_ipc_cmd(&cfg.socket_path, req).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, req));
         }
         Some(Commands::SetSteam { path, screen }) => {
             let abs_path = fs::canonicalize(&path).unwrap_or(path);
@@ -262,7 +288,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 screen,
                 overrides: None,
             };
-            send_ipc_cmd(&cfg.socket_path, req).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, req));
         }
         Some(Commands::DetectDisplays) => {
             let displays = display::detect_displays();
@@ -298,47 +324,112 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::SetUrl { url }) => {
             let req = IpcRequest::SetUrl { url };
-            send_ipc_cmd(&cfg.socket_path, req).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, req));
         }
         Some(Commands::Clear) => {
-            send_ipc_cmd(&cfg.socket_path, IpcRequest::StopWallpaper).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::StopWallpaper));
         }
         Some(Commands::SetMonitor { monitor, path }) => {
             let req = IpcRequest::SetMonitorWallpaper { monitor, path };
-            send_ipc_cmd(&cfg.socket_path, req).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, req));
         }
         Some(Commands::SetOpacity { opacity }) => {
             let req = IpcRequest::SetOpacity { opacity };
-            send_ipc_cmd(&cfg.socket_path, req).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, req));
         }
         Some(Commands::SetWidget { url, disable }) => {
             let req = IpcRequest::SetWidget { url, enabled: !disable };
-            send_ipc_cmd(&cfg.socket_path, req).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, req));
         }
         Some(Commands::Pause) => {
-            send_ipc_cmd(&cfg.socket_path, IpcRequest::Pause).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::Pause));
         }
         Some(Commands::Resume) => {
-            send_ipc_cmd(&cfg.socket_path, IpcRequest::Resume).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::Resume));
         }
         Some(Commands::Toggle) => {
-            send_ipc_cmd(&cfg.socket_path, IpcRequest::TogglePause).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::TogglePause));
+        }
+        Some(Commands::Hide) => {
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::Hide));
+        }
+        Some(Commands::Show) => {
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::Show));
+        }
+        Some(Commands::ToggleHide) => {
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::ToggleHide));
+        }
+        Some(Commands::Minimize) => {
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::Minimize));
+        }
+        Some(Commands::Waybar) => {
+            match block_on(send_ipc_request(&cfg.socket_path, &IpcRequest::GetWaybarStatus)) {
+                Ok(IpcResponse::WaybarStatus { json }) => println!("{}", json),
+                Ok(_) => {
+                    println!("{{\"text\":\"🌌 Off\",\"alt\":\"off\",\"tooltip\":\"OMYWALL Daemon status error\",\"class\":\"off\",\"percentage\":0}}");
+                }
+                Err(_) => {
+                    println!("{{\"text\":\"🌌 Off\",\"alt\":\"off\",\"tooltip\":\"OMYWALL Wallpaper Daemon is inactive\",\"class\":\"off\",\"percentage\":0}}");
+                }
+            }
+        }
+        Some(Commands::HypridleConfig) => {
+            println!("\x1b[1;36m┌────────────────────────────────────────────────────────┐\x1b[0m");
+            println!("\x1b[1;36m│          🔒 OMYWALL HYPRIDLE CONFIGURATION             │\x1b[0m");
+            println!("\x1b[1;36m└────────────────────────────────────────────────────────┘\x1b[0m\n");
+            println!("Add the following listener blocks to \x1b[1;33m~/.config/hypr/hypridle.conf\x1b[0m:\n");
+            println!("\x1b[1;32m# Automatically hide & pause OMYWALL wallpaper to save CPU/GPU when idle:");
+            println!("listener {{");
+            println!("    timeout = 300                                # 5 minutes idle");
+            println!("    on-timeout = omywall hide                   # Hide & pause wallpaper engine");
+            println!("    on-resume = omywall show                    # Restore & resume wallpaper engine");
+            println!("}}\n");
+            println!("# Turn off screens / lock after 10 minutes idle:");
+            println!("listener {{");
+            println!("    timeout = 600                                # 10 minutes idle");
+            println!("    on-timeout = hyprlock                       # Launch hyprlock screensaver");
+            println!("}}\x1b[0m");
+        }
+        Some(Commands::WaybarConfig) => {
+            println!("\x1b[1;36m┌────────────────────────────────────────────────────────┐\x1b[0m");
+            println!("\x1b[1;36m│          📊 OMYWALL WAYBAR MODULE CONFIGURATION        │\x1b[0m");
+            println!("\x1b[1;36m└────────────────────────────────────────────────────────┘\x1b[0m\n");
+            println!("Add the custom module to \x1b[1;33m~/.config/waybar/config.jsonc\x1b[0m:\n");
+            println!("\x1b[1;32m\"custom/omywall\": {{");
+            println!("    \"format\": \"{{}}\",");
+            println!("    \"return-type\": \"json\",");
+            println!("    \"exec\": \"omywall waybar\",");
+            println!("    \"interval\": 2,");
+            println!("    \"on-click\": \"omywall toggle\",");
+            println!("    \"on-click-right\": \"omywall toggle-hide\",");
+            println!("    \"on-click-middle\": \"omywall minimize\",");
+            println!("    \"on-scroll-up\": \"omywall next\",");
+            println!("    \"on-scroll-down\": \"omywall prev\"");
+            println!("}}\x1b[0m\n");
+            println!("Add the CSS styling to \x1b[1;33m~/.config/waybar/style.css\x1b[0m:\n");
+            println!("\x1b[1;32m#custom-omywall {{");
+            println!("    padding: 0 10px;");
+            println!("    color: #00f0ff;");
+            println!("}}");
+            println!("#custom-omywall.paused {{ color: #ffaa00; }}");
+            println!("#custom-omywall.hidden {{ color: #777777; }}");
+            println!("#custom-omywall.stopped {{ color: #ff4444; }}\x1b[0m");
         }
         Some(Commands::Next) => {
-            send_ipc_cmd(&cfg.socket_path, IpcRequest::NextWallpaper).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::NextWallpaper));
         }
         Some(Commands::Prev) => {
-            send_ipc_cmd(&cfg.socket_path, IpcRequest::PrevWallpaper).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::PrevWallpaper));
         }
         Some(Commands::Slideshow { interval, shuffle }) => {
             let req = IpcRequest::StartSlideshow {
                 interval_secs: interval,
                 shuffle,
             };
-            send_ipc_cmd(&cfg.socket_path, req).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, req));
         }
         Some(Commands::StopSlideshow) => {
-            send_ipc_cmd(&cfg.socket_path, IpcRequest::StopSlideshow).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::StopSlideshow));
         }
         Some(Commands::Autostart { enable, disable }) => {
             if enable {
@@ -357,10 +448,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Some(Commands::Cycle) => {
-            send_ipc_cmd(&cfg.socket_path, IpcRequest::CycleLiveWallpaper).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::CycleLiveWallpaper));
         }
         Some(Commands::Status) => {
-            match send_ipc_request(&cfg.socket_path, &IpcRequest::GetStatus).await {
+            match block_on(send_ipc_request(&cfg.socket_path, &IpcRequest::GetStatus)) {
                 Ok(IpcResponse::Status(st)) => {
                     let metrics = crate::config::get_system_metrics();
                     println!("\x1b[1;36m┌────────────────────────────────────────────────────────┐\x1b[0m");
@@ -386,11 +477,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut c = Config::load();
             c.hwdec = decoder.clone();
             let _ = c.save();
-            send_ipc_cmd(&cfg.socket_path, IpcRequest::SetHwdec { hwdec: decoder.clone() }).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::SetHwdec { hwdec: decoder.clone() }));
             println!("✅ Hardware acceleration video decoder set to: {}", decoder);
         }
         Some(Commands::Stop) => {
-            send_ipc_cmd(&cfg.socket_path, IpcRequest::QuitDaemon).await;
+            block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::QuitDaemon));
         }
         Some(Commands::WebLayer { url }) => {
             crate::web_layer::run(&url)?;
@@ -399,6 +490,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
 
 async fn send_ipc_cmd(socket_path: &Path, req: IpcRequest) {
     match send_ipc_request(socket_path, &req).await {
@@ -738,6 +830,94 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                         Err(e) => IpcResponse::Err { message: e },
                     }
                 }
+                IpcRequest::Hide => {
+                    let eng = engine.lock().unwrap();
+                    match eng.hide() {
+                        Ok(_) => {
+                            let _ = std::process::Command::new("hyprctl").args(["dispatch", "minimize"]).output();
+                            IpcResponse::Ok { message: "Wallpaper and GUI hidden / paused".into() }
+                        }
+                        Err(e) => IpcResponse::Err { message: e },
+                    }
+                }
+                IpcRequest::Show => {
+                    let eng = engine.lock().unwrap();
+                    match eng.show() {
+                        Ok(_) => IpcResponse::Ok { message: "Wallpaper restored / resumed".into() },
+                        Err(e) => IpcResponse::Err { message: e },
+                    }
+                }
+                IpcRequest::ToggleHide => {
+                    let eng = engine.lock().unwrap();
+                    match eng.toggle_hide() {
+                        Ok(hidden) => {
+                            if hidden {
+                                let _ = std::process::Command::new("hyprctl").args(["dispatch", "minimize"]).output();
+                            }
+                            IpcResponse::Ok {
+                                message: format!("Wallpaper visibility set to: {}", if hidden { "Hidden" } else { "Visible" }),
+                            }
+                        }
+                        Err(e) => IpcResponse::Err { message: e },
+                    }
+                }
+                IpcRequest::Minimize => {
+                    let eng = engine.lock().unwrap();
+                    let _ = eng.hide();
+                    let _ = std::process::Command::new("hyprctl").args(["dispatch", "movetoworkspacesilent", "special:omywall,title:OMYWALL"]).output();
+                    let _ = std::process::Command::new("hyprctl").args(["dispatch", "minimize"]).output();
+                    let _ = std::process::Command::new("swaymsg").args(["[title=\"OMYWALL\"]", "move", "scratchpad"]).output();
+                    let _ = std::process::Command::new("xdotool").args(["search", "--class", "omywall", "windowminimize"]).output();
+                    IpcResponse::Ok { message: "Minimized GUI window and paused wallpaper engine".into() }
+                }
+                IpcRequest::GetWaybarStatus => {
+                    let eng = engine.lock().unwrap();
+                    let wall_opt = eng.current_wallpaper();
+                    let is_paused = eng.is_paused().unwrap_or(false);
+                    let is_hidden = eng.is_hidden();
+                    let is_stopped = eng.is_user_stopped();
+                    let vol = eng.volume();
+                    let is_muted = eng.is_muted();
+                    let hwdec = eng.hwdec();
+                    let fps = eng.target_fps();
+
+                    let (status_str, alt_str, class_str, icon) = if is_hidden {
+                        ("Hidden (Idle)", "hidden", "hidden", "🙈")
+                    } else if is_stopped {
+                        ("Stopped", "stopped", "stopped", "⏹️")
+                    } else if is_paused {
+                        ("Paused", "paused", "paused", "⏸️")
+                    } else {
+                        ("Playing", "playing", "playing", "🌌")
+                    };
+
+                    let title = wall_opt
+                        .as_ref()
+                        .and_then(|p| std::path::Path::new(p).file_name())
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("No Active Wallpaper");
+
+                    let text = format!("{} {}", icon, title);
+                    let tooltip = format!(
+                        "OMYWALL Wallpaper Engine\nStatus: {}\nWallpaper: {}\nDecoder: {}\nFPS: {}\nVolume: {}%{}",
+                        status_str,
+                        title,
+                        hwdec,
+                        fps,
+                        vol,
+                        if is_muted { " [MUTED]" } else { "" }
+                    );
+
+                    let waybar_json = serde_json::json!({
+                        "text": text,
+                        "alt": alt_str,
+                        "tooltip": tooltip,
+                        "class": class_str,
+                        "percentage": vol,
+                    }).to_string();
+
+                    IpcResponse::WaybarStatus { json: waybar_json }
+                }
                 IpcRequest::NextWallpaper => {
                     let files = {
                         let mut guard = wallpaper_files.lock().unwrap();
@@ -944,6 +1124,7 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                         current_wallpaper: eng.current_wallpaper(),
                         active_monitor: mon_guard.clone(),
                         is_paused: eng.is_paused().unwrap_or(false),
+                        is_hidden: eng.is_hidden(),
                         volume: eng.volume(),
                         is_muted: eng.is_muted(),
                         hwdec: eng.hwdec(),
@@ -1013,8 +1194,17 @@ fn apply_active_wallpaper(
     }
 
     if let Some(ref def) = config.default_wallpaper {
-        let _ = engine.set_wallpaper(def);
+        if def.exists() {
+            let _ = engine.set_wallpaper(def);
+            return;
+        }
     }
+
+    let catalog = scan_wallpapers(&config.wallpaper_dir);
+    if let Some(first) = catalog.first() {
+        let _ = engine.set_wallpaper(first);
+    }
+
 }
 
 async fn send_response(stream: &mut tokio::net::UnixStream, resp: &IpcResponse) -> Result<(), String> {

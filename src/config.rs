@@ -404,23 +404,30 @@ impl Config {
 
         if enable {
             fs::create_dir_all(&autostart_dir)?;
-            let desktop_content = r#"[Desktop Entry]
-Type=Application
-Name=OMYWALL Wallpaper Engine
-GenericName=Live Video, Stream & Desktop Wallpaper Engine
-Comment=Ultra-Lightweight Hardware-Accelerated Video, Stream & Desktop Wallpaper Engine
-Exec=omywall daemon
-Icon=omywall
-Terminal=false
-Categories=Utility;Appearance;
-X-GNOME-Autostart-enabled=true
-"#;
+            let exe_path = std::env::current_exe()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| format!("{}/.local/bin/omywall", home.display()));
+
+            let desktop_content = format!(
+                "[Desktop Entry]\n\
+                 Type=Application\n\
+                 Name=OMYWALL Wallpaper Engine\n\
+                 GenericName=Live Video, Stream & Desktop Wallpaper Engine\n\
+                 Comment=Ultra-Lightweight Hardware-Accelerated Video, Stream & Desktop Wallpaper Engine\n\
+                 Exec={} daemon\n\
+                 Icon=omywall\n\
+                 Terminal=false\n\
+                 Categories=Utility;Appearance;\n\
+                 X-GNOME-Autostart-enabled=true\n",
+                exe_path
+            );
             fs::write(target, desktop_content)?;
         } else if target.exists() {
             let _ = fs::remove_file(target);
         }
         Ok(())
     }
+
 
     pub fn add_web_bookmark(&mut self, title: String, url: String, category: String) {
         let bookmark = WebBookmark {

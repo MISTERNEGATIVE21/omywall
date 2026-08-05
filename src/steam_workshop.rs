@@ -58,9 +58,28 @@ pub fn search_workshop(query: &str, page: u32, sort: &str, days: i64) -> Result<
         return browse_workshop(page, sort, days);
     }
 
-    if trimmed.chars().all(|c| c.is_ascii_digit()) {
-        return fetch_workshop_details(&[trimmed.to_string()]);
+    let extracted_id = if trimmed.chars().all(|c| c.is_ascii_digit()) {
+        Some(trimmed.to_string())
+    } else if let Some(pos) = trimmed.find("id=") {
+        let id_part: String = trimmed[pos + 3..].chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !id_part.is_empty() { Some(id_part) } else { None }
+    } else {
+        None
+    };
+
+    if let Some(id) = extracted_id {
+        if let Ok(items) = fetch_workshop_details(&[id.clone()]) {
+            if !items.is_empty() {
+                return Ok(items);
+            }
+        }
+        let page_url = format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", id);
+        if let Ok(html) = http_get(&page_url) {
+            let item = parse_single_item_page(&html, &id);
+            return Ok(vec![item]);
+        }
     }
+
 
     let mut encoded = String::new();
     for c in trimmed.chars() {
@@ -466,9 +485,61 @@ pub fn download_workshop_item(id: &str) -> Result<PathBuf, String> {
     ))
 }
 
+pub fn parse_single_item_page(html: &str, id: &str) -> WorkshopItem {
+    let mut title = format!("Workshop Item {}", id);
+    if let Some(pos) = html.find("<div class=\"workshopItemTitle\">") {
+        let rest = &html[pos + 31..];
+        let raw: String = rest.chars().take_while(|c| *c != '<').collect();
+        if !raw.trim().is_empty() {
+            title = strip_html_tags(&raw).trim().to_string();
+        }
+    } else if let Some(pos) = html.find("<title>") {
+        let rest = &html[pos + 7..];
+        let raw: String = rest.chars().take_while(|c| *c != '<').collect();
+        if !raw.trim().is_empty() {
+            title = raw.replace("Steam Workshop::", "").trim().to_string();
+        }
+    }
+
+    let mut preview_url = None;
+    if let Some(pos) = html.find("id=\"previewImage\"") {
+        if let Some(src_pos) = html[pos..].find("src=\"") {
+            let rest = &html[pos + src_pos + 5..];
+            let raw: String = rest.chars().take_while(|c| *c != '"').collect();
+            if !raw.trim().is_empty() {
+                preview_url = Some(raw);
+            }
+        }
+    } else if let Some(pos) = html.find("id=\"previewImageMain\"") {
+        if let Some(src_pos) = html[pos..].find("src=\"") {
+            let rest = &html[pos + src_pos + 5..];
+            let raw: String = rest.chars().take_while(|c| *c != '"').collect();
+            if !raw.trim().is_empty() {
+                preview_url = Some(raw);
+            }
+        }
+    }
+
+    WorkshopItem {
+        id: id.to_string(),
+        title,
+        preview_url,
+        author: "Steam Workshop".to_string(),
+        url: format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", id),
+        ..Default::default()
+    }
+}
+
 pub fn open_in_browser(id: &str) {
-    let url = format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", id);
-    let _ = Command::new("xdg-open").arg(&url).spawn();
+    let steam_proto = format!("steam://url/CommunityFilePage/{}", id);
+    let web_url = format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", id);
+    std::thread::spawn(move || {
+        if Command::new("steam").arg(&steam_proto).spawn().is_err() {
+            if Command::new("xdg-open").arg(&steam_proto).spawn().is_err() {
+                let _ = Command::new("xdg-open").arg(&web_url).spawn();
+            }
+        }
+    });
 }
 
 pub fn get_file_size_str(bytes: u64) -> String {
