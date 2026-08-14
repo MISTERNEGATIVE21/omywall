@@ -189,3 +189,88 @@ fn test_default_web_bookmarks_contains_widgets_and_webgl() {
     assert!(has_particles, "Default web bookmarks must include 3D WebGL categories");
 }
 
+#[test]
+fn test_widget_presets_metadata() {
+    use omywall::iced_gui::WidgetPreset;
+
+    let hud = WidgetPreset::CyberHud;
+    assert_eq!(hud.url(), "assets/widgets/desktop_hud.html");
+    assert!(hud.label().contains("Cyber HUD"));
+    assert!(hud.description().contains("CPU gauge"));
+
+    let pill = WidgetPreset::WifiBluetoothPill;
+    assert_eq!(pill.url(), "assets/widgets/wifi_bluetooth_pill.html");
+    assert!(pill.label().contains("WiFi & Bluetooth"));
+    assert!(pill.description().contains("pill"));
+
+    let clock = WidgetPreset::MinimalClock;
+    assert_eq!(clock.url(), "assets/widgets/minimal_clock_stats.html");
+    assert!(clock.label().contains("Minimal Clock"));
+    assert!(clock.description().contains("clock"));
+
+    let custom = WidgetPreset::Custom;
+    assert_eq!(custom.url(), "");
+    assert!(custom.label().contains("Custom"));
+}
+
+#[test]
+fn test_iced_gui_app_initialization_widgets_tab() {
+    let mut config = omywall::config::Config::default();
+    config.enable_widgets = true;
+    config.widget_url = Some("assets/widgets/wifi_bluetooth_pill.html".to_string());
+    config.widget_position = "bottom_right".to_string();
+
+    let app = omywall::iced_gui::IcedGuiApp::new(config.clone(), false);
+    assert_eq!(app.widget_preset, omywall::iced_gui::WidgetPreset::WifiBluetoothPill);
+    assert_eq!(app.config.widget_position, "bottom_right");
+    assert!(app.config.enable_widgets);
+    assert!(!app.wallpapers.is_empty(), "Wallpapers must be initialized on boot");
+    assert!(app.selected_wallpaper.is_some(), "Selected wallpaper must be initialized on boot");
+}
+
+#[test]
+fn test_ipc_set_widget_roundtrip() {
+    let req = omywall::ipc::IpcRequest::SetWidget {
+        url: "assets/widgets/desktop_hud.html".to_string(),
+        enabled: true,
+        position: Some("center_dock".to_string()),
+    };
+
+    let serialized = serde_json::to_string(&req).expect("serialize IpcRequest::SetWidget");
+    let deserialized: omywall::ipc::IpcRequest = serde_json::from_str(&serialized).expect("deserialize IpcRequest::SetWidget");
+
+    match deserialized {
+        omywall::ipc::IpcRequest::SetWidget { url, enabled, position } => {
+            assert_eq!(url, "assets/widgets/desktop_hud.html");
+            assert!(enabled);
+            assert_eq!(position.as_deref(), Some("center_dock"));
+        }
+        _ => panic!("Expected SetWidget variant"),
+    }
+}
+
+#[test]
+fn test_web_layer_resolve_target_url() {
+    let local_widget = "assets/widgets/desktop_hud.html";
+    let resolved = omywall::web_layer::resolve_target_url(local_widget);
+    assert!(resolved.starts_with("file://"), "Local widget path must resolve to file:// URI");
+    assert!(resolved.contains("desktop_hud.html"));
+
+    let remote_http = "https://dashboard.example.com";
+    assert_eq!(omywall::web_layer::resolve_target_url(remote_http), remote_http);
+
+    let yt_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    let yt_resolved = omywall::web_layer::resolve_target_url(yt_url);
+    assert!(yt_resolved.contains("embed/dQw4w9WgXcQ"));
+    assert!(yt_resolved.contains("autoplay=1"));
+}
+
+#[test]
+fn test_minimal_clock_stats_widget_file() {
+    let path = PathBuf::from("assets/widgets/minimal_clock_stats.html");
+    assert!(path.exists(), "minimal_clock_stats.html must exist");
+    let content = std::fs::read_to_string(&path).expect("read minimal_clock_stats.html");
+    assert!(content.contains("omywall_telemetry.json"), "minimal clock must poll telemetry");
+    assert!(content.contains("clock-time"), "minimal clock must have clock-time element");
+}
+

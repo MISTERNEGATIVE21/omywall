@@ -33,7 +33,12 @@ pub enum IpcRequest {
     SetMonitorWallpaper { monitor: String, path: String },
     GetMonitorMappings,
     SetOpacity { opacity: f32 },
-    SetWidget { url: String, enabled: bool },
+    SetWidget {
+        url: String,
+        enabled: bool,
+        #[serde(default)]
+        position: Option<String>,
+    },
     CycleLiveWallpaper,
     GetStatus,
     ListWallpapers,
@@ -78,6 +83,8 @@ pub struct DaemonStatus {
     pub opacity: f32,
     pub widget_enabled: bool,
     pub widget_url: Option<String>,
+    #[serde(default)]
+    pub widget_position: Option<String>,
     pub monitor_wallpapers: HashMap<String, String>,
     pub total_wallpapers: usize,
 }

@@ -6,7 +6,25 @@ use webkit2gtk::WebViewExt;
 /// Render a URL (or local file) as a wlr-layer-shell background surface using
 /// pure Rust GTK3 + WebKit2GTK. Replaces the former `python3` GTK layer-shell
 /// runner so no external interpreter is required.
+#[allow(dead_code)]
 pub fn run(url: &str) -> Result<(), String> {
+    run_with_options(url, false, "fullscreen", 1280, 720)
+}
+
+/// Render a desktop widget overlay with transparent background and edge anchoring.
+#[allow(dead_code)]
+pub fn run_widget(url: &str, position: &str) -> Result<(), String> {
+    run_with_options(url, true, position, 480, 560)
+}
+
+/// Core runner supporting both fullscreen wallpapers and transparent desktop overlay widgets.
+pub fn run_with_options(
+    url: &str,
+    is_widget: bool,
+    position: &str,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
     std::env::set_var("GDK_BACKEND", "wayland");
     std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
     std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
@@ -15,26 +33,90 @@ pub fn run(url: &str) -> Result<(), String> {
         return Err("WebLayer: gtk::init() failed".into());
     }
 
-
-
     let target_url = resolve_target_url(url);
 
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
 
+    if is_widget {
+        if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&window) {
+            if let Some(visual) = screen.rgba_visual() {
+                window.set_visual(Some(&visual));
+            }
+        }
+        window.set_app_paintable(true);
+    }
+
     if gtk_layer_shell::is_supported() {
         window.init_layer_shell();
-        window.set_layer(Layer::Background);
-        window.set_anchor(Edge::Top, true);
-        window.set_anchor(Edge::Bottom, true);
-        window.set_anchor(Edge::Left, true);
-        window.set_anchor(Edge::Right, true);
-        window.set_exclusive_zone(-1);
-        window.set_keyboard_mode(KeyboardMode::None);
+
+        if is_widget {
+            window.set_layer(Layer::Bottom);
+            window.set_keyboard_mode(KeyboardMode::None);
+            window.set_exclusive_zone(-1);
+
+            let pos_clean = position.to_lowercase().replace(['-', ' '], "_");
+            match pos_clean.as_str() {
+                "top_left" => {
+                    window.set_anchor(Edge::Top, true);
+                    window.set_anchor(Edge::Left, true);
+                    window.set_anchor(Edge::Bottom, false);
+                    window.set_anchor(Edge::Right, false);
+                    window.set_layer_shell_margin(Edge::Top, 24);
+                    window.set_layer_shell_margin(Edge::Left, 24);
+                }
+                "bottom_right" => {
+                    window.set_anchor(Edge::Bottom, true);
+                    window.set_anchor(Edge::Right, true);
+                    window.set_anchor(Edge::Top, false);
+                    window.set_anchor(Edge::Left, false);
+                    window.set_layer_shell_margin(Edge::Bottom, 24);
+                    window.set_layer_shell_margin(Edge::Right, 24);
+                }
+                "bottom_left" => {
+                    window.set_anchor(Edge::Bottom, true);
+                    window.set_anchor(Edge::Left, true);
+                    window.set_anchor(Edge::Top, false);
+                    window.set_anchor(Edge::Right, false);
+                    window.set_layer_shell_margin(Edge::Bottom, 24);
+                    window.set_layer_shell_margin(Edge::Left, 24);
+                }
+                "center_dock" | "center" | "dock" => {
+                    window.set_anchor(Edge::Bottom, true);
+                    window.set_anchor(Edge::Top, false);
+                    window.set_anchor(Edge::Left, false);
+                    window.set_anchor(Edge::Right, false);
+                    window.set_layer_shell_margin(Edge::Bottom, 32);
+                }
+                _ /* default: top_right */ => {
+                    window.set_anchor(Edge::Top, true);
+                    window.set_anchor(Edge::Right, true);
+                    window.set_anchor(Edge::Bottom, false);
+                    window.set_anchor(Edge::Left, false);
+                    window.set_layer_shell_margin(Edge::Top, 24);
+                    window.set_layer_shell_margin(Edge::Right, 24);
+                }
+            }
+        } else {
+            window.set_layer(Layer::Background);
+            window.set_anchor(Edge::Top, true);
+            window.set_anchor(Edge::Bottom, true);
+            window.set_anchor(Edge::Left, true);
+            window.set_anchor(Edge::Right, true);
+            window.set_exclusive_zone(-1);
+            window.set_keyboard_mode(KeyboardMode::None);
+        }
     } else {
-        // Non-wlr compositor fallback: a plain fullscreen window.
-        window.set_default_size(1280, 720);
-        window.fullscreen();
-        window.set_title("OMYWALL Web Wallpaper");
+        // Non-wlr compositor fallback
+        if is_widget {
+            window.set_default_size(width, height);
+            window.set_title("OMYWALL Desktop Widget");
+            window.set_decorated(false);
+            window.set_keep_below(true);
+        } else {
+            window.set_default_size(1280, 720);
+            window.fullscreen();
+            window.set_title("OMYWALL Web Wallpaper");
+        }
     }
 
     let settings = webkit2gtk::Settings::builder()
@@ -47,6 +129,11 @@ pub fn run(url: &str) -> Result<(), String> {
         .build();
 
     let webview = webkit2gtk::WebView::builder().settings(&settings).build();
+
+    if is_widget {
+        let transparent = gdk::RGBA::new(0.0, 0.0, 0.0, 0.0);
+        webview.set_background_color(&transparent);
+    }
 
     webview.connect_load_failed(|_webview, _event, _failing_uri, _error| {
         true
@@ -61,7 +148,7 @@ pub fn run(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn resolve_target_url(raw: &str) -> String {
+pub fn resolve_target_url(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.contains("youtube.com/watch?v=") || trimmed.contains("youtu.be/") {
         if let Some(id_start) = trimmed.find("v=") {
@@ -91,4 +178,3 @@ fn resolve_target_url(raw: &str) -> String {
         format!("file://{}", resolved)
     }
 }
-

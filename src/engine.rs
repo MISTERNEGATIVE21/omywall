@@ -25,6 +25,7 @@ pub struct WallpaperEngine {
     opacity: Arc<Mutex<f32>>,
     widget_enabled: Arc<Mutex<bool>>,
     widget_url: Arc<Mutex<Option<String>>>,
+    widget_position: Arc<Mutex<String>>,
     _window_id: u64,
     socket_path: PathBuf,
 }
@@ -98,6 +99,7 @@ impl WallpaperEngine {
             opacity: Arc::new(Mutex::new(1.0)),
             widget_enabled: Arc::new(Mutex::new(false)),
             widget_url: Arc::new(Mutex::new(None)),
+            widget_position: Arc::new(Mutex::new("top_right".to_string())),
             _window_id: window_id,
             socket_path,
         };
@@ -434,23 +436,57 @@ impl WallpaperEngine {
         *self.opacity.lock().unwrap()
     }
 
+    #[allow(dead_code)]
     pub fn set_widget(&self, url: &str, enabled: bool) -> Result<(), String> {
+        let pos = self.widget_position.lock().unwrap().clone();
+        self.set_widget_with_position(url, enabled, &pos)
+    }
+
+    pub fn set_widget_with_position(&self, url: &str, enabled: bool, position: &str) -> Result<(), String> {
         let mut en_guard = self.widget_enabled.lock().unwrap();
         *en_guard = enabled;
 
         let mut url_guard = self.widget_url.lock().unwrap();
         *url_guard = if url.trim().is_empty() { None } else { Some(url.to_string()) };
 
+        let mut pos_guard = self.widget_position.lock().unwrap();
+        *pos_guard = position.to_string();
+
         self.stop_widget_internal();
 
         if enabled {
             if let Some(ref target_url) = *url_guard {
-                log_info(&format!("Engine: Launching desktop widget at '{}'", target_url));
-                let child = Command::new("electron")
-                    .args(["--title=omywall-widget", target_url])
-                    .spawn()
-                    .or_else(|_| Command::new("chromium").args([format!("--app={}", target_url), "--user-data-dir=/tmp/omywall-widget-profile".to_string()]).spawn())
-                    .ok();
+                log_info(&format!("Engine: Launching desktop widget at '{}' (position: {})", target_url, position));
+
+                let child = if let Ok(exe) = std::env::current_exe() {
+                    Command::new(exe)
+                        .args(["web-layer", target_url, "--widget", "--position", position])
+                        .spawn()
+                        .ok()
+                } else {
+                    None
+                };
+
+                let child = match child {
+                    Some(c) => Some(c),
+                    None => {
+                        Command::new("omywall")
+                            .args(["web-layer", target_url, "--widget", "--position", position])
+                            .spawn()
+                            .or_else(|_| {
+                                Command::new("electron")
+                                    .args(["--title=omywall-widget", target_url])
+                                    .spawn()
+                            })
+                            .or_else(|_| {
+                                Command::new("chromium")
+                                    .args([format!("--app={}", target_url), "--user-data-dir=/tmp/omywall-widget-profile".to_string()])
+                                    .spawn()
+                            })
+                            .ok()
+                    }
+                };
+
                 let mut proc_guard = self.widget_process.lock().unwrap();
                 *proc_guard = child;
             }
@@ -463,6 +499,11 @@ impl WallpaperEngine {
         let en = *self.widget_enabled.lock().unwrap();
         let url = self.widget_url.lock().unwrap().clone();
         (en, url)
+    }
+
+    #[allow(dead_code)]
+    pub fn get_widget_position(&self) -> String {
+        self.widget_position.lock().unwrap().clone()
     }
 
     fn stop_widget_internal(&self) {

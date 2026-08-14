@@ -147,6 +147,8 @@ enum Commands {
         url: String,
         #[arg(short, long)]
         disable: bool,
+        #[arg(long, default_value = "top_right")]
+        position: String,
     },
     /// Manage autostart on system boot (alias: auto)
     #[command(alias = "auto")]
@@ -177,6 +179,14 @@ enum Commands {
     WebLayer {
         /// URL or local path to render as wallpaper
         url: String,
+        #[arg(long)]
+        widget: bool,
+        #[arg(long, default_value = "top_right")]
+        position: String,
+        #[arg(long, default_value_t = 480)]
+        width: i32,
+        #[arg(long, default_value_t = 560)]
+        height: i32,
     },
 }
 
@@ -339,8 +349,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let req = IpcRequest::SetOpacity { opacity };
             block_on(send_ipc_cmd(&cfg.socket_path, req));
         }
-        Some(Commands::SetWidget { url, disable }) => {
-            let req = IpcRequest::SetWidget { url, enabled: !disable };
+        Some(Commands::SetWidget { url, disable, position }) => {
+            let req = IpcRequest::SetWidget {
+                url,
+                enabled: !disable,
+                position: Some(position),
+            };
             block_on(send_ipc_cmd(&cfg.socket_path, req));
         }
         Some(Commands::Pause) => {
@@ -485,8 +499,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Stop) => {
             block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::QuitDaemon));
         }
-        Some(Commands::WebLayer { url }) => {
-            crate::web_layer::run(&url)?;
+        Some(Commands::WebLayer { url, widget, position, width, height }) => {
+            crate::web_layer::run_with_options(&url, widget, &position, width, height)?;
         }
     }
 
@@ -1103,13 +1117,17 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                         Err(e) => IpcResponse::Err { message: e },
                     }
                 }
-                IpcRequest::SetWidget { url, enabled } => {
+                IpcRequest::SetWidget { url, enabled, position } => {
                     let eng = engine.lock().unwrap();
                     let mut cfg_guard = config_arc.lock().unwrap();
                     cfg_guard.enable_widgets = enabled;
                     cfg_guard.widget_url = if url.trim().is_empty() { None } else { Some(url.clone()) };
+                    if let Some(ref pos) = position {
+                        cfg_guard.widget_position = pos.clone();
+                    }
+                    let pos_str = position.unwrap_or_else(|| cfg_guard.widget_position.clone());
                     let _ = cfg_guard.save();
-                    match eng.set_widget(&url, enabled) {
+                    match eng.set_widget_with_position(&url, enabled, &pos_str) {
                         Ok(_) => IpcResponse::Ok {
                             message: format!("Desktop widget state: {}", if enabled { "Enabled" } else { "Disabled" }),
                         },
@@ -1141,6 +1159,7 @@ async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> 
                         opacity: eng.get_opacity(),
                         widget_enabled: w_enabled,
                         widget_url: w_url,
+                        widget_position: Some(cfg_guard.widget_position.clone()),
                         monitor_wallpapers: cfg_guard.monitor_wallpapers.clone(),
                         total_wallpapers: files.len(),
                     };

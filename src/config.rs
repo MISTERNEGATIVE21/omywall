@@ -108,6 +108,8 @@ pub struct Config {
     pub enable_widgets: bool,
     #[serde(default)]
     pub widget_url: Option<String>,
+    #[serde(default = "default_widget_position")]
+    pub widget_position: String,
     #[serde(default)]
     pub monitor_wallpapers: HashMap<String, String>,
     #[serde(default = "default_web_bookmarks")]
@@ -120,6 +122,10 @@ pub struct Config {
     pub wallpaper_overrides: HashMap<String, WallpaperOverrides>,
     #[serde(default)]
     pub steam_library_paths: Vec<PathBuf>,
+}
+
+fn default_widget_position() -> String {
+    "top_right".to_string()
 }
 
 fn default_opacity() -> f32 {
@@ -272,6 +278,12 @@ pub fn default_web_bookmarks() -> Vec<WebBookmark> {
             is_demo: true,
         },
         WebBookmark {
+            title: "Minimal Clock & System Stats".to_string(),
+            url: "assets/widgets/minimal_clock_stats.html".to_string(),
+            category: "Desktop Widgets".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
             title: "Neon OLED Liquid Fluid 3D (Mouse Follow)".to_string(),
             url: "assets/web_wallpapers/neon_oled_fluid_mouse_3d.html".to_string(),
             category: "OLED Interactive Fluid".to_string(),
@@ -374,6 +386,7 @@ impl Default for Config {
             opacity: 1.0,
             enable_widgets: false,
             widget_url: None,
+            widget_position: "top_right".to_string(),
             monitor_wallpapers: HashMap::new(),
             saved_web_wallpapers: default_web_bookmarks(),
             autostart: Self::is_autostart_enabled(),

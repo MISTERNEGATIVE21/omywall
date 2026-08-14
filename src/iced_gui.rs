@@ -106,9 +106,47 @@ pub fn md5_hash(bytes: &[u8]) -> u64 {
 pub enum AppTab {
     Installed,
     SteamWorkshop,
+    Widgets,
     Displays,
     Screensaver,
     Settings,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WidgetPreset {
+    CyberHud,
+    WifiBluetoothPill,
+    MinimalClock,
+    Custom,
+}
+
+impl WidgetPreset {
+    pub fn label(&self) -> &'static str {
+        match self {
+            WidgetPreset::CyberHud => "🌐 All-in-One Cyber HUD",
+            WidgetPreset::WifiBluetoothPill => "📶 WiFi & Bluetooth Pill",
+            WidgetPreset::MinimalClock => "⏰ Minimal Clock & Stats",
+            WidgetPreset::Custom => "🔗 Custom Widget URL",
+        }
+    }
+
+    pub fn url(&self) -> &'static str {
+        match self {
+            WidgetPreset::CyberHud => "assets/widgets/desktop_hud.html",
+            WidgetPreset::WifiBluetoothPill => "assets/widgets/wifi_bluetooth_pill.html",
+            WidgetPreset::MinimalClock => "assets/widgets/minimal_clock_stats.html",
+            WidgetPreset::Custom => "",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            WidgetPreset::CyberHud => "Full glassmorphic HUD: Circular CPU gauge, Memory graph, Network I/O, Battery, WiFi & Bluetooth telemetry.",
+            WidgetPreset::WifiBluetoothPill => "Ultra-compact pill badge: Live WiFi SSID & signal strength, Bluetooth paired devices & hardware status.",
+            WidgetPreset::MinimalClock => "Clean digital clock card: Big bold typography, Date, live CPU & RAM usage bars with AC power indicator.",
+            WidgetPreset::Custom => "Load any local HTML/JS widget file or remote Web URL directly onto your desktop overlay layer.",
+        }
+    }
 }
 
 
@@ -368,6 +406,18 @@ pub enum Message {
     RunInstaller,
 
 
+    // Desktop Widgets
+    ToggleWidgetOverlay,
+    SetWidgetEnabled(bool),
+    SelectWidgetPreset(WidgetPreset),
+    SelectWidgetPosition(String),
+    CustomWidgetUrlChanged(String),
+    ApplyWidgetToDesktop,
+    TestWidgetWindow,
+    StopWidgetOverlay,
+    OpenWidgetFilePicker,
+    WidgetFilePicked(Option<PathBuf>),
+
     // Steam tuning
     QueryProps,
     TuneFpsChanged(u32),
@@ -412,6 +462,9 @@ pub struct IcedGuiApp {
     pub web_url_input: String,
     pub new_web_title: String,
     pub new_web_category: String,
+
+    pub widget_preset: WidgetPreset,
+    pub custom_widget_url: String,
 
     pub steam_wallpapers: Vec<SteamWallpaper>,
     pub displays: Vec<DisplayInfo>,
@@ -529,11 +582,26 @@ fn load_window_icon() -> Option<(Vec<u8>, u32, u32)> {
 
 impl IcedGuiApp {
     pub fn new(config: Config, start_minimized: bool) -> Self {
-        crate::webkit_render::init_global_renderer();
+        let current_widget_url = config.widget_url.clone().unwrap_or_default();
+        let widget_preset = if current_widget_url.contains("wifi_bluetooth_pill.html") {
+            WidgetPreset::WifiBluetoothPill
+        } else if current_widget_url.contains("minimal_clock_stats.html") {
+            WidgetPreset::MinimalClock
+        } else if current_widget_url.contains("desktop_hud.html") || current_widget_url.is_empty() {
+            WidgetPreset::CyberHud
+        } else {
+            WidgetPreset::Custom
+        };
+        let custom_widget_url = if widget_preset == WidgetPreset::Custom {
+            current_widget_url
+        } else {
+            "assets/widgets/desktop_hud.html".to_string()
+        };
+
         let wallpapers = Self::scan_wallpapers(&config.wallpaper_dir, &config.saved_web_wallpapers);
         let selected_wallpaper = wallpapers.first().cloned();
-        let mut app = IcedGuiApp {
 
+        let mut app = IcedGuiApp {
             config,
             window_id: None,
             status: None,
@@ -549,6 +617,8 @@ impl IcedGuiApp {
             web_url_input: "https://".to_string(),
             new_web_title: String::new(),
             new_web_category: "Web Animation".to_string(),
+            widget_preset,
+            custom_widget_url,
             steam_wallpapers: Vec::new(),
             displays: Vec::new(),
             selected_screen: None,
@@ -1921,6 +1991,249 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                 Task::none()
             }
         }
+
+        // Desktop Widgets handlers
+        Message::ToggleWidgetOverlay => {
+            app.config.enable_widgets = !app.config.enable_widgets;
+            let target_url = if app.widget_preset == WidgetPreset::Custom {
+                if app.custom_widget_url.trim().is_empty() {
+                    "assets/widgets/desktop_hud.html".to_string()
+                } else {
+                    app.custom_widget_url.clone()
+                }
+            } else {
+                app.widget_preset.url().to_string()
+            };
+            app.config.widget_url = Some(target_url.clone());
+            let _ = app.config.save();
+            app.status_message = format!(
+                "Desktop widgets {}",
+                if app.config.enable_widgets { "enabled" } else { "disabled" }
+            );
+            Task::perform(
+                send_req(
+                    app.config.socket_path.clone(),
+                    IpcRequest::SetWidget {
+                        url: target_url,
+                        enabled: app.config.enable_widgets,
+                        position: Some(app.config.widget_position.clone()),
+                    },
+                ),
+                Message::GotStatus,
+            )
+        }
+        Message::SetWidgetEnabled(enabled) => {
+            app.config.enable_widgets = enabled;
+            let target_url = if app.widget_preset == WidgetPreset::Custom {
+                if app.custom_widget_url.trim().is_empty() {
+                    "assets/widgets/desktop_hud.html".to_string()
+                } else {
+                    app.custom_widget_url.clone()
+                }
+            } else {
+                app.widget_preset.url().to_string()
+            };
+            app.config.widget_url = Some(target_url.clone());
+            let _ = app.config.save();
+            app.status_message = format!(
+                "Desktop widgets {}",
+                if enabled { "enabled" } else { "disabled" }
+            );
+            Task::perform(
+                send_req(
+                    app.config.socket_path.clone(),
+                    IpcRequest::SetWidget {
+                        url: target_url,
+                        enabled,
+                        position: Some(app.config.widget_position.clone()),
+                    },
+                ),
+                Message::GotStatus,
+            )
+        }
+        Message::SelectWidgetPreset(preset) => {
+            app.widget_preset = preset;
+            if preset != WidgetPreset::Custom {
+                let url = preset.url().to_string();
+                app.custom_widget_url = url.clone();
+                app.config.widget_url = Some(url);
+            } else {
+                app.config.widget_url = Some(app.custom_widget_url.clone());
+            }
+            let _ = app.config.save();
+            if app.config.enable_widgets {
+                let url = app.config.widget_url.clone().unwrap_or_else(|| "assets/widgets/desktop_hud.html".to_string());
+                Task::perform(
+                    send_req(
+                        app.config.socket_path.clone(),
+                        IpcRequest::SetWidget {
+                            url,
+                            enabled: true,
+                            position: Some(app.config.widget_position.clone()),
+                        },
+                    ),
+                    Message::GotStatus,
+                )
+            } else {
+                Task::none()
+            }
+        }
+        Message::SelectWidgetPosition(pos) => {
+            app.config.widget_position = pos.clone();
+            let _ = app.config.save();
+            if app.config.enable_widgets {
+                let url = if app.widget_preset == WidgetPreset::Custom {
+                    app.custom_widget_url.clone()
+                } else {
+                    app.widget_preset.url().to_string()
+                };
+                Task::perform(
+                    send_req(
+                        app.config.socket_path.clone(),
+                        IpcRequest::SetWidget {
+                            url,
+                            enabled: true,
+                            position: Some(pos),
+                        },
+                    ),
+                    Message::GotStatus,
+                )
+            } else {
+                Task::none()
+            }
+        }
+        Message::CustomWidgetUrlChanged(url) => {
+            app.custom_widget_url = url.clone();
+            app.config.widget_url = Some(url);
+            let _ = app.config.save();
+            Task::none()
+        }
+        Message::ApplyWidgetToDesktop => {
+            app.config.enable_widgets = true;
+            let target_url = if app.widget_preset == WidgetPreset::Custom {
+                if app.custom_widget_url.trim().is_empty() {
+                    "assets/widgets/desktop_hud.html".to_string()
+                } else {
+                    app.custom_widget_url.clone()
+                }
+            } else {
+                app.widget_preset.url().to_string()
+            };
+            app.config.widget_url = Some(target_url.clone());
+            let _ = app.config.save();
+            app.status_message = "Applying widget to desktop overlay...".to_string();
+            Task::perform(
+                send_req(
+                    app.config.socket_path.clone(),
+                    IpcRequest::SetWidget {
+                        url: target_url,
+                        enabled: true,
+                        position: Some(app.config.widget_position.clone()),
+                    },
+                ),
+                Message::GotStatus,
+            )
+        }
+        Message::StopWidgetOverlay => {
+            app.config.enable_widgets = false;
+            let _ = app.config.save();
+            let url = app.config.widget_url.clone().unwrap_or_else(|| "assets/widgets/desktop_hud.html".to_string());
+            app.status_message = "Stopping desktop widget overlay...".to_string();
+            Task::perform(
+                send_req(
+                    app.config.socket_path.clone(),
+                    IpcRequest::SetWidget {
+                        url,
+                        enabled: false,
+                        position: Some(app.config.widget_position.clone()),
+                    },
+                ),
+                Message::GotStatus,
+            )
+        }
+        Message::TestWidgetWindow => {
+            let raw_url = if app.widget_preset == WidgetPreset::Custom {
+                if app.custom_widget_url.trim().is_empty() {
+                    "assets/widgets/desktop_hud.html".to_string()
+                } else {
+                    app.custom_widget_url.clone()
+                }
+            } else {
+                app.widget_preset.url().to_string()
+            };
+            let pos = app.config.widget_position.clone();
+            std::thread::spawn(move || {
+                let resolved = crate::config::resolve_asset_path(&raw_url);
+                let target = if Path::new(&resolved).exists() {
+                    format!("file://{}", resolved)
+                } else {
+                    raw_url.clone()
+                };
+
+                if let Ok(exe) = std::env::current_exe() {
+                    if Command::new(exe)
+                        .args(["web-layer", &target, "--widget", "--position", &pos])
+                        .spawn()
+                        .is_ok()
+                    {
+                        return;
+                    }
+                }
+                if Command::new("omywall")
+                    .args(["web-layer", &target, "--widget", "--position", &pos])
+                    .spawn()
+                    .is_err()
+                {
+                    if Command::new("electron")
+                        .args(["--title=OMYWALL Widget Test", &target])
+                        .spawn()
+                        .is_err()
+                    {
+                        let _ = Command::new("chromium")
+                            .args([format!("--app={}", target)])
+                            .spawn();
+                    }
+                }
+            });
+            app.status_message = "Launched test widget window".to_string();
+            Task::none()
+        }
+        Message::OpenWidgetFilePicker => {
+            Task::perform(
+                async {
+                    rfd::AsyncFileDialog::new()
+                        .set_title("Select Local Desktop Widget (HTML/JS)")
+                        .add_filter("HTML Widget", &["html", "htm", "js"])
+                        .pick_file()
+                        .await
+                        .map(|f| f.path().to_path_buf())
+                },
+                Message::WidgetFilePicked,
+            )
+        }
+        Message::WidgetFilePicked(Some(file_path)) => {
+            let path_str = file_path.to_string_lossy().to_string();
+            app.widget_preset = WidgetPreset::Custom;
+            app.custom_widget_url = path_str.clone();
+            app.config.widget_url = Some(path_str.clone());
+            let _ = app.config.save();
+            if app.config.enable_widgets {
+                Task::perform(
+                    send_req(
+                        app.config.socket_path.clone(),
+                        IpcRequest::SetWidget {
+                            url: path_str,
+                            enabled: true,
+                            position: Some(app.config.widget_position.clone()),
+                        },
+                    ),
+                    Message::GotStatus,
+                )
+            } else {
+                Task::none()
+            }
+        }
+        Message::WidgetFilePicked(None) => Task::none(),
     }
 }
 
@@ -2466,6 +2779,8 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
         .on_press(Message::Tab(AppTab::Installed));
     let tab_workshop = btn_tab("🌐 Steam Workshop", app.active_tab == AppTab::SteamWorkshop)
         .on_press(Message::Tab(AppTab::SteamWorkshop));
+    let tab_widgets = btn_tab("🎛 Desktop Widgets", app.active_tab == AppTab::Widgets)
+        .on_press(Message::Tab(AppTab::Widgets));
     let tab_displays = btn_tab("📺 Display Manager", app.active_tab == AppTab::Displays)
         .on_press(Message::Tab(AppTab::Displays));
     let tab_screensaver = btn_tab("🔒 Screensaver", app.active_tab == AppTab::Screensaver)
@@ -2473,7 +2788,7 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
     let tab_settings = btn_tab("⚙ Settings", app.active_tab == AppTab::Settings)
         .on_press(Message::Tab(AppTab::Settings));
 
-    let nav_bar = row![tab_installed, tab_workshop, tab_displays, tab_screensaver, tab_settings].spacing(10);
+    let nav_bar = row![tab_installed, tab_workshop, tab_widgets, tab_displays, tab_screensaver, tab_settings].spacing(10);
 
 
 
@@ -2695,6 +3010,8 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
         }
 
 
+        AppTab::Widgets => render_widgets_tab(app),
+
         AppTab::Settings => {
             column![
                 text("Engine Settings").size(18).color(CYAN),
@@ -2821,4 +3138,275 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
         .height(Length::Fill)
         .padding(20)
         .into()
+}
+
+fn render_widgets_tab<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
+    // 1. Header Hero Card
+    let header_card = container(
+        column![
+            row![
+                text("🎛 Desktop Layer-Shell Overlay Widgets").size(20).color(CYAN),
+                space().width(Length::Fill),
+                container(
+                    text(if app.config.enable_widgets { "● OVERLAY ACTIVE" } else { "○ OVERLAY INACTIVE" })
+                        .size(11)
+                        .color(if app.config.enable_widgets { EMERALD } else { SOFT_TEXT })
+                )
+                .padding([4, 10])
+                .style(|_| container::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.04, 0.08, 0.14, 0.90))),
+                    border: Border {
+                        color: if app.config.enable_widgets { EMERALD } else { CARD_STROKE },
+                        width: 1.0,
+                        radius: 12.0.into(),
+                    },
+                    ..Default::default()
+                }),
+            ]
+            .align_y(iced::Alignment::Center),
+            text("Pin real-time hardware telemetry HUDs, desktop pills, and custom WebGL/HTML dashboards cleanly onto your Wayland desktop layer.").size(13).color(SOFT_TEXT),
+        ]
+        .spacing(8)
+    )
+    .padding(16)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 2. Master Enable / Quick Actions Bar
+    let is_enabled = app.config.enable_widgets;
+    let master_control_card = container(
+        row![
+            checkbox(is_enabled).on_toggle(Message::SetWidgetEnabled),
+            column![
+                text("Enable Desktop Widget Overlay").size(15).color(Color::WHITE),
+                text(if is_enabled {
+                    "Transparent layer-shell overlay is currently active and anchored."
+                } else {
+                    "Overlay is currently disabled. Toggle on to display on desktop."
+                }).size(12).color(SOFT_TEXT),
+            ].spacing(2),
+            space().width(Length::Fill),
+            btn_primary("▶ Apply to Desktop").on_press(Message::ApplyWidgetToDesktop),
+            btn_primary("👁 Test in Window").on_press(Message::TestWidgetWindow),
+            btn_danger("⏹ Stop Overlay").on_press(Message::StopWidgetOverlay),
+        ]
+        .spacing(14)
+        .align_y(iced::Alignment::Center)
+    )
+    .padding(16)
+    .style(move |_| container::Style {
+        background: Some(Background::Color(if is_enabled { CARD_BG_SEL } else { CARD_BG })),
+        border: Border {
+            color: if is_enabled { CYAN } else { CARD_STROKE },
+            width: if is_enabled { 1.5 } else { 1.0 },
+            radius: 10.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 3. Preset Selector Cards
+    let presets = [
+        WidgetPreset::CyberHud,
+        WidgetPreset::WifiBluetoothPill,
+        WidgetPreset::MinimalClock,
+        WidgetPreset::Custom,
+    ];
+
+    let mut preset_cards = row![].spacing(12);
+    for preset in presets {
+        let is_selected = app.widget_preset == preset;
+        let card = container(
+            column![
+                row![
+                    text(preset.label()).size(14).color(if is_selected { CYAN } else { Color::WHITE }),
+                    space().width(Length::Fill),
+                    if is_selected {
+                        container(text("SELECTED").size(10).color(CYAN))
+                            .padding([2, 6])
+                            .style(|_| container::Style {
+                                background: Some(Background::Color(Color::from_rgba(0.18, 0.83, 0.78, 0.15))),
+                                border: Border {
+                                    color: CYAN,
+                                    width: 1.0,
+                                    radius: 4.0.into(),
+                                },
+                                ..Default::default()
+                            })
+                    } else {
+                        container(text("PRESET").size(10).color(SOFT_TEXT))
+                            .padding([2, 6])
+                            .style(|_| container::Style {
+                                background: Some(Background::Color(CARD_BG)),
+                                border: Border {
+                                    color: CARD_STROKE,
+                                    width: 1.0,
+                                    radius: 4.0.into(),
+                                },
+                                ..Default::default()
+                            })
+                    }
+                ]
+                .align_y(iced::Alignment::Center),
+                text(preset.description()).size(12).color(SOFT_TEXT),
+                space().height(6),
+                btn_pill(if is_selected { "Active Preset" } else { "Select Preset" }, is_selected)
+                    .on_press(Message::SelectWidgetPreset(preset))
+                    .width(Length::Fill),
+            ]
+            .spacing(8)
+            .padding(12)
+        )
+        .width(Length::FillPortion(1))
+        .style(move |_| container::Style {
+            background: Some(Background::Color(if is_selected { CARD_BG_SEL } else { CARD_BG })),
+            border: Border {
+                color: if is_selected { CYAN } else { CARD_STROKE },
+                width: if is_selected { 2.0 } else { 1.0 },
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        });
+
+        preset_cards = preset_cards.push(card);
+    }
+
+    // 4. Anchoring / Positioning
+    let current_pos = &app.config.widget_position;
+    let pos_row = row![
+        text("Screen Position:").size(14).color(Color::WHITE),
+        btn_pill("↗ Top Right", current_pos == "top_right")
+            .on_press(Message::SelectWidgetPosition("top_right".to_string())),
+        btn_pill("↖ Top Left", current_pos == "top_left")
+            .on_press(Message::SelectWidgetPosition("top_left".to_string())),
+        btn_pill("↘ Bottom Right", current_pos == "bottom_right")
+            .on_press(Message::SelectWidgetPosition("bottom_right".to_string())),
+        btn_pill("↙ Bottom Left", current_pos == "bottom_left")
+            .on_press(Message::SelectWidgetPosition("bottom_left".to_string())),
+        btn_pill("⚓ Center Dock", current_pos == "center_dock")
+            .on_press(Message::SelectWidgetPosition("center_dock".to_string())),
+    ]
+    .spacing(10)
+    .align_y(iced::Alignment::Center);
+
+    let position_card = container(
+        column![
+            text("📍 Screen Anchoring & Placement").size(15).color(CYAN),
+            text("Determines which corner or dock edge the transparent layer-shell surface attaches to on Wayland.").size(12).color(SOFT_TEXT),
+            pos_row,
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 5. Custom URL & Local Picker Input
+    let custom_url_card = container(
+        column![
+            text("🔗 Custom Widget Source (Local File or Web URL)").size(15).color(CYAN),
+            text("You can load any local HTML/JS widget, WebGL page, or remote dashboard URL (e.g. Grafana, Home Assistant).").size(12).color(SOFT_TEXT),
+            row![
+                text_input("Enter local file path or http(s) URL...", &app.custom_widget_url)
+                    .on_input(Message::CustomWidgetUrlChanged)
+                    .padding(8)
+                    .width(Length::Fill),
+                btn_primary("📁 Browse Local HTML File").on_press(Message::OpenWidgetFilePicker),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 6. Live Telemetry & Bridge Status Card
+    let target_display = if app.widget_preset == WidgetPreset::Custom {
+        if app.custom_widget_url.trim().is_empty() {
+            "assets/widgets/desktop_hud.html (default)".to_string()
+        } else {
+            app.custom_widget_url.clone()
+        }
+    } else {
+        app.widget_preset.url().to_string()
+    };
+
+    let telemetry_card = container(
+        column![
+            row![
+                text("⚡ LIVE TELEMETRY & LAYER-SHELL BRIDGE").size(14).color(CYAN),
+                space().width(Length::Fill),
+                text("IPC Bridge Active").size(12).color(EMERALD),
+            ]
+            .align_y(iced::Alignment::Center),
+            rule::horizontal(1),
+            row![
+                column![
+                    text("Target HTML / URL:").size(12).color(SOFT_TEXT),
+                    text(target_display).size(13).color(Color::WHITE),
+                ].spacing(4).width(Length::FillPortion(2)),
+                column![
+                    text("Layer-Shell Mode:").size(12).color(SOFT_TEXT),
+                    text("gtk-layer-shell / wlr-layer-shell").size(13).color(CYAN),
+                ].spacing(4).width(Length::FillPortion(1)),
+                column![
+                    text("Background Alpha:").size(12).color(SOFT_TEXT),
+                    text("100% Transparent RGBA").size(13).color(EMERALD),
+                ].spacing(4).width(Length::FillPortion(1)),
+                column![
+                    text("Telemetry JSON:").size(12).color(SOFT_TEXT),
+                    text("/tmp/omywall_telemetry.json").size(13).color(AMBER),
+                ].spacing(4).width(Length::FillPortion(1)),
+            ]
+            .spacing(16),
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    let main_col = column![
+        header_card,
+        master_control_card,
+        column![
+            text("📦 Choose Widget Preset").size(16).color(CYAN),
+            preset_cards,
+        ].spacing(8),
+        position_card,
+        custom_url_card,
+        telemetry_card,
+    ]
+    .spacing(16);
+
+    scrollable(main_col).into()
 }
