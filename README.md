@@ -24,11 +24,14 @@
 
 - 🎥 **Wayland `wlr-layer-shell` Video Engine**: Video wallpapers (`.mp4`, `.mkv`, `.webm`, `.gif`) attach natively to the desktop `background` layer using `mpvpaper`. Never spawns floating or fullscreen overlay windows above active apps.
 - 💚 **NVIDIA PRIME / CUDA Hardware Acceleration**: Automatic GPU offload (`__NV_PRIME_RENDER_OFFLOAD=1`, `nvdec`, `cuda`) for 4K 60FPS video playback and WebGL 3D rendering directly on discrete NVIDIA GPUs.
-- 🌐 **Native `wlr-layer-shell` Web Engine**: Websites, HTML5 WebGL 3D animations, and interactive mouse-follower particles render as true `wlr-layer-shell` background surfaces using native `GTK Layer Shell` and `WebKit2`.
+- 🌐 **Native In-App WebGL & Web Preview Engine**: High-performance multi-tier offscreen rendering engine (WebKit2GTK + Electron snapshotter + headless Chromium fallback) with live hover animations for WebGL 3D scenes and URLs.
+- 📱 **Glassmorphic Desktop Widgets Suite**: Native live desktop widgets (System Monitor, WiFi/Network stats, Bluetooth devices, Battery telemetry, Cyberpunk HUD, and Minimal Clock) rendered on Wayland `top`/`overlay` layers with IPC control.
+- 🕹️ **Steam Workshop Browser**: Full interactive Steam Workshop catalog browser with keyword search, tags filtering, popularity/trending sorting, and 1-click `steamcmd` asset downloads.
+- 🩺 **System Doctor & Live Logs**: Real-time diagnostic checklist for compositor (`Hyprland`/`Sway`/`Wayfire`), GPU decoders, audio servers (`PipeWire`), and toolchains with 1-click clipboard diagnostics and live daemon log inspection.
 - 🖤 **OLED Interactive Wallpapers**: Specially crafted pitch-black `#000000` canvas wallpapers with interactive liquid fluid mouse-following particle physics.
-- 🔒 **Hyprlock Screensaver Integration**: Attach any video, image, or Web 3D wallpaper directly as your `hyprlock` screensaver background with auto-extracted frame thumbnails.
+- 🔒 **Hyprlock Screensaver Integration**: Attach any video, image, or Web 3D wallpaper directly as your `hyprlock` screensaver background with auto-extracted frame thumbnails and blur controls.
 - ⚡ **ANR-Free Non-Blocking Architecture**: All Unix socket IPC network requests and daemon polling run on isolated background threads, guaranteeing the UI event loop never freezes or triggers OS "Application Not Responding" warnings.
-- 🎨 **Modern Cyberpunk egui Desktop GUI**: High-tech desktop control panel with live hero previews, media inspector, and hardware decoder selector.
+- 🎨 **Modern Cyberpunk egui Desktop GUI**: High-tech desktop control panel with live hero previews, media inspector, multi-monitor configuration, and hardware decoder selector.
 - ⌨️ **Keyboard-Driven Terminal UI (`Ratatui`)**: Fast, lightweight TUI for terminal aficionados with rounded neon borders and instant keybindings.
 
 ---
