@@ -28,7 +28,8 @@ const width = parseInt(process.argv[4] || '600', 10);
 const height = parseInt(process.argv[5] || '337', 10);
 const mode = process.argv[6] || 'shot';
 
-const fsBase = outPng ? outPng.substring(0, outPng.lastIndexOf('/')) : '/tmp/omywall_thumbs';
+const lastSlash = outPng ? outPng.lastIndexOf('/') : -1;
+const fsBase = lastSlash > 0 ? outPng.substring(0, lastSlash) : '/tmp/omywall_thumbs';
 const profileDir = fsBase + '/electron_profile_' + process.pid;
 app.setPath('userData', profileDir);
 
@@ -42,26 +43,42 @@ app.commandLine.appendSwitch('disable-vulkan');
 
 let win = null;
 let saved = 0;
-const SHOT_FRAMES = 3;
+const SHOT_FRAMES = 2;
 
 function saveFrame(image) {
   const size = image.getSize();
-  if (!size || size.width < 2 || size.height < 2) return;
+  if (!size || size.width < 2 || size.height < 2) {
+    if (mode === 'live') {
+      setTimeout(capture, 200);
+    } else if (mode === 'shot') {
+      setTimeout(capture, 100);
+    }
+    return;
+  }
   fs.writeFile(outPng, image.toPNG(), (err) => {
     if (err) console.error('preview write error:', err.message);
+    saved += 1;
+    if (mode === 'shot') {
+      if (saved >= SHOT_FRAMES) {
+        setTimeout(() => app.exit(0), 50);
+      } else {
+        setTimeout(capture, 100);
+      }
+    } else if (mode === 'live') {
+      setTimeout(capture, 200);
+    }
   });
-  saved += 1;
-  if (mode === 'shot' && saved >= SHOT_FRAMES) {
-    setTimeout(() => app.exit(0), 150);
-  }
 }
 
 function capture() {
   if (!win || win.isDestroyed()) return;
-  win.webContents.capturePage().then(saveFrame).catch(() => {});
-  if (mode === 'live') {
-    setTimeout(capture, 200);
-  }
+  win.webContents.capturePage().then(saveFrame).catch(() => {
+    if (mode === 'live') {
+      setTimeout(capture, 200);
+    } else if (mode === 'shot') {
+      setTimeout(capture, 100);
+    }
+  });
 }
 
 app.whenReady().then(() => {
@@ -86,11 +103,11 @@ app.whenReady().then(() => {
   win.setAlwaysOnTop(true, 'screen-saver');
   win.webContents.setAudioMuted(true);
   win.webContents.setFrameRate(5);
-  win.webContents.on('did-finish-load', () => setTimeout(capture, 500));
+  win.webContents.on('did-finish-load', () => setTimeout(capture, 400));
   win.webContents.on('did-fail-load', (_e, code, desc) => {
     console.error('preview load failed:', code, desc);
     if (mode === 'shot') {
-      setTimeout(() => app.exit(1), 300);
+      setTimeout(() => app.exit(1), 200);
     }
   });
   if (url) {
@@ -98,9 +115,16 @@ app.whenReady().then(() => {
   }
   setTimeout(() => {
     if (saved === 0) capture();
-  }, 3500);
+  }, 2500);
   if (mode === 'shot') {
-    setTimeout(() => app.exit(0), 12000);
+    setTimeout(() => {
+      if (saved > 0) {
+        app.exit(0);
+      } else {
+        capture();
+        setTimeout(() => app.exit(0), 1000);
+      }
+    }, 4000);
   }
 });
 "#;
