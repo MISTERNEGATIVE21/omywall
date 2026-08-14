@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Omywall Desktop HUD</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-glass: rgba(10, 15, 29, 0.68);
+      --border-glass: rgba(255, 255, 255, 0.08);
+      --border-glass-hover: rgba(0, 240, 255, 0.3);
+      --cyan-accent: #00f0ff;
+      --cyan-glow: rgba(0, 240, 255, 0.35);
+      --emerald-accent: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.35);
+      --amber-accent: #f59e0b;
+      --purple-accent: #8b5cf6;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      user-select: none;
+    }
+
+    body {
+      min-height: 100vh;
+      background: transparent;
+      color: var(--text-main);
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow: hidden;
+    }
+
+    .hud-container {
+      width: 100%;
+      max-width: 960px;
+      background: var(--bg-glass);
+      backdrop-filter: blur(28px) saturate(190%);
+      -webkit-backdrop-filter: blur(28px) saturate(190%);
+      border: 1px solid var(--border-glass);
+      border-radius: 28px;
+      padding: 32px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+      animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(16px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* Top Section: Clock & Date */
+    .hud-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-glass);
+      padding-bottom: 24px;
+    }
+
+    .clock-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .clock-time {
+      font-size: 64px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -2px;
+      background: linear-gradient(135deg, #ffffff 40%, #a5f3fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .clock-seconds {
+      font-size: 28px;
+      font-weight: 500;
+      color: var(--cyan-accent);
+      margin-left: 4px;
+      -webkit-text-fill-color: var(--cyan-accent);
+    }
+
+    .clock-date {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .host-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-glass);
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--emerald-accent);
+      box-shadow: 0 0 10px var(--emerald-glow);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    /* Gauges Grid */
+    .gauges-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .gauge-card {
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid var(--border-glass);
+      border-radius: 20px;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .gauge-card:hover {
+      border-color: var(--border-glass-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+
+    .gauge-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .gauge-svg-container {
+      position: relative;
+      width: 100px;
+      height: 100px;
+    }
+
+    .gauge-svg {
+      transform: rotate(-90deg);
+      width: 100px;
+      height: 100px;
+    }
+
+    .gauge-bg {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.06);
+      stroke-width: 8;
+    }
+
+    .gauge-progress {
+      fill: none;
+      stroke-width: 8;
+      stroke-linecap: round;
+      stroke-dasharray: 251.2;
+      stroke-dashoffset: 251.2;
+      transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .gauge-cpu .gauge-progress { stroke: var(--cyan-accent); filter: drop-shadow(0 0 6px var(--cyan-glow)); }
+    .gauge-ram .gauge-progress { stroke: var(--purple-accent); filter: drop-shadow(0 0 6px rgba(139, 92, 246, 0.4)); }
+    .gauge-gpu .gauge-progress { stroke: var(--emerald-accent); filter: drop-shadow(0 0 6px var(--emerald-glow)); }
+    .gauge-bat .gauge-progress { stroke: var(--amber-accent); filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.4)); }
+
+    .gauge-value-box {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .gauge-value {
+      font-size: 20px;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      color: #fff;
+    }
+
+    .gauge-unit {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+
+    .gauge-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+      font-family: 'JetBrains Mono', monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+
+    /* Bottom Info Cards: WiFi & Bluetooth */
+    .telemetry-bottom-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .info-card {
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid var(--border-glass);
+      border-radius: 20px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      transition: all 0.3s ease;
+    }
+
+    .info-card:hover {
+      border-color: var(--border-glass-hover);
+    }
+
+    .info-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .info-card-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .info-card-icon {
+      width: 18px;
+      height: 18px;
+      fill: var(--cyan-accent);
+    }
+
+    .badge-pill {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-muted);
+      border: 1px solid var(--border-glass);
+    }
+
+    .badge-pill.active {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+
+    .info-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+    }
+
+    .info-label {
+      color: var(--text-dim);
+    }
+
+    .info-val {
+      color: var(--text-main);
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 500;
+    }
+
+    /* Signal meter bar */
+    .signal-meter {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 14px;
+    }
+
+    .signal-bar {
+      width: 3px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 2px;
+      transition: background 0.3s ease;
+    }
+
+    .signal-bar.active {
+      background: var(--cyan-accent);
+      box-shadow: 0 0 6px var(--cyan-glow);
+    }
+
+    .device-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-glass);
+      padding: 4px 8px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    @media (max-width: 768px) {
+      .hud-container { padding: 20px; }
+      .clock-time { font-size: 44px; }
+      .gauges-grid { grid-template-columns: repeat(2, 1fr); }
+      .telemetry-bottom-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="hud-container">
+    <!-- Header: Clock, Date, Host -->
+    <div class="hud-header">
+      <div class="clock-group">
+        <div class="clock-time">
+          <span id="time-hours">00:00</span><span class="clock-seconds" id="time-secs">:00</span>
+        </div>
+        <div class="clock-date" id="date-str">
+          Friday, August 14
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+        <div class="host-badge">
+          <div class="status-dot"></div>
+          <span id="host-name">OMYWALL DESKTOP</span>
+        </div>
+        <div style="font-size: 12px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace;" id="uptime-label">
+          UPTIME: 0h 0m
+        </div>
+      </div>
+    </div>
+
+    <!-- Hardware Gauges -->
+    <div class="gauges-grid">
+      <!-- CPU Gauge -->
+      <div class="gauge-card gauge-cpu">
+        <span class="gauge-title">CPU Load</span>
+        <div class="gauge-svg-container">
+          <svg class="gauge-svg" viewBox="0 0 100 100">
+            <circle class="gauge-bg" cx="50" cy="50" r="40"></circle>
+            <circle class="gauge-progress" id="cpu-gauge-circle" cx="50" cy="50" r="40"></circle>
+          </svg>
+          <div class="gauge-value-box">
+            <span class="gauge-value" id="cpu-pct">0%</span>
+            <span class="gauge-unit" id="cpu-temp">--°C</span>
+          </div>
+        </div>
+        <span class="gauge-subtitle" id="cpu-model">Intel / AMD Core</span>
+      </div>
+
+      <!-- RAM Gauge -->
+      <div class="gauge-card gauge-ram">
+        <span class="gauge-title">Memory</span>
+        <div class="gauge-svg-container">
+          <svg class="gauge-svg" viewBox="0 0 100 100">
+            <circle class="gauge-bg" cx="50" cy="50" r="40"></circle>
+            <circle class="gauge-progress" id="ram-gauge-circle" cx="50" cy="50" r="40"></circle>
+          </svg>
+          <div class="gauge-value-box">
+            <span class="gauge-value" id="ram-pct">0%</span>
+            <span class="gauge-unit" id="ram-used">0 / 0 GB</span>
+          </div>
+        </div>
+        <span class="gauge-subtitle" id="ram-avail">System RAM</span>
+      </div>
+
+      <!-- GPU Gauge -->
+      <div class="gauge-card gauge-gpu">
+        <span class="gauge-title">GPU Load</span>
+        <div class="gauge-svg-container">
+          <svg class="gauge-svg" viewBox="0 0 100 100">
+            <circle class="gauge-bg" cx="50" cy="50" r="40"></circle>
+            <circle class="gauge-progress" id="gpu-gauge-circle" cx="50" cy="50" r="40"></circle>
+          </svg>
+          <div class="gauge-value-box">
+            <span class="gauge-value" id="gpu-pct">0%</span>
+            <span class="gauge-unit" id="gpu-temp">--°C</span>
+          </div>
+        </div>
+        <span class="gauge-subtitle" id="gpu-name">GPU Accelerator</span>
+      </div>
+
+      <!-- Battery Gauge -->
+      <div class="gauge-card gauge-bat">
+        <span class="gauge-title">Battery</span>
+        <div class="gauge-svg-container">
+          <svg class="gauge-svg" viewBox="0 0 100 100">
+            <circle class="gauge-bg" cx="50" cy="50" r="40"></circle>
+            <circle class="gauge-progress" id="bat-gauge-circle" cx="50" cy="50" r="40"></circle>
+          </svg>
+          <div class="gauge-value-box">
+            <span class="gauge-value" id="bat-pct">100%</span>
+            <span class="gauge-unit" id="bat-power">AC Power</span>
+          </div>
+        </div>
+        <span class="gauge-subtitle" id="bat-status">Plugged In</span>
+      </div>
+    </div>
+
+    <!-- Connectivity -->
+    <div class="telemetry-bottom-grid">
+      <!-- WiFi Card -->
+      <div class="info-card">
+        <div class="info-card-header">
+          <div class="info-card-title">
+            <svg class="info-card-icon" viewBox="0 0 24 24">
+              <path d="M12 3C7.5 3 3.5 4.8 0.5 7.7L12 21.5L23.5 7.7C20.5 4.8 16.5 3 12 3ZM12 6C15.4 6 18.5 7.3 20.9 9.5L12 20.2L3.1 9.5C5.5 7.3 8.6 6 12 6Z"/>
+            </svg>
+            <span>Wi-Fi Network</span>
+          </div>
+          <div class="badge-pill" id="wifi-badge">Disconnected</div>
+        </div>
+
+        <div class="info-row">
+          <span class="info-label">SSID:</span>
+          <span class="info-val" id="wifi-ssid">Searching...</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">IP Address:</span>
+          <span class="info-val" id="wifi-ip">127.0.0.1</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Signal Quality:</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="info-val" id="wifi-signal-val">0%</span>
+            <div class="signal-meter" id="wifi-signal-bars">
+              <div class="signal-bar" style="height: 4px;"></div>
+              <div class="signal-bar" style="height: 7px;"></div>
+              <div class="signal-bar" style="height: 10px;"></div>
+              <div class="signal-bar" style="height: 14px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bluetooth Card -->
+      <div class="info-card">
+        <div class="info-card-header">
+          <div class="info-card-title">
+            <svg class="info-card-icon" viewBox="0 0 24 24">
+              <path d="M14.88 16.29L13 18.17V14.41M13 5.83L14.88 7.71L13 9.59M17.71 7.71L12 2H11V10.59L6.41 6L5 7.41L10.59 13L5 18.59L6.41 20L11 15.41V22H12L17.71 16.29L13.41 12M19.12 12L17.71 10.59L19.12 9.17"/>
+            </svg>
+            <span>Bluetooth</span>
+          </div>
+          <div class="badge-pill" id="bt-badge">Inactive</div>
+        </div>
+
+        <div class="info-row">
+          <span class="info-label">Controller:</span>
+          <span class="info-val" id="bt-controller">Bluetooth</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Connected Devices:</span>
+          <span class="info-val" id="bt-count">0 connected</span>
+        </div>
+        <div class="info-row" id="bt-devices-list" style="display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end;">
+          <span class="device-tag">No devices</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const CIRCLE_CIRCUMFERENCE = 251.2;
+
+    function setGauge(circleId, percent) {
+      const circle = document.getElementById(circleId);
+      if (!circle) return;
+      const clamped = Math.max(0, Math.min(100, percent));
+      const offset = CIRCLE_CIRCUMFERENCE - (clamped / 100) * CIRCLE_CIRCUMFERENCE;
+      circle.style.strokeDashoffset = offset;
+    }
+
+    function updateUI(data) {
+      if (!data) return;
+
+      // Clock
+      if (data.time) {
+        document.getElementById('time-hours').textContent = data.time.time_str || '00:00';
+        if (data.time.time_full_str) {
+          const parts = data.time.time_full_str.split(':');
+          if (parts.length >= 3) {
+            document.getElementById('time-secs').textContent = ':' + parts[2];
+          }
+        }
+        document.getElementById('date-str').textContent = data.time.date_str || '';
+        document.getElementById('uptime-label').textContent = 'UPTIME: ' + (data.time.uptime_str || '0m');
+      }
+
+      // Host & User
+      if (data.hostname) {
+        document.getElementById('host-name').textContent = (data.username ? data.username.toUpperCase() + '@' : '') + data.hostname.toUpperCase();
+      }
+
+      // Hardware
+      if (data.hardware) {
+        const hw = data.hardware;
+        
+        // CPU
+        const cpuPct = Math.round(hw.cpu_usage || 0);
+        document.getElementById('cpu-pct').textContent = cpuPct + '%';
+        setGauge('cpu-gauge-circle', cpuPct);
+        if (hw.cpu_temp_c !== null && hw.cpu_temp_c !== undefined) {
+          document.getElementById('cpu-temp').textContent = Math.round(hw.cpu_temp_c) + '°C';
+        }
+        if (hw.cpu_model) {
+          document.getElementById('cpu-model').textContent = hw.cpu_model;
+        }
+
+        // RAM
+        const ramPct = Math.round(hw.ram_usage || 0);
+        document.getElementById('ram-pct').textContent = ramPct + '%';
+        setGauge('ram-gauge-circle', ramPct);
+        const usedGb = (hw.ram_used_mb / 1024).toFixed(1);
+        const totalGb = (hw.ram_total_mb / 1024).toFixed(1);
+        document.getElementById('ram-used').textContent = `${usedGb} / ${totalGb} GB`;
+
+        // GPU
+        const gpuPct = Math.round(hw.gpu_usage || 0);
+        document.getElementById('gpu-pct').textContent = gpuPct + '%';
+        setGauge('gpu-gauge-circle', gpuPct);
+        if (hw.gpu_temp_c !== null && hw.gpu_temp_c !== undefined) {
+          document.getElementById('gpu-temp').textContent = Math.round(hw.gpu_temp_c) + '°C';
+        }
+        if (hw.gpu_name) {
+          document.getElementById('gpu-name').textContent = hw.gpu_name;
+        }
+
+        // Battery
+        if (data.battery) {
+          const bat = data.battery;
+          const batPct = Math.round(bat.percentage || 100);
+          document.getElementById('bat-pct').textContent = batPct + '%';
+          setGauge('bat-gauge-circle', batPct);
+          document.getElementById('bat-status').textContent = bat.status || (bat.is_charging ? 'Charging' : 'Discharging');
+          if (bat.power_watts) {
+            document.getElementById('bat-power').textContent = bat.power_watts.toFixed(1) + ' W';
+          } else {
+            document.getElementById('bat-power').textContent = bat.is_charging ? '⚡ AC In' : 'Battery';
+          }
+        }
+      }
+
+      // WiFi
+      if (data.wifi) {
+        const wifi = data.wifi;
+        const badge = document.getElementById('wifi-badge');
+        if (wifi.connected) {
+          badge.textContent = 'Connected';
+          badge.classList.add('active');
+          document.getElementById('wifi-ssid').textContent = wifi.ssid || 'Active Link';
+          document.getElementById('wifi-ip').textContent = wifi.ip_address || '127.0.0.1';
+          document.getElementById('wifi-signal-val').textContent = (wifi.signal_percent || 0) + '%';
+          
+          // Signal bars
+          const bars = document.querySelectorAll('#wifi-signal-bars .signal-bar');
+          const sig = wifi.signal_percent || 0;
+          bars.forEach((bar, idx) => {
+            const threshold = (idx + 1) * 25;
+            if (sig >= threshold - 15) {
+              bar.classList.add('active');
+            } else {
+              bar.classList.remove('active');
+            }
+          });
+        } else {
+          badge.textContent = 'Disconnected';
+          badge.classList.remove('active');
+          document.getElementById('wifi-ssid').textContent = 'Disconnected';
+          document.getElementById('wifi-ip').textContent = '--';
+          document.getElementById('wifi-signal-val').textContent = '0%';
+          document.querySelectorAll('#wifi-signal-bars .signal-bar').forEach(b => b.classList.remove('active'));
+        }
+      }
+
+      // Bluetooth
+      if (data.bluetooth) {
+        const bt = data.bluetooth;
+        const badge = document.getElementById('bt-badge');
+        if (bt.enabled) {
+          badge.textContent = 'Enabled';
+          badge.classList.add('active');
+        } else {
+          badge.textContent = 'Off';
+          badge.classList.remove('active');
+        }
+
+        document.getElementById('bt-controller').textContent = bt.controller_name || 'Bluetooth Adapter';
+        document.getElementById('bt-count').textContent = (bt.device_count || 0) + ' connected';
+
+        const devList = document.getElementById('bt-devices-list');
+        devList.innerHTML = '';
+        if (bt.connected_devices && bt.connected_devices.length > 0) {
+          bt.connected_devices.forEach(dev => {
+            const tag = document.createElement('span');
+            tag.className = 'device-tag';
+            const batStr = dev.battery_percent ? ` (${dev.battery_percent}%)` : '';
+            tag.textContent = `🎧 ${dev.name}${batStr}`;
+            devList.appendChild(tag);
+          });
+        } else {
+          const tag = document.createElement('span');
+          tag.className = 'device-tag';
+          tag.textContent = 'No connected devices';
+          devList.appendChild(tag);
+        }
+      }
+    }
+
+    async function pollTelemetry() {
+      try {
+        const res = await fetch('/tmp/omywall_telemetry.json?t=' + Date.now(), { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          updateUI(data);
+        }
+      } catch (err) {
+        // Fallback XMLHttpRequest for file:// origin
+        try {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', 'file:///tmp/omywall_telemetry.json?t=' + Date.now(), true);
+          xhr.onload = function() {
+            if (xhr.status === 200 || xhr.status === 0) {
+              try {
+                const data = JSON.parse(xhr.responseText);
+                updateUI(data);
+              } catch(e) {}
+            }
+          };
+          xhr.send();
+        } catch(e) {}
+      }
+    }
+
+    // Initial poll and recurring 1000ms loop
+    pollTelemetry();
+    setInterval(pollTelemetry, 1000);
+  </script>
+</body>
+</html>

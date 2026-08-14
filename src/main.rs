@@ -19,6 +19,8 @@ mod web_layer;
 mod webkit_render;
 pub mod video_render;
 pub mod servo_render;
+pub mod widgets_bridge;
+
 
 use clap::{Parser, Subcommand};
 use std::fs;
@@ -528,6 +530,8 @@ fn acquire_instance_lock(name: &str) -> Option<std::fs::File> {
 
 async fn run_daemon(cfg: &mut Config) -> Result<(), Box<dyn std::error::Error>> {
     log_info("Starting OMYWALL Wallpaper Engine Daemon...");
+    widgets_bridge::start_telemetry_loop();
+
 
     if !cfg.wallpaper_dir.exists() {
         let _ = fs::create_dir_all(&cfg.wallpaper_dir);

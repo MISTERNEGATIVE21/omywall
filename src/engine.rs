@@ -102,8 +102,11 @@ impl WallpaperEngine {
             socket_path,
         };
 
+        crate::widgets_bridge::start_telemetry_loop();
+
         Ok(engine)
     }
+
 
     fn send_mpv_command(&self, args: serde_json::Value) -> Result<(), String> {
         let mut stream = UnixStream::connect(&self.socket_path)

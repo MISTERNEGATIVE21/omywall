@@ -73,3 +73,39 @@ fn test_render_shot_generates_image() {
     let _ = std::fs::remove_file(&temp_html);
     let _ = std::fs::remove_file(&temp_png);
 }
+
+#[test]
+fn test_telemetry_json_output() {
+    let data = omywall::widgets_bridge::poll_and_write_telemetry();
+    assert!(data.timestamp > 0, "Telemetry timestamp must be greater than zero");
+    assert!(!data.time.time_str.is_empty(), "Time string must not be empty");
+    assert!(!data.hostname.is_empty(), "Hostname must not be empty");
+
+    let path = PathBuf::from(omywall::widgets_bridge::TELEMETRY_FILE_PATH);
+    assert!(path.exists(), "Telemetry JSON file must exist at /tmp/omywall_telemetry.json");
+
+    let content = std::fs::read_to_string(&path).expect("Read telemetry JSON file");
+    assert!(!content.is_empty(), "Telemetry JSON file must not be empty");
+
+    let parsed: omywall::widgets_bridge::TelemetryData = serde_json::from_str(&content).expect("Deserialize telemetry JSON");
+    assert_eq!(parsed.timestamp, data.timestamp);
+    assert_eq!(parsed.hostname, data.hostname);
+}
+
+#[test]
+fn test_widget_asset_files() {
+    let hud_path = PathBuf::from("assets/widgets/desktop_hud.html");
+    assert!(hud_path.exists(), "assets/widgets/desktop_hud.html must exist");
+    let hud_content = std::fs::read_to_string(&hud_path).expect("Read desktop_hud.html");
+    assert!(hud_content.contains("omywall_telemetry.json"), "desktop_hud.html must poll omywall_telemetry.json");
+    assert!(hud_content.contains("cpu-gauge-circle"), "desktop_hud.html must contain CPU gauge circle");
+    assert!(hud_content.contains("wifi-badge"), "desktop_hud.html must contain WiFi status badge");
+
+    let pill_path = PathBuf::from("assets/widgets/wifi_bluetooth_pill.html");
+    assert!(pill_path.exists(), "assets/widgets/wifi_bluetooth_pill.html must exist");
+    let pill_content = std::fs::read_to_string(&pill_path).expect("Read wifi_bluetooth_pill.html");
+    assert!(pill_content.contains("omywall_telemetry.json"), "wifi_bluetooth_pill.html must poll omywall_telemetry.json");
+    assert!(pill_content.contains("wifi-section"), "wifi_bluetooth_pill.html must contain wifi section");
+    assert!(pill_content.contains("bt-section"), "wifi_bluetooth_pill.html must contain bluetooth section");
+}
+

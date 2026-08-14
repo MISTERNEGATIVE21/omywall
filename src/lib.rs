@@ -15,3 +15,5 @@ pub mod video_render;
 pub mod web_engine;
 pub mod web_layer;
 pub mod webkit_render;
+pub mod widgets_bridge;
+
