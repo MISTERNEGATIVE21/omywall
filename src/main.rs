@@ -187,6 +187,8 @@ enum Commands {
         width: i32,
         #[arg(long, default_value_t = 560)]
         height: i32,
+        #[arg(long)]
+        monitor: Option<String>,
     },
 }
 
@@ -499,8 +501,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Stop) => {
             block_on(send_ipc_cmd(&cfg.socket_path, IpcRequest::QuitDaemon));
         }
-        Some(Commands::WebLayer { url, widget, position, width, height }) => {
-            crate::web_layer::run_with_options(&url, widget, &position, width, height)?;
+        Some(Commands::WebLayer { url, widget, position, width, height, monitor }) => {
+            crate::web_layer::run_with_options(&url, widget, &position, width, height, monitor.as_deref())?;
         }
     }
 

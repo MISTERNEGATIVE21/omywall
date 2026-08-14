@@ -23,6 +23,10 @@ impl WebEngineManager {
     }
 
     pub fn apply_web_wallpaper(&self, raw_url: &str) -> Result<(), String> {
+        self.apply_web_wallpaper_with_monitor(raw_url, None)
+    }
+
+    pub fn apply_web_wallpaper_with_monitor(&self, raw_url: &str, monitor: Option<&str>) -> Result<(), String> {
         let trimmed = raw_url.trim();
         if trimmed.is_empty() {
             return Err("WebEngine Exception: URL target is empty".into());
@@ -55,10 +59,15 @@ impl WebEngineManager {
 
         let mut web_cmd = Command::new(exe);
         web_cmd.arg("web-layer").arg(&target_url);
+        if let Some(mon) = monitor {
+            if !mon.trim().is_empty() {
+                web_cmd.arg("--monitor").arg(mon);
+            }
+        }
         web_cmd.env("GDK_BACKEND", "wayland");
-        web_cmd.env("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        web_cmd.env("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+        web_cmd.env("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         web_cmd.env("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
-        web_cmd.env("LIBGL_ALWAYS_SOFTWARE", "0");
 
         let is_nvidia = crate::config::detect_system_gpus().iter().any(|g| g.vendor == "NVIDIA");
         if is_nvidia {
@@ -96,7 +105,6 @@ impl WebEngineManager {
                 self.spawn_chromium_fallback(&target_url)
             }
         }
-
     }
 
     fn spawn_chromium_fallback(&self, target_url: &str) -> Result<(), String> {
