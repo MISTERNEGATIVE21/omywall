@@ -130,7 +130,7 @@ fn default_fps() -> u32 {
     60
 }
 
-fn humanize_title(stem: &str) -> String {
+pub fn humanize_title(stem: &str) -> String {
     stem.split(['-', '_'])
         .filter(|s| !s.is_empty())
         .map(|w| {
@@ -144,7 +144,30 @@ fn humanize_title(stem: &str) -> String {
         .join(" ")
 }
 
-fn scan_web_asset_bookmarks() -> Vec<WebBookmark> {
+pub fn resolve_widgets_dir() -> Option<PathBuf> {
+    let relative = PathBuf::from("assets").join("widgets");
+    if let Some(home) = dirs::home_dir() {
+        let candidates = [
+            home.join(".local").join("share").join("omywall").join("assets").join("widgets"),
+            PathBuf::from("/usr/share/omywall").join("assets").join("widgets"),
+            PathBuf::from("/usr/local/share/omywall").join("assets").join("widgets"),
+            std::env::current_dir().unwrap_or_default().join(&relative),
+        ];
+        for c in &candidates {
+            if c.is_dir() {
+                return Some(c.to_path_buf());
+            }
+        }
+    }
+    let cwd = std::env::current_dir().unwrap_or_default().join(relative);
+    if cwd.is_dir() {
+        Some(cwd)
+    } else {
+        None
+    }
+}
+
+pub fn scan_web_asset_bookmarks() -> Vec<WebBookmark> {
     let mut bookmarks = Vec::new();
     if let Some(web_dir) = resolve_web_assets_dir() {
         if let Ok(entries) = fs::read_dir(&web_dir) {
@@ -172,38 +195,82 @@ fn scan_web_asset_bookmarks() -> Vec<WebBookmark> {
             for cat in categories {
                 let cat_name = cat.file_name().and_then(|n| n.to_str()).unwrap_or("Misc").to_string();
                 if let Ok(files) = fs::read_dir(&cat) {
+                    let mut cat_files: Vec<PathBuf> = Vec::new();
                     for f in files.flatten() {
                         let p = f.path();
-                        if !p.is_file() {
-                            continue;
-                        }
-                        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-                            if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
-                                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("wallpaper");
-                                let url = format!("assets/web_wallpapers/{}/{}", cat_name, p.file_name().unwrap_or_default().to_string_lossy());
-                                bookmarks.push(WebBookmark {
-                                    title: humanize_title(stem),
-                                    url,
-                                    category: humanize_title(&cat_name),
-                                    is_demo: true,
-                                });
+                        if p.is_file() {
+                            if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                                if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+                                    cat_files.push(p);
+                                }
                             }
                         }
+                    }
+                    cat_files.sort();
+                    for p in cat_files {
+                        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("wallpaper");
+                        let url = format!("assets/web_wallpapers/{}/{}", cat_name, p.file_name().unwrap_or_default().to_string_lossy());
+                        bookmarks.push(WebBookmark {
+                            title: humanize_title(stem),
+                            url,
+                            category: humanize_title(&cat_name),
+                            is_demo: true,
+                        });
                     }
                 }
             }
         }
     }
+
+    if let Some(widget_dir) = resolve_widgets_dir() {
+        if let Ok(entries) = fs::read_dir(&widget_dir) {
+            let mut widget_files: Vec<PathBuf> = Vec::new();
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                        if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+                            widget_files.push(p);
+                        }
+                    }
+                }
+            }
+            widget_files.sort();
+            for p in widget_files {
+                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("widget");
+                let url = format!("assets/widgets/{}", p.file_name().unwrap_or_default().to_string_lossy());
+                bookmarks.push(WebBookmark {
+                    title: humanize_title(stem),
+                    url,
+                    category: "Desktop Widgets".to_string(),
+                    is_demo: true,
+                });
+            }
+        }
+    }
+
     bookmarks
 }
 
-fn default_web_bookmarks() -> Vec<WebBookmark> {
+pub fn default_web_bookmarks() -> Vec<WebBookmark> {
     let scanned = scan_web_asset_bookmarks();
     if !scanned.is_empty() {
         return scanned;
     }
 
     vec![
+        WebBookmark {
+            title: "Desktop HUD (System Telemetry & Weather)".to_string(),
+            url: "assets/widgets/desktop_hud.html".to_string(),
+            category: "Desktop Widgets".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "Wifi & Bluetooth Status Pill".to_string(),
+            url: "assets/widgets/wifi_bluetooth_pill.html".to_string(),
+            category: "Desktop Widgets".to_string(),
+            is_demo: true,
+        },
         WebBookmark {
             title: "Neon OLED Liquid Fluid 3D (Mouse Follow)".to_string(),
             url: "assets/web_wallpapers/neon_oled_fluid_mouse_3d.html".to_string(),
@@ -432,18 +499,25 @@ impl Config {
     pub fn add_web_bookmark(&mut self, title: String, url: String, category: String) {
         let bookmark = WebBookmark {
             title,
-            url,
+            url: url.clone(),
             category,
             is_demo: false,
         };
-        if !self.saved_web_wallpapers.contains(&bookmark) {
+        if let Some(existing) = self.saved_web_wallpapers.iter_mut().find(|b| b.url == url) {
+            *existing = bookmark;
+        } else {
             self.saved_web_wallpapers.push(bookmark);
-            let _ = self.save();
         }
+        let _ = self.save();
     }
 
     pub fn remove_web_bookmark(&mut self, url: &str) {
-        self.saved_web_wallpapers.retain(|b| b.url != url);
+        let resolved = resolve_asset_path(url);
+        self.saved_web_wallpapers.retain(|b| {
+            b.url != url
+                && b.url.trim() != url.trim()
+                && resolve_asset_path(&b.url) != resolved
+        });
         let _ = self.save();
     }
 
@@ -644,9 +718,15 @@ pub fn resolve_asset_path(url: &str) -> String {
     }
 
     let stripped = trimmed.strip_prefix("assets/").unwrap_or(trimmed);
+    let cwd = std::env::current_dir().unwrap_or_default();
+
+    let mut candidates = vec![
+        cwd.join(trimmed),
+        cwd.join("assets").join(stripped),
+    ];
 
     if let Some(home) = dirs::home_dir() {
-        let candidates = [
+        candidates.extend_from_slice(&[
             home.join(".local").join("share").join("omywall").join("assets").join(stripped),
             home.join(".local").join("share").join("omywall").join(trimmed),
             home.join(".config").join("omywall").join(trimmed),
@@ -654,16 +734,15 @@ pub fn resolve_asset_path(url: &str) -> String {
             PathBuf::from("/usr/share/omywall").join(trimmed),
             PathBuf::from("/usr/local/share/omywall").join("assets").join(stripped),
             PathBuf::from("/usr/local/share/omywall").join(trimmed),
-            std::env::current_dir().unwrap_or_default().join(trimmed),
-        ];
+        ]);
+    }
 
-        for c in &candidates {
-            if c.exists() {
-                return std::fs::canonicalize(c)
-                    .unwrap_or_else(|_| c.clone())
-                    .to_string_lossy()
-                    .to_string();
-            }
+    for c in &candidates {
+        if c.exists() {
+            return std::fs::canonicalize(c)
+                .unwrap_or_else(|_| c.clone())
+                .to_string_lossy()
+                .to_string();
         }
     }
 

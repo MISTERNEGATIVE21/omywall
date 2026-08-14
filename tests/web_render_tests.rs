@@ -109,3 +109,83 @@ fn test_widget_asset_files() {
     assert!(pill_content.contains("bt-section"), "wifi_bluetooth_pill.html must contain bluetooth section");
 }
 
+#[test]
+fn test_catalog_synchronization_web_assets_and_widgets() {
+    let config = omywall::config::Config::default();
+    let scanned = omywall::iced_gui::IcedGuiApp::scan_wallpapers(&config.wallpaper_dir, &config.saved_web_wallpapers);
+
+    assert!(!scanned.is_empty(), "Scanned wallpapers catalog must not be empty");
+
+    // Verify widgets are discoverable in scanned catalog
+    let has_desktop_hud = scanned.iter().any(|p| {
+        let s = p.to_string_lossy();
+        s.contains("desktop_hud.html")
+    });
+    assert!(has_desktop_hud, "Catalog must include desktop_hud.html widget");
+
+    let has_wifi_pill = scanned.iter().any(|p| {
+        let s = p.to_string_lossy();
+        s.contains("wifi_bluetooth_pill.html")
+    });
+    assert!(has_wifi_pill, "Catalog must include wifi_bluetooth_pill.html widget");
+
+    // Verify 3D WebGL assets are discoverable
+    let has_webgl_asset = scanned.iter().any(|p| {
+        let s = p.to_string_lossy();
+        s.contains("matrix_rain.html") || s.contains("aurora_borealis_3d.html") || s.contains("cyberpunk_city_3d.html")
+    });
+    assert!(has_webgl_asset, "Catalog must include built-in WebGL HTML assets");
+}
+
+#[test]
+fn test_add_and_remove_web_bookmark() {
+    let mut config = omywall::config::Config::default();
+    let initial_count = config.saved_web_wallpapers.len();
+
+    let custom_url = "https://example.com/cyberpunk-scene";
+    let custom_title = "Cyberpunk Scene Stream";
+    let custom_category = "Online Streams";
+
+    // Add bookmark
+    config.add_web_bookmark(custom_title.to_string(), custom_url.to_string(), custom_category.to_string());
+    assert_eq!(config.saved_web_wallpapers.len(), initial_count + 1);
+
+    // Verify it is merged into scanned wallpapers
+    let scanned = omywall::iced_gui::IcedGuiApp::scan_wallpapers(&config.wallpaper_dir, &config.saved_web_wallpapers);
+    let contains_custom = scanned.iter().any(|p| p.to_string_lossy() == custom_url);
+    assert!(contains_custom, "Scanned catalog must include newly added bookmark URL");
+
+    // Remove bookmark
+    config.remove_web_bookmark(custom_url);
+    assert_eq!(config.saved_web_wallpapers.len(), initial_count);
+    assert!(!config.saved_web_wallpapers.iter().any(|b| b.url == custom_url));
+}
+
+#[test]
+fn test_resolve_asset_paths() {
+    let hud_resolved = omywall::config::resolve_asset_path("assets/widgets/desktop_hud.html");
+    assert!(PathBuf::from(&hud_resolved).exists(), "assets/widgets/desktop_hud.html must resolve to an existing file");
+
+    let matrix_resolved = omywall::config::resolve_asset_path("assets/web_wallpapers/matrix_rain.html");
+    assert!(PathBuf::from(&matrix_resolved).exists(), "assets/web_wallpapers/matrix_rain.html must resolve to an existing file");
+
+    let remote_url = "https://youtube.com/live/xyz";
+    let remote_resolved = omywall::config::resolve_asset_path(remote_url);
+    assert_eq!(remote_resolved, remote_url, "Remote URLs should remain unchanged");
+}
+
+#[test]
+fn test_default_web_bookmarks_contains_widgets_and_webgl() {
+    let bookmarks = omywall::config::default_web_bookmarks();
+    assert!(!bookmarks.is_empty(), "Default web bookmarks must not be empty");
+
+    let has_hud = bookmarks.iter().any(|b| b.url.contains("desktop_hud.html"));
+    assert!(has_hud, "Default web bookmarks must include desktop_hud.html widget");
+
+    let has_pill = bookmarks.iter().any(|b| b.url.contains("wifi_bluetooth_pill.html"));
+    assert!(has_pill, "Default web bookmarks must include wifi_bluetooth_pill.html widget");
+
+    let has_particles = bookmarks.iter().any(|b| b.category.contains("Particles") || b.category.contains("WebGL") || b.category.contains("Space"));
+    assert!(has_particles, "Default web bookmarks must include 3D WebGL categories");
+}
+

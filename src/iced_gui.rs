@@ -101,7 +101,7 @@ pub fn md5_hash(bytes: &[u8]) -> u64 {
 // ---------------------------------------------------------------------------
 
 #[derive(PartialEq, Clone, Copy, Debug)]
-enum AppTab {
+pub enum AppTab {
     Installed,
     SteamWorkshop,
     Displays,
@@ -111,7 +111,7 @@ enum AppTab {
 
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum CategoryFilter {
+pub enum CategoryFilter {
     All,
     Videos,
     WebWidgets,
@@ -120,7 +120,7 @@ enum CategoryFilter {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum ViewMode {
+pub enum ViewMode {
     Grid,
     Carousel,
 }
@@ -275,7 +275,7 @@ fn btn_danger<'a>(txt: &'a str) -> iced::widget::Button<'a, Message> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
-enum Message {
+pub enum Message {
     Tick,
     SetWindowId(Option<window::Id>),
     WindowEvent(window::Id, window::Event),
@@ -384,78 +384,78 @@ enum Message {
 // State
 // ---------------------------------------------------------------------------
 
-struct CachedImage {
-    mtime: SystemTime,
-    handle: iced::widget::image::Handle,
+pub struct CachedImage {
+    pub mtime: SystemTime,
+    pub handle: iced::widget::image::Handle,
 }
 
-struct IcedGuiApp {
-    config: Config,
-    window_id: Option<window::Id>,
-    status: Option<DaemonStatus>,
-    status_message: String,
+pub struct IcedGuiApp {
+    pub config: Config,
+    pub window_id: Option<window::Id>,
+    pub status: Option<DaemonStatus>,
+    pub status_message: String,
 
-    active_tab: AppTab,
-    theme_scheme: ThemeScheme,
+    pub active_tab: AppTab,
+    pub theme_scheme: ThemeScheme,
 
-    wallpapers: Vec<PathBuf>,
-    selected_wallpaper: Option<PathBuf>,
-    search_filter: String,
-    category_filter: CategoryFilter,
-    view_mode: ViewMode,
-    carousel_index: usize,
+    pub wallpapers: Vec<PathBuf>,
+    pub selected_wallpaper: Option<PathBuf>,
+    pub search_filter: String,
+    pub category_filter: CategoryFilter,
+    pub view_mode: ViewMode,
+    pub carousel_index: usize,
 
-    web_url_input: String,
-    new_web_title: String,
-    new_web_category: String,
+    pub web_url_input: String,
+    pub new_web_title: String,
+    pub new_web_category: String,
 
-    steam_wallpapers: Vec<SteamWallpaper>,
-    displays: Vec<DisplayInfo>,
-    selected_screen: Option<String>,
+    pub steam_wallpapers: Vec<SteamWallpaper>,
+    pub displays: Vec<DisplayInfo>,
+    pub selected_screen: Option<String>,
 
-    volume_slider: i64,
-    opacity_slider: f32,
-    autostart_enabled: bool,
+    pub volume_slider: i64,
+    pub opacity_slider: f32,
+    pub autostart_enabled: bool,
 
-    show_doctor: bool,
-    show_logs: bool,
-    show_hyprlock: bool,
-    show_gpu_settings: bool,
-    logs_content: String,
+    pub show_doctor: bool,
+    pub show_logs: bool,
+    pub show_hyprlock: bool,
+    pub show_gpu_settings: bool,
+    pub logs_content: String,
 
-    workshop_items: Vec<WorkshopItem>,
-    workshop_page: u32,
-    workshop_sort: String,
-    workshop_days: i64,
-    workshop_query: String,
-    workshop_loading: bool,
-    workshop_status: String,
-    workshop_downloading: Option<String>,
+    pub workshop_items: Vec<WorkshopItem>,
+    pub workshop_page: u32,
+    pub workshop_sort: String,
+    pub workshop_days: i64,
+    pub workshop_query: String,
+    pub workshop_loading: bool,
+    pub workshop_status: String,
+    pub workshop_downloading: Option<String>,
 
-    tuning_wall: Option<SteamWallpaper>,
-    tuning_overrides: WallpaperOverrides,
-    lwe_props: Vec<crate::lwe::WallpaperProperty>,
-    lwe_prop_values: HashMap<String, String>,
-    lwe_props_busy: bool,
-    lwe_props_status: String,
+    pub tuning_wall: Option<SteamWallpaper>,
+    pub tuning_overrides: WallpaperOverrides,
+    pub lwe_props: Vec<crate::lwe::WallpaperProperty>,
+    pub lwe_prop_values: HashMap<String, String>,
+    pub lwe_props_busy: bool,
+    pub lwe_props_status: String,
 
-    system_metrics: SystemMetrics,
-    last_poll: Option<Instant>,
-    last_metrics_poll: Option<Instant>,
+    pub system_metrics: SystemMetrics,
+    pub last_poll: Option<Instant>,
+    pub last_metrics_poll: Option<Instant>,
 
-    card_hover: HashMap<PathBuf, bool>,
-    hover_streaming: Option<PathBuf>,
-    hover_video_process: Option<Child>,
-    madamiru_player: Option<crate::video_render::MadamiruVideoPlayer>,
-    hover_stream_mtime: Option<SystemTime>,
+    pub card_hover: HashMap<PathBuf, bool>,
+    pub hover_streaming: Option<PathBuf>,
+    pub hover_video_process: Option<Child>,
+    pub madamiru_player: Option<crate::video_render::MadamiruVideoPlayer>,
+    pub hover_stream_mtime: Option<SystemTime>,
 
-    image_cache: HashMap<PathBuf, CachedImage>,
-    pending_decodes: HashSet<PathBuf>,
-    last_click: Option<(PathBuf, Instant)>,
+    pub image_cache: HashMap<PathBuf, CachedImage>,
+    pub pending_decodes: HashSet<PathBuf>,
+    pub last_click: Option<(PathBuf, Instant)>,
 
-    start_minimized: bool,
-    minimized_on_launch_done: bool,
-    is_pinned_on_top: bool,
+    pub start_minimized: bool,
+    pub minimized_on_launch_done: bool,
+    pub is_pinned_on_top: bool,
 }
 
 const HOVER_VIDEO_LIVE_PATH: &str = "/tmp/omywall_thumbs/hover_video_live.png";
@@ -523,9 +523,9 @@ fn load_window_icon() -> Option<(Vec<u8>, u32, u32)> {
 // ---------------------------------------------------------------------------
 
 impl IcedGuiApp {
-    fn new(config: Config, start_minimized: bool) -> Self {
+    pub fn new(config: Config, start_minimized: bool) -> Self {
         crate::webkit_render::init_global_renderer();
-        let wallpapers = Self::scan_wallpapers(&config.wallpaper_dir);
+        let wallpapers = Self::scan_wallpapers(&config.wallpaper_dir, &config.saved_web_wallpapers);
         let selected_wallpaper = wallpapers.first().cloned();
         let mut app = IcedGuiApp {
 
@@ -590,7 +590,7 @@ impl IcedGuiApp {
     }
 
     fn boot_tasks(&self) -> Task<Message> {
-        let mut tasks = vec![
+        let tasks = vec![
             window::latest().map(Message::SetWindowId),
             Task::perform(poll_status(self.config.socket_path.clone()), Message::GotStatus),
             Task::perform(spawn_blocking(crate::steam_scanner::scan_steam_wallpapers), Message::GotSteamScan),
@@ -607,7 +607,7 @@ impl IcedGuiApp {
         Task::batch(tasks)
     }
 
-    fn scan_wallpapers(dir: &Path) -> Vec<PathBuf> {
+    pub fn scan_wallpapers(dir: &Path, bookmarks: &[crate::config::WebBookmark]) -> Vec<PathBuf> {
         let mut files = Vec::new();
         let mut seen = HashSet::new();
         let valid_exts = ["mkv", "mp4", "webm", "avi", "mov", "gif", "html", "htm", "js", "pkg", "m4v", "flv", "wmv", "png", "jpg", "jpeg", "webp"];
@@ -615,7 +615,7 @@ impl IcedGuiApp {
         let _ = std::fs::create_dir_all(dir);
 
         fn walk_dir(d: &Path, depth: usize, files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, valid_exts: &[&str]) {
-            if depth > 2 {
+            if depth > 4 {
                 return;
             }
             if let Ok(entries) = std::fs::read_dir(d) {
@@ -624,7 +624,7 @@ impl IcedGuiApp {
                     if path.is_file() {
                         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                             if valid_exts.contains(&ext.to_lowercase().as_str()) {
-                                let canon = std::fs::canonicalize(&path).unwrap_or(path);
+                                let canon = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
                                 if seen.insert(canon.clone()) {
                                     files.push(canon);
                                 }
@@ -643,6 +643,42 @@ impl IcedGuiApp {
             let omy_assets = home.join(".local").join("share").join("omywall").join("assets");
             if omy_assets.exists() && omy_assets != dir {
                 walk_dir(&omy_assets, 0, &mut files, &mut seen, &valid_exts);
+            }
+        }
+
+        if let Some(web_dir) = crate::config::resolve_web_assets_dir() {
+            if web_dir.exists() && web_dir != dir {
+                walk_dir(&web_dir, 0, &mut files, &mut seen, &valid_exts);
+            }
+        }
+
+        if let Some(widget_dir) = crate::config::resolve_widgets_dir() {
+            if widget_dir.exists() && widget_dir != dir {
+                walk_dir(&widget_dir, 0, &mut files, &mut seen, &valid_exts);
+            }
+        }
+
+        for bm in bookmarks {
+            let url = bm.url.trim();
+            if url.starts_with("http://") || url.starts_with("https://") {
+                let p = PathBuf::from(url);
+                if seen.insert(p.clone()) {
+                    files.push(p);
+                }
+            } else {
+                let resolved = crate::config::resolve_asset_path(url);
+                let p = Path::new(&resolved);
+                if p.exists() {
+                    let canon = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+                    if seen.insert(canon.clone()) {
+                        files.push(canon);
+                    }
+                } else {
+                    let p_raw = PathBuf::from(url);
+                    if seen.insert(p_raw.clone()) {
+                        files.push(p_raw);
+                    }
+                }
             }
         }
 
@@ -1330,7 +1366,7 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         Message::FolderPicked(Some(dir)) => {
             app.config.wallpaper_dir = dir.clone();
             let _ = app.config.save();
-            app.wallpapers = IcedGuiApp::scan_wallpapers(&dir);
+            app.wallpapers = IcedGuiApp::scan_wallpapers(&dir, &app.config.saved_web_wallpapers);
             app.selected_wallpaper = app.wallpapers.first().cloned();
             Task::none()
         }
@@ -1482,7 +1518,12 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         }
 
         Message::ApplyPath(path) => {
-            Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetWallpaper { path: path.to_string_lossy().to_string() }), Message::GotStatus)
+            let path_str = path.to_string_lossy().to_string();
+            if path_str.starts_with("http://") || path_str.starts_with("https://") {
+                Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetUrl { url: path_str }), Message::GotStatus)
+            } else {
+                Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetWallpaper { path: path_str }), Message::GotStatus)
+            }
         }
         Message::ApplyUrl(url) => {
             Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetUrl { url }), Message::GotStatus)
@@ -1562,7 +1603,7 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         }
         Message::WorkshopAddToLibrary(_) => Task::none(),
         Message::RescanWallpapers => {
-            app.wallpapers = IcedGuiApp::scan_wallpapers(&app.config.wallpaper_dir);
+            app.wallpapers = IcedGuiApp::scan_wallpapers(&app.config.wallpaper_dir, &app.config.saved_web_wallpapers);
             Task::none()
         }
         Message::WebTitleChanged(s) => {
@@ -1591,11 +1632,24 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                     app.new_web_category.clone(),
                 );
                 let _ = app.config.save();
-                let url_path = PathBuf::from(&raw_url);
-                if !app.wallpapers.contains(&url_path) {
-                    app.wallpapers.insert(0, url_path.clone());
-                }
-                app.selected_wallpaper = Some(url_path);
+
+                // Trigger render_shot
+                let resolved = crate::config::resolve_asset_path(&raw_url);
+                let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
+                let _ = std::fs::create_dir_all(&cache_dir);
+                let hash = format!("{:x}", md5_hash(resolved.as_bytes()));
+                let thumb_file = cache_dir.join(format!("web_{}.png", &hash[..8]));
+                crate::electron_preview::render_shot(&resolved, &thumb_file);
+
+                app.wallpapers = IcedGuiApp::scan_wallpapers(&app.config.wallpaper_dir, &app.config.saved_web_wallpapers);
+
+                let target_path = if raw_url.starts_with("http://") || raw_url.starts_with("https://") {
+                    PathBuf::from(&raw_url)
+                } else {
+                    let p = Path::new(&resolved);
+                    std::fs::canonicalize(p).unwrap_or_else(|_| PathBuf::from(&resolved))
+                };
+                app.selected_wallpaper = Some(target_path);
                 app.status_message = format!("Saved Web / YouTube URL: {}", title);
                 app.new_web_title.clear();
             }
@@ -1605,6 +1659,28 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         Message::RemoveWebBookmark(url) => {
             app.config.remove_web_bookmark(&url);
             let _ = app.config.save();
+            let resolved_target = crate::config::resolve_asset_path(&url);
+            let canon_target = Path::new(&resolved_target).canonicalize().ok();
+
+            app.wallpapers.retain(|w| {
+                let w_str = w.to_string_lossy().to_string();
+                if w_str == url || w_str == resolved_target {
+                    return false;
+                }
+                if let (Some(c1), Some(c2)) = (canon_target.as_ref(), w.canonicalize().ok().as_ref()) {
+                    if c1 == c2 {
+                        return false;
+                    }
+                }
+                true
+            });
+            if let Some(sel) = &app.selected_wallpaper {
+                let sel_str = sel.to_string_lossy().to_string();
+                if sel_str == url || sel_str == resolved_target || canon_target.as_ref() == sel.canonicalize().ok().as_ref() {
+                    app.selected_wallpaper = app.wallpapers.first().cloned();
+                }
+            }
+            app.status_message = format!("Removed bookmark: {}", url);
             Task::none()
         }
         Message::SelectDisplay(name) => {
@@ -1808,13 +1884,22 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
 }
 
 fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a, Message> {
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("Wallpaper");
     let path_str = path.to_string_lossy().to_string();
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     let ext_upper = ext.to_uppercase();
     let is_web = matches!(ext.as_str(), "html" | "htm" | "js")
         || path_str.starts_with("http://")
         || path_str.starts_with("https://");
+
+    let bookmark_opt = app.config.saved_web_wallpapers.iter().find(|b| {
+        b.url == path_str
+            || Path::new(&crate::config::resolve_asset_path(&b.url)) == path
+            || Path::new(&b.url) == path
+            || std::fs::canonicalize(Path::new(&crate::config::resolve_asset_path(&b.url))).map(|p| p == *path).unwrap_or(false)
+    });
+
+    let default_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("Wallpaper").to_string();
+    let name: String = bookmark_opt.map(|b| b.title.clone()).unwrap_or(default_name);
 
     let is_hovered_and_streaming = app.hover_streaming.as_ref() == Some(path);
 
@@ -1885,6 +1970,20 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
     let badge_color = if is_hovered_and_streaming { EMERALD } else if is_web { CYAN } else { AMBER };
     let badge_text = if is_hovered_and_streaming { "● LIVE".to_string() } else { ext_upper };
 
+    let action_row = if let Some(bm) = bookmark_opt {
+        if !bm.is_demo {
+            row![
+                btn_primary("▶ Set Wallpaper").on_press(Message::ApplyPath(path.clone())).width(Length::Fill),
+                btn_danger("🗑").on_press(Message::RemoveWebBookmark(bm.url.clone())),
+            ]
+            .spacing(6)
+        } else {
+            row![btn_primary("▶ Set Wallpaper").on_press(Message::ApplyPath(path.clone())).width(Length::Fill)]
+        }
+    } else {
+        row![btn_primary("▶ Set Wallpaper").on_press(Message::ApplyPath(path.clone())).width(Length::Fill)]
+    };
+
     let card_body = column![
         img_elem,
         row![
@@ -1893,8 +1992,7 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
         ]
         .spacing(4)
         .align_y(iced::Alignment::Center),
-        btn_primary("▶ Set Wallpaper").on_press(Message::ApplyPath(path.clone())),
-
+        action_row,
     ]
     .spacing(6)
     .padding(6);
@@ -1995,12 +2093,21 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
 
     let active_idx = app.carousel_index.min(filtered.len() - 1);
     let target = &filtered[active_idx];
-    let name = target.file_name().and_then(|n| n.to_str()).unwrap_or("Wallpaper").to_string();
     let path_str = target.to_string_lossy().to_string();
     let ext = target.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     let is_web = matches!(ext.as_str(), "html" | "htm" | "js")
         || path_str.starts_with("http://")
         || path_str.starts_with("https://");
+
+    let bookmark_opt = app.config.saved_web_wallpapers.iter().find(|b| {
+        b.url == path_str
+            || Path::new(&crate::config::resolve_asset_path(&b.url)) == target
+            || Path::new(&b.url) == target
+            || std::fs::canonicalize(Path::new(&crate::config::resolve_asset_path(&b.url))).map(|p| p == *target).unwrap_or(false)
+    });
+
+    let default_name = target.file_name().and_then(|n| n.to_str()).unwrap_or("Wallpaper").to_string();
+    let name: String = bookmark_opt.map(|b| b.title.clone()).unwrap_or(default_name);
 
     let live_path = if is_web {
         PathBuf::from(HOVER_WEB_LIVE_PATH)
@@ -2045,6 +2152,28 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
     let interactive_img = mouse_area(spotlight_img)
         .on_press(Message::CardClicked(target_click));
 
+    let mut controls = row![
+        btn_primary("◀ Previous").on_press(Message::CarouselPrev),
+        btn_primary("▶ Set Wallpaper").on_press(Message::ApplyPath(target.clone())),
+    ]
+    .spacing(12);
+
+    if is_web {
+        controls = controls.push(btn_primary("👁 Preview Web (Electron/Browser)").on_press(Message::OpenWebPreview(target.to_string_lossy().to_string())));
+    } else if is_img {
+        controls = controls.push(btn_primary("👁 Preview Image").on_press(Message::OpenImagePreview(target.to_string_lossy().to_string())));
+    } else {
+        controls = controls.push(btn_primary("👁 Preview Video (MPV)").on_press(Message::OpenVideoPreview(target.to_string_lossy().to_string())));
+    }
+
+    if let Some(bm) = bookmark_opt {
+        if !bm.is_demo {
+            controls = controls.push(btn_danger("🗑 Remove").on_press(Message::RemoveWebBookmark(bm.url.clone())));
+        }
+    }
+
+    controls = controls.push(btn_primary("Next ▶").on_press(Message::CarouselNext));
+
     let spotlight_card = mouse_area(
         container(
             column![
@@ -2060,19 +2189,7 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
             interactive_img,
             text(name).color(Color::WHITE).size(18),
             text(path_str).color(DIM_TEXT).size(12),
-            row![
-                btn_primary("◀ Previous").on_press(Message::CarouselPrev),
-                btn_primary("▶ Set Wallpaper").on_press(Message::ApplyPath(target.clone())),
-                if is_web {
-                    btn_primary("👁 Preview Web (Electron/Browser)").on_press(Message::OpenWebPreview(target.to_string_lossy().to_string()))
-                } else if is_img {
-                    btn_primary("👁 Preview Image").on_press(Message::OpenImagePreview(target.to_string_lossy().to_string()))
-                } else {
-                    btn_primary("👁 Preview Video (MPV)").on_press(Message::OpenVideoPreview(target.to_string_lossy().to_string()))
-                },
-                btn_primary("Next ▶").on_press(Message::CarouselNext),
-            ]
-            .spacing(12),
+            controls,
         ]
         .spacing(12)
         .padding(16)
