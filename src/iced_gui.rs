@@ -21,6 +21,7 @@ use crate::logger::get_log_path;
 use crate::steam_scanner::SteamWallpaper;
 use crate::steam_workshop::WorkshopItem;
 
+#[allow(dead_code)]
 type Elem<'a> = Element<'a, Message>;
 
 const CYAN: Color = Color::from_rgb(0.18, 0.83, 0.78);
@@ -60,6 +61,7 @@ fn drain_updated_thumbs() -> HashSet<PathBuf> {
         .unwrap_or_default()
 }
 
+#[allow(dead_code)]
 fn is_thumb_pending(key: &str) -> bool {
     UPDATED_THUMBS
         .lock()
@@ -140,6 +142,7 @@ impl Default for ThemeScheme {
 }
 
 impl ThemeScheme {
+    #[allow(dead_code)]
     pub fn name(&self) -> &'static str {
         match self {
             ThemeScheme::DarkGlass => "Dark Glass",
@@ -274,6 +277,7 @@ fn btn_danger<'a>(txt: &'a str) -> iced::widget::Button<'a, Message> {
 // Messages
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum Message {
     Tick,
@@ -440,6 +444,7 @@ pub struct IcedGuiApp {
     pub lwe_props_status: String,
 
     pub system_metrics: SystemMetrics,
+    #[allow(dead_code)]
     pub last_poll: Option<Instant>,
     pub last_metrics_poll: Option<Instant>,
 
@@ -1120,11 +1125,13 @@ fn run_installer_script() -> String {
     }
 }
 
+#[allow(dead_code)]
 fn fmt_f64(v: f64) -> String {
     let rounded = (v * 100000.0).round() / 100000.0;
     format!("{}", rounded)
 }
 
+#[allow(dead_code)]
 fn get_current_time_str() -> (String, String) {
     let t = std::time::SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
     let tm = unsafe {
@@ -1141,6 +1148,7 @@ fn get_current_time_str() -> (String, String) {
     (time_str, date_str)
 }
 
+#[allow(dead_code)]
 fn parse_color_value(value: &str) -> [f32; 4] {
     let mut rgba = [1.0_f32; 4];
     let mut idx = 0usize;
@@ -1274,6 +1282,11 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::GotSteamScan(items) => {
+            for item in &items {
+                if !app.wallpapers.contains(&item.path) {
+                    app.wallpapers.push(item.path.clone());
+                }
+            }
             app.steam_wallpapers = items;
             Task::none()
         }
@@ -1447,6 +1460,7 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         }
         Message::Category(cat) => {
             app.category_filter = cat;
+            app.carousel_index = 0;
             Task::none()
         }
         Message::ViewMode(mode) => {
@@ -1454,8 +1468,9 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::CarouselNext => {
-            if !app.wallpapers.is_empty() {
-                app.carousel_index = (app.carousel_index + 1) % app.wallpapers.len();
+            let filtered = filtered_wallpapers(app);
+            if !filtered.is_empty() {
+                app.carousel_index = (app.carousel_index + 1) % filtered.len();
                 if let Some(active) = active_carousel_item(app) {
                     if app.hover_streaming.as_deref() != Some(&active) {
                         stop_hover_stream(app);
@@ -1465,9 +1480,10 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::CarouselPrev => {
-            if !app.wallpapers.is_empty() {
+            let filtered = filtered_wallpapers(app);
+            if !filtered.is_empty() {
                 if app.carousel_index == 0 {
-                    app.carousel_index = app.wallpapers.len() - 1;
+                    app.carousel_index = filtered.len() - 1;
                 } else {
                     app.carousel_index -= 1;
                 }
@@ -1481,6 +1497,7 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         }
         Message::SearchFilterChanged(text) => {
             app.search_filter = text;
+            app.carousel_index = 0;
             Task::none()
         }
         Message::CardEntered(path) => {
@@ -1496,25 +1513,49 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::CardClicked(path) => {
+            let is_double_click = if let Some((ref last_p, last_t)) = app.last_click {
+                last_p == &path && last_t.elapsed() < Duration::from_millis(400)
+            } else {
+                false
+            };
+
+            app.last_click = Some((path.clone(), Instant::now()));
             app.selected_wallpaper = Some(path.clone());
-            if let Some(idx) = app.wallpapers.iter().position(|w| w == &path) {
+            let filtered = filtered_wallpapers(app);
+            if let Some(idx) = filtered.iter().position(|w| w == &path) {
                 app.carousel_index = idx;
             }
             if app.hover_streaming.as_deref() != Some(&path) {
                 stop_hover_stream(app);
             }
+
+            if is_double_click {
+                let path_str = path.to_string_lossy().to_string();
+                if path_str.starts_with("http://") || path_str.starts_with("https://") {
+                    return Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetUrl { url: path_str }), Message::GotStatus);
+                } else {
+                    return Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetWallpaper { path: path_str }), Message::GotStatus);
+                }
+            }
+
             Task::none()
         }
 
         Message::CardDoubleClicked(path) => {
             app.selected_wallpaper = Some(path.clone());
-            if let Some(idx) = app.wallpapers.iter().position(|w| w == &path) {
+            let filtered = filtered_wallpapers(app);
+            if let Some(idx) = filtered.iter().position(|w| w == &path) {
                 app.carousel_index = idx;
             }
             if app.hover_streaming.as_deref() != Some(&path) {
                 stop_hover_stream(app);
             }
-            Task::none()
+            let path_str = path.to_string_lossy().to_string();
+            if path_str.starts_with("http://") || path_str.starts_with("https://") {
+                Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetUrl { url: path_str }), Message::GotStatus)
+            } else {
+                Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetWallpaper { path: path_str }), Message::GotStatus)
+            }
         }
 
         Message::ApplyPath(path) => {
@@ -1883,6 +1924,55 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
     }
 }
 
+pub fn media_type_badge(app: &IcedGuiApp, path: &Path) -> (&'static str, Color) {
+    let path_str = path.to_string_lossy();
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+
+    // 1. Steam Workshop item check
+    let is_steam = path_str.contains("steamapps")
+        || path_str.contains("431960")
+        || path_str.contains("workshop")
+        || ext == "pkg"
+        || app.steam_wallpapers.iter().any(|s| s.path == *path || path.starts_with(&s.path) || s.path.starts_with(path));
+    if is_steam {
+        return ("🎮 Steam", Color::from_rgb(0.4, 0.75, 1.0));
+    }
+
+    // 2. Widget check
+    let is_widget_path = path_str.contains("widget")
+        || path_str.contains("desktop_hud")
+        || path_str.contains("pomodoro");
+    let is_widget_bm = app.config.saved_web_wallpapers.iter().any(|b| {
+        (b.url == path_str || Path::new(&crate::config::resolve_asset_path(&b.url)) == path || Path::new(&b.url) == path)
+            && b.category.to_lowercase().contains("widget")
+    });
+    if is_widget_path || is_widget_bm {
+        return ("🎛 Widget", AMBER);
+    }
+
+    // 3. WebGL / Web 3D check
+    let is_web = matches!(ext.as_str(), "html" | "htm" | "js")
+        || path_str.starts_with("http://")
+        || path_str.starts_with("https://");
+    if is_web {
+        return ("🌐 WebGL", CYAN);
+    }
+
+    // 4. Video check
+    let is_vid = matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "flv" | "m4v" | "wmv");
+    if is_vid {
+        return ("🎥 Video", PURPLE);
+    }
+
+    // 5. Image check
+    let is_img = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "bmp");
+    if is_img {
+        return ("🖼 Image", EMERALD);
+    }
+
+    ("📁 File", SOFT_TEXT)
+}
+
 fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a, Message> {
     let path_str = path.to_string_lossy().to_string();
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
@@ -1966,9 +2056,27 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
     let is_selected = app.selected_wallpaper.as_ref() == Some(path);
     let is_card_hovered = app.card_hover.get(path) == Some(&true);
 
-    let truncated_title = if name.len() > 22 { format!("{}...", &name[..20]) } else { name.to_string() };
-    let badge_color = if is_hovered_and_streaming { EMERALD } else if is_web { CYAN } else { AMBER };
-    let badge_text = if is_hovered_and_streaming { "● LIVE".to_string() } else { ext_upper };
+    let (badge_text, badge_color) = if is_hovered_and_streaming {
+        ("● LIVE", EMERALD)
+    } else {
+        media_type_badge(app, path)
+    };
+
+    let badge_pill = container(
+        text(badge_text).size(10).color(badge_color)
+    )
+    .padding([2, 6])
+    .style(move |_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.04, 0.06, 0.10, 0.90))),
+        border: Border {
+            color: badge_color,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        ..Default::default()
+    });
+
+    let truncated_title = if name.len() > 20 { format!("{}...", &name[..18]) } else { name.to_string() };
 
     let action_row = if let Some(bm) = bookmark_opt {
         if !bm.is_demo {
@@ -1988,7 +2096,7 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
         img_elem,
         row![
             text(truncated_title).size(13).color(if is_selected { CYAN } else { Color::WHITE }).width(Length::Fill),
-            text(badge_text).size(11).color(badge_color),
+            badge_pill,
         ]
         .spacing(4)
         .align_y(iced::Alignment::Center),
@@ -2044,27 +2152,66 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
     .into()
 }
 
-fn filtered_wallpapers(app: &IcedGuiApp) -> Vec<PathBuf> {
+pub fn filtered_wallpapers(app: &IcedGuiApp) -> Vec<PathBuf> {
+    let search_query = app.search_filter.trim().to_lowercase();
     app.wallpapers.iter().filter(|w| {
         let path_str = w.to_string_lossy().to_string();
         let ext = w.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
         let is_web = matches!(ext.as_str(), "html" | "htm" | "js")
-        || path_str.starts_with("http://")
-        || path_str.starts_with("https://");
-        let is_vid = matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "flv");
-        let is_img = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp");
+            || path_str.starts_with("http://")
+            || path_str.starts_with("https://");
+        let is_vid = matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "flv" | "m4v" | "wmv");
+        let is_img = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "bmp");
+        let is_steam = path_str.contains("steamapps")
+            || path_str.contains("431960")
+            || path_str.contains("workshop")
+            || ext == "pkg"
+            || app.steam_wallpapers.iter().any(|s| &s.path == *w || s.path.starts_with(w) || w.starts_with(&s.path));
 
-        match app.category_filter {
+        let category_match = match app.category_filter {
             CategoryFilter::All => true,
             CategoryFilter::Videos => is_vid,
             CategoryFilter::WebWidgets => is_web,
             CategoryFilter::StaticImages => is_img,
-            CategoryFilter::SteamWorkshop => true,
+            CategoryFilter::SteamWorkshop => is_steam,
+        };
+
+        if !category_match {
+            return false;
         }
+
+        if search_query.is_empty() {
+            return true;
+        }
+
+        let file_name = w.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+        if file_name.contains(&search_query) || path_str.to_lowercase().contains(&search_query) {
+            return true;
+        }
+
+        if let Some(bm) = app.config.saved_web_wallpapers.iter().find(|b| {
+            b.url == path_str
+                || Path::new(&crate::config::resolve_asset_path(&b.url)) == *w
+                || Path::new(&b.url) == *w
+        }) {
+            if bm.title.to_lowercase().contains(&search_query)
+                || bm.category.to_lowercase().contains(&search_query)
+            {
+                return true;
+            }
+        }
+
+        if let Some(sw) = app.steam_wallpapers.iter().find(|s| &s.path == *w || s.path.starts_with(w) || w.starts_with(&s.path)) {
+            if sw.title.to_lowercase().contains(&search_query) || sw.author.to_lowercase().contains(&search_query) {
+                return true;
+            }
+        }
+
+        false
     }).cloned().collect()
 }
 
-fn active_carousel_item(app: &IcedGuiApp) -> Option<PathBuf> {
+pub fn active_carousel_item(app: &IcedGuiApp) -> Option<PathBuf> {
     let filtered = filtered_wallpapers(app);
     if filtered.is_empty() {
         return None;
@@ -2073,6 +2220,7 @@ fn active_carousel_item(app: &IcedGuiApp) -> Option<PathBuf> {
     Some(filtered[active_idx].clone())
 }
 
+#[allow(dead_code)]
 fn is_live_item(path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     let path_str = path.to_string_lossy().to_string();
@@ -2085,7 +2233,7 @@ fn is_live_item(path: &Path) -> bool {
 
 fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Element<'a, Message> {
     if filtered.is_empty() {
-        return container(text("No wallpapers match the selected category filter.").color(AMBER).size(16))
+        return container(text("No wallpapers match the search or category filter.").color(AMBER).size(16))
             .width(Length::Fill)
             .padding(30)
             .into();
@@ -2168,11 +2316,31 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
 
     if let Some(bm) = bookmark_opt {
         if !bm.is_demo {
-            controls = controls.push(btn_danger("🗑 Remove").on_press(Message::RemoveWebBookmark(bm.url.clone())));
+            controls = controls.push(btn_danger("🗑 Remove Bookmark").on_press(Message::RemoveWebBookmark(bm.url.clone())));
         }
     }
 
     controls = controls.push(btn_primary("Next ▶").on_press(Message::CarouselNext));
+
+    let (spot_badge_text, spot_badge_color) = if is_live {
+        ("● LIVE STREAMING", EMERALD)
+    } else {
+        media_type_badge(app, target)
+    };
+
+    let spot_badge_pill = container(
+        text(spot_badge_text).size(11).color(spot_badge_color)
+    )
+    .padding([3, 8])
+    .style(move |_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.04, 0.06, 0.10, 0.90))),
+        border: Border {
+            color: spot_badge_color,
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    });
 
     let spotlight_card = mouse_area(
         container(
@@ -2181,18 +2349,20 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
                     text(format!("● SPOTLIGHT PLAYER ({}/{})", active_idx + 1, filtered.len()))
                         .color(if is_live { EMERALD } else { CYAN })
                         .size(14),
-                space().width(Length::Fill),
-                text(if is_web { "WebKit2GTK Wayland Layer Shell" } else { "MPV Hardware Video" }).color(AMBER).size(13),
+                    space().width(Length::Fill),
+                    spot_badge_pill,
+                    space().width(8),
+                    text(if is_web { "WebKit2GTK / Electron Layer" } else { "MPV Hardware Video" }).color(AMBER).size(12),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+                interactive_img,
+                text(name).color(Color::WHITE).size(18),
+                text(path_str).color(DIM_TEXT).size(12),
+                controls,
             ]
             .spacing(12)
-            .align_y(iced::Alignment::Center),
-            interactive_img,
-            text(name).color(Color::WHITE).size(18),
-            text(path_str).color(DIM_TEXT).size(12),
-            controls,
-        ]
-        .spacing(12)
-        .padding(16)
+            .padding(16)
         )
         .style(|_| container::Style {
             background: Some(Background::Color(CARD_BG_SEL)),
@@ -2208,7 +2378,7 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
     .on_exit(Message::CardExited(target.clone()));
 
     let mut filmstrip = row![].spacing(8);
-    for (idx, w) in filtered.iter().enumerate().take(12) {
+    for (idx, w) in filtered.iter().enumerate().take(24) {
         let is_current = idx == active_idx;
         let w_name = w.file_name().and_then(|n| n.to_str()).unwrap_or("Item");
         let truncated = if w_name.len() > 14 { format!("{}...", &w_name[..12]) } else { w_name.to_string() };
@@ -2218,9 +2388,6 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
                 .on_press(Message::CardClicked(path_clone))
         );
     }
-
-
-
 
     column![
         spotlight_card,
@@ -2319,11 +2486,18 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
                     .on_press(Message::Category(CategoryFilter::All)),
                 btn_pill("🎥 Videos", app.category_filter == CategoryFilter::Videos)
                     .on_press(Message::Category(CategoryFilter::Videos)),
-                btn_pill("🌐 Web Apps", app.category_filter == CategoryFilter::WebWidgets)
+                btn_pill("🌐 Web & 3D", app.category_filter == CategoryFilter::WebWidgets)
                     .on_press(Message::Category(CategoryFilter::WebWidgets)),
                 btn_pill("🖼 Images", app.category_filter == CategoryFilter::StaticImages)
                     .on_press(Message::Category(CategoryFilter::StaticImages)),
+                btn_pill("🎮 Steam Items", app.category_filter == CategoryFilter::SteamWorkshop)
+                    .on_press(Message::Category(CategoryFilter::SteamWorkshop)),
             ].spacing(8);
+
+            let search_input = text_input("Search wallpapers...", &app.search_filter)
+                .on_input(Message::SearchFilterChanged)
+                .padding(6)
+                .width(220);
 
             let view_mode_toggle = row![
                 btn_pill("⣿ Grid", app.view_mode == ViewMode::Grid)
@@ -2358,6 +2532,8 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
                     space().width(12),
                     cat_pills,
                     space().width(Length::Fill),
+                    search_input,
+                    space().width(8),
                     file_folder_buttons,
                     space().width(8),
                     view_mode_toggle,
@@ -2561,18 +2737,88 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
 
     };
 
-    let content = column![
+    let mut content = column![
         header,
         rule::horizontal(1),
         nav_bar,
         rule::horizontal(1),
-        body_content,
     ]
-    .spacing(16)
-    .padding(20);
+    .spacing(16);
+
+    if app.show_doctor {
+        let tools = check_installed_tools();
+        let mut doc_col = column![
+            row![
+                text("⚙ System Doctor - Installed Dependencies").size(16).color(CYAN),
+                space().width(Length::Fill),
+                button(text("✖ Close")).on_press(Message::ToggleDoctor),
+            ].align_y(iced::Alignment::Center),
+        ].spacing(8);
+
+        for t in tools {
+            let status_txt = if t.installed { "✔ Installed" } else { "✖ Missing" };
+            let status_clr = if t.installed { EMERALD } else { Color::from_rgb(0.95, 0.25, 0.25) };
+            doc_col = doc_col.push(
+                row![
+                    text(format!("{}:", t.name)).size(13).color(Color::WHITE).width(120),
+                    text(status_txt).size(13).color(status_clr).width(100),
+                    text(t.description).size(12).color(SOFT_TEXT),
+                ].spacing(8).align_y(iced::Alignment::Center)
+            );
+        }
+        doc_col = doc_col.push(
+            btn_primary("🛠 Run Installer Script to Fix Missing Dependencies").on_press(Message::RunInstaller)
+        );
+
+        let doc_box = container(doc_col)
+            .padding(14)
+            .style(|_| container::Style {
+                background: Some(Background::Color(PANEL_BG)),
+                border: Border {
+                    color: CYAN,
+                    width: 1.5,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            });
+
+        content = content.push(doc_box);
+    }
+
+    if app.show_logs {
+        let logs_box = container(
+            column![
+                row![
+                    text("📋 System Logs").size(16).color(CYAN),
+                    space().width(Length::Fill),
+                    button(text("✖ Close")).on_press(Message::ToggleLogs),
+                ].align_y(iced::Alignment::Center),
+                scrollable(
+                    text(if app.logs_content.is_empty() { "No logs available." } else { &app.logs_content })
+                        .size(12)
+                        .color(SOFT_TEXT)
+                ).height(180),
+            ].spacing(8)
+        )
+        .padding(14)
+        .style(|_| container::Style {
+            background: Some(Background::Color(PANEL_BG)),
+            border: Border {
+                color: CARD_STROKE,
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        });
+
+        content = content.push(logs_box);
+    }
+
+    content = content.push(body_content);
 
     container(content)
         .width(Length::Fill)
         .height(Length::Fill)
+        .padding(20)
         .into()
 }

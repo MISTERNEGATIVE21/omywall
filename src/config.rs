@@ -823,6 +823,7 @@ pub fn detect_system_gpus() -> Vec<GpuInfo> {
     gpus
 }
 
+#[allow(dead_code)]
 pub fn get_available_hwdec_options() -> Vec<(&'static str, &'static str, &'static str)> {
     let mut options = vec![("auto", "⚡ Auto-Detect GPU (Recommended)", "Automatic hardware acceleration detection")];
     let gpus = detect_system_gpus();

@@ -358,6 +358,7 @@ pub fn find_steamcmd() -> Option<PathBuf> {
     None
 }
 
+#[allow(dead_code)]
 pub fn steamcmd_available() -> bool {
     find_steamcmd().is_some()
 }
@@ -369,6 +370,7 @@ pub fn workshop_temp_dir() -> PathBuf {
     dir
 }
 
+#[allow(dead_code)]
 pub fn is_downloaded(id: &str) -> bool {
     let dir = workshop_temp_dir()
         .join("steamapps")
@@ -542,6 +544,7 @@ pub fn open_in_browser(id: &str) {
     });
 }
 
+#[allow(dead_code)]
 pub fn get_file_size_str(bytes: u64) -> String {
     if bytes > 1024 * 1024 * 1024 {
         format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
@@ -554,6 +557,7 @@ pub fn get_file_size_str(bytes: u64) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub fn cached_preview_path(item: &WorkshopItem) -> Option<PathBuf> {
     let url = item.preview_url.as_ref()?;
     let cache_dir = PathBuf::from("/tmp/omywall_workshop_thumbs");
@@ -566,6 +570,7 @@ pub fn cached_preview_path(item: &WorkshopItem) -> Option<PathBuf> {
     }
 }
 
+#[allow(dead_code)]
 pub fn request_preview_image(item: &WorkshopItem) {
     let url = match item.preview_url.clone() {
         Some(u) => u,
