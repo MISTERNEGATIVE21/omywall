@@ -3,18 +3,23 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
-/// Offscreen Electron renderer used to preview HTML / web widget wallpapers.
+/// Offscreen Electron renderer used to preview HTML / WebGL / web widget wallpapers.
 ///
-/// The GTK WebKit capture path (`webkit_render`) cannot grab composited page
-/// content on Wayland, so HTML wallpapers come out blank in the spotlight
-/// player. Electron's `webContents.capturePage()` reads from Chromium's own
-/// compositor, which produces real pixels regardless of the window manager.
+/// Electron's `webContents.capturePage()` reads from Chromium's internal compositor,
+/// capturing full hardware-accelerated and software WebGL content.
 ///
-/// The captured frames are written to the same PNG paths the GUI already polls
-/// (`HOVER_WEB_LIVE_PATH` for live previews, the per-wallpaper web thumbnail
-/// file for cards), so the existing decode/display pipeline is reused.
+/// Captured frames are written to PNG files polled by the UI (spotlight preview,
+/// hover live preview, card thumbnails).
 
-const PREVIEW_SCRIPT: &str = r#"const { app, BrowserWindow } = require('electron');
+const PACKAGE_JSON: &str = r#"{
+  "name": "omywall-preview",
+  "version": "1.0.0",
+  "description": "Omywall Electron WebGL & HTML Preview Engine",
+  "main": "main.js"
+}
+"#;
+
+const MAIN_JS: &str = r#"const { app, BrowserWindow } = require('electron');
 const fs = require('fs');
 
 const url = process.argv[2];
@@ -23,15 +28,17 @@ const width = parseInt(process.argv[4] || '600', 10);
 const height = parseInt(process.argv[5] || '337', 10);
 const mode = process.argv[6] || 'shot';
 
-const fsBase = outPng.substring(0, outPng.lastIndexOf('/'));
+const fsBase = outPng ? outPng.substring(0, outPng.lastIndexOf('/')) : '/tmp/omywall_thumbs';
 const profileDir = fsBase + '/electron_profile_' + process.pid;
 app.setPath('userData', profileDir);
 
-app.commandLine.appendSwitch('ozone-platform', 'wayland');
-app.commandLine.appendSwitch('enable-features', 'UseOzonePlatform');
+app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+app.commandLine.appendSwitch('allow-file-access-from-files');
+app.commandLine.appendSwitch('disable-vulkan');
 
 let win = null;
 let saved = 0;
@@ -72,19 +79,23 @@ app.whenReady().then(() => {
     webPreferences: {
       backgroundThrottling: false,
       autoplayPolicy: 'no-user-gesture-required',
+      webSecurity: false,
+      allowRunningInsecureContent: true,
     },
   });
   win.setAlwaysOnTop(true, 'screen-saver');
   win.webContents.setAudioMuted(true);
   win.webContents.setFrameRate(5);
-  win.webContents.on('did-finish-load', () => setTimeout(capture, 700));
+  win.webContents.on('did-finish-load', () => setTimeout(capture, 500));
   win.webContents.on('did-fail-load', (_e, code, desc) => {
     console.error('preview load failed:', code, desc);
     if (mode === 'shot') {
       setTimeout(() => app.exit(1), 300);
     }
   });
-  win.loadURL(url);
+  if (url) {
+    win.loadURL(url);
+  }
   setTimeout(() => {
     if (saved === 0) capture();
   }, 3500);
@@ -97,11 +108,8 @@ app.whenReady().then(() => {
 static LIVE_CHILD: Mutex<Option<Child>> = Mutex::new(None);
 static SHOT_PENDING: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
 
-/// Cap on concurrently running one-shot Electron capture instances. Each one
-/// boots a full Chromium renderer, so unbounded spawning (a catalog can have
-/// dozens of HTML wallpapers) would grind the machine to a halt.
+/// Cap on concurrently running one-shot Electron capture instances.
 const MAX_SHOT_SPAWNS: u32 = 2;
-
 static SHOT_SPAWNS: Mutex<u32> = Mutex::new(0);
 
 fn acquire_shot_slot() -> bool {
@@ -143,14 +151,21 @@ fn shot_remove(out: &Path) {
     }
 }
 
-fn script_path() -> PathBuf {
-    let dir = PathBuf::from("/tmp/omywall_thumbs");
-    let _ = std::fs::create_dir_all(&dir);
-    let script = dir.join("electron_preview.js");
-    let _ = std::fs::write(&script, PREVIEW_SCRIPT);
+/// Ensures the isolated Electron app bundle exists at `/tmp/omywall_thumbs/electron_app/`
+/// containing `package.json` and `main.js`.
+pub fn ensure_app_bundle() -> PathBuf {
+    let base = PathBuf::from("/tmp/omywall_thumbs");
+    let app_dir = base.join("electron_app");
+    let _ = std::fs::create_dir_all(&app_dir);
+
+    let pkg = app_dir.join("package.json");
+    let _ = std::fs::write(&pkg, PACKAGE_JSON);
+
+    let main = app_dir.join("main.js");
+    let _ = std::fs::write(&main, MAIN_JS);
 
     // Sweep stale per-instance Chromium profiles (older than a day).
-    if let Ok(entries) = std::fs::read_dir(&dir) {
+    if let Ok(entries) = std::fs::read_dir(&base) {
         let now = std::time::SystemTime::now();
         for entry in entries.flatten() {
             let name = entry.file_name();
@@ -166,13 +181,12 @@ fn script_path() -> PathBuf {
             }
         }
     }
-    script
+    app_dir
 }
 
 /// Normalize a wallpaper target into a loadable URL. Local paths must carry a
-/// `file://` scheme or Electron's `loadURL` treats them as unknown schemes and
-/// fails instantly.
-fn to_url(input: &str) -> String {
+/// `file://` scheme.
+pub fn to_url(input: &str) -> String {
     if input.starts_with("http://") || input.starts_with("https://") || input.starts_with("file://") {
         input.to_string()
     } else {
@@ -180,23 +194,72 @@ fn to_url(input: &str) -> String {
     }
 }
 
-fn electron_available() -> bool {
-    std::process::Command::new("which")
+pub fn electron_available() -> bool {
+    Command::new("which")
         .arg("electron")
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
 
-fn spawn(args: &[String]) -> Option<Child> {
+pub fn find_chromium_bin() -> Option<String> {
+    for bin in &["chromium", "google-chrome-stable", "google-chrome", "chromium-browser", "chrome"] {
+        if Command::new("which").arg(bin).output().map(|o| o.status.success()).unwrap_or(false) {
+            return Some((*bin).to_string());
+        }
+    }
+    None
+}
+
+pub fn chromium_available() -> bool {
+    find_chromium_bin().is_some()
+}
+
+fn spawn_electron(args: &[String]) -> Option<Child> {
+    let app_dir = ensure_app_bundle();
+    let mut cmd_args = vec![app_dir.to_string_lossy().into_owned()];
+    cmd_args.extend_from_slice(args);
+
     Command::new("electron")
-        .args(args)
+        .args(&cmd_args)
         .env("ELECTRON_ENABLE_LOGGING", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .ok()
+}
+
+/// Execute headless Chromium screenshot fallback when Electron is unavailable or fails.
+pub fn capture_fallback_chromium(url: &str, out: &Path) -> bool {
+    let bin = match find_chromium_bin() {
+        Some(b) => b,
+        None => return false,
+    };
+    if let Some(parent) = out.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let url_str = to_url(url);
+    let screenshot_arg = format!("--screenshot={}", out.to_string_lossy());
+    let status = Command::new(bin)
+        .arg("--headless")
+        .arg("--disable-gpu")
+        .arg("--allow-file-access-from-files")
+        .arg("--virtual-time-budget=2000")
+        .arg("--window-size=600,337")
+        .arg(&screenshot_arg)
+        .arg(&url_str)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    match status {
+        Ok(s) if s.success() => {
+            out.exists() && std::fs::metadata(out).map(|m| m.len() > 0).unwrap_or(false)
+        }
+        _ => false,
+    }
 }
 
 /// Start a continuously-updating live preview of an HTML/web target into `out`.
@@ -208,11 +271,9 @@ pub fn start_live(url: &str, out: &Path) {
         crate::webkit_render::start_live_pip(url, out);
         return;
     }
-    let script = script_path();
     let url_str = to_url(url);
     let out_str = out.to_string_lossy().to_string();
-    if let Some(child) = spawn(&[
-        script.to_string_lossy().into_owned(),
+    if let Some(child) = spawn_electron(&[
         url_str,
         out_str,
         "600".to_string(),
@@ -236,50 +297,60 @@ pub fn stop_live() {
     }
 }
 
-/// Render a single preview frame of an HTML/web target into `out` in the
-/// background. Requests for the same output path are deduplicated so a render
-/// is only kicked off once.
+/// Render a single preview frame of an HTML/web target into `out` in the background.
+/// Follows a 3-tier fallback strategy:
+/// 1. Electron App Bundle (Software WebGL & full canvas support)
+/// 2. Headless Chromium Snapshot
+/// 3. WebKit2GTK Render Pipeline
 pub fn render_shot(url: &str, out: &Path) {
-    if !electron_available() {
-        if let Some(renderer) = crate::webkit_render::global_renderer() {
-            renderer.render_thumbnail(url, out);
-        }
-        return;
-    }
     {
         if shot_is_pending(out) {
             return;
         }
-        // No slot free right now: leave this path unmarked so a later Tick
-        // retries it once another capture finishes.
+        // No slot free right now: leave this path unmarked so a later Tick retries it
         if !acquire_shot_slot() {
             return;
         }
         shot_insert(out.to_path_buf());
     }
 
-    let script = script_path();
     let url_str = to_url(url);
-    let out_str = out.to_string_lossy().to_string();
-    let _ = std::fs::remove_file(out);
+    let out_path = out.to_path_buf();
+    let out_str = out_path.to_string_lossy().to_string();
+    let _ = std::fs::remove_file(&out_path);
 
     std::thread::spawn(move || {
-        if spawn(&[
-            script.to_string_lossy().into_owned(),
-            url_str.clone(),
-            out_str.clone(),
-            "600".to_string(),
-            "337".to_string(),
-            "shot".to_string(),
-        ])
-        .and_then(|mut c| c.wait().ok())
-        .is_none()
-        {
-            // Electron crashed or failed to launch; let the WebKit queue try.
+        let mut captured = false;
+
+        // Tier 1: Electron App Bundle
+        if electron_available() {
+            if let Some(mut child) = spawn_electron(&[
+                url_str.clone(),
+                out_str.clone(),
+                "600".to_string(),
+                "337".to_string(),
+                "shot".to_string(),
+            ]) {
+                if let Ok(status) = child.wait() {
+                    if status.success() && Path::new(&out_str).exists() && std::fs::metadata(&out_str).map(|m| m.len() > 0).unwrap_or(false) {
+                        captured = true;
+                    }
+                }
+            }
+        }
+
+        // Tier 2: Chromium Headless Snapshot
+        if !captured && chromium_available() {
+            captured = capture_fallback_chromium(&url_str, Path::new(&out_str));
+        }
+
+        // Tier 3: WebKit Renderer
+        if !captured {
             if let Some(renderer) = crate::webkit_render::global_renderer() {
                 renderer.render_thumbnail(&url_str, Path::new(&out_str));
             }
         }
+
         shot_remove(Path::new(&out_str));
         release_shot_slot();
         crate::gui::notify_thumb_updated(PathBuf::from(&out_str));
