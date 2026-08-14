@@ -8,6 +8,12 @@ pub struct WebEngineManager {
     current_url: Arc<Mutex<Option<String>>>,
 }
 
+impl Default for WebEngineManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WebEngineManager {
     pub fn new() -> Self {
         Self {

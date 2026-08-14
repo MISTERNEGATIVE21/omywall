@@ -173,19 +173,19 @@ fn read_time_info(epoch_secs: u64) -> TimeInfo {
         if !libc::localtime_r(&t, &mut tm_val).is_null() {
             let mut buf = [0u8; 64];
 
-            if libc::strftime(buf.as_mut_ptr() as *mut libc::c_char, buf.len(), b"%H:%M\0".as_ptr() as *const libc::c_char, &tm_val) > 0 {
+            if libc::strftime(buf.as_mut_ptr() as *mut libc::c_char, buf.len(), c"%H:%M".as_ptr(), &tm_val) > 0 {
                 time_str = std::ffi::CStr::from_ptr(buf.as_ptr() as *const libc::c_char).to_string_lossy().to_string();
             }
 
-            if libc::strftime(buf.as_mut_ptr() as *mut libc::c_char, buf.len(), b"%H:%M:%S\0".as_ptr() as *const libc::c_char, &tm_val) > 0 {
+            if libc::strftime(buf.as_mut_ptr() as *mut libc::c_char, buf.len(), c"%H:%M:%S".as_ptr(), &tm_val) > 0 {
                 time_full_str = std::ffi::CStr::from_ptr(buf.as_ptr() as *const libc::c_char).to_string_lossy().to_string();
             }
 
-            if libc::strftime(buf.as_mut_ptr() as *mut libc::c_char, buf.len(), b"%A, %b %d\0".as_ptr() as *const libc::c_char, &tm_val) > 0 {
+            if libc::strftime(buf.as_mut_ptr() as *mut libc::c_char, buf.len(), c"%A, %b %d".as_ptr(), &tm_val) > 0 {
                 date_str = std::ffi::CStr::from_ptr(buf.as_ptr() as *const libc::c_char).to_string_lossy().to_string();
             }
 
-            if libc::strftime(buf.as_mut_ptr() as *mut libc::c_char, buf.len(), b"%A\0".as_ptr() as *const libc::c_char, &tm_val) > 0 {
+            if libc::strftime(buf.as_mut_ptr() as *mut libc::c_char, buf.len(), c"%A".as_ptr(), &tm_val) > 0 {
                 day_of_week = std::ffi::CStr::from_ptr(buf.as_ptr() as *const libc::c_char).to_string_lossy().to_string();
             }
         }
@@ -341,12 +341,11 @@ fn read_bluetooth_info() -> BluetoothInfo {
                 let trimmed = line.trim();
                 if trimmed.starts_with("Powered:") {
                     bt.enabled = trimmed.contains("yes");
-                } else if trimmed.starts_with("Name:") || trimmed.starts_with("Alias:") {
-                    if bt.controller_name.is_empty() {
+                } else if (trimmed.starts_with("Name:") || trimmed.starts_with("Alias:"))
+                    && bt.controller_name.is_empty() {
                         let name = trimmed.split(':').nth(1).unwrap_or("").trim();
                         bt.controller_name = name.to_string();
                     }
-                }
             }
         }
     }

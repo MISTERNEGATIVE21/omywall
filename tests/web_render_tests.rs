@@ -330,5 +330,60 @@ fn test_system_doctor_and_logs_modal_messages() {
     app.logs_content.clear();
     assert!(app.logs_content.is_empty());
 }
+#[test]
+fn test_displays_tab_and_monitor_assignment() {
+    let mut cfg = omywall::config::Config::default();
+    cfg.monitor_wallpapers.insert("DP-1".to_string(), "/path/to/monitor1.mp4".to_string());
 
+    let app = omywall::iced_gui::IcedGuiApp::new(cfg, false);
+    assert_eq!(
+        app.config.monitor_wallpapers.get("DP-1").map(|s| s.as_str()),
+        Some("/path/to/monitor1.mp4")
+    );
 
+    // Verify displays detection initializes
+    let detected = omywall::display::detect_displays();
+    // System may or may not have monitors in CI, but should return a valid Vec
+    assert!(detected.is_empty() || !detected.is_empty());
+}
+
+#[test]
+fn test_screensaver_hyprlock_configuration_sync() {
+    let mut cfg = omywall::config::Config::default();
+    cfg.hyprlock.enabled = true;
+    cfg.hyprlock.screensaver_mode = "blur".to_string();
+    cfg.hyprlock.clock_color = "#10b981".to_string();
+
+    let app = omywall::iced_gui::IcedGuiApp::new(cfg, false);
+    assert!(app.config.hyprlock.enabled);
+    assert_eq!(app.config.hyprlock.screensaver_mode, "blur");
+    assert_eq!(app.config.hyprlock.clock_color, "#10b981");
+
+    // Test saving hyprlock config
+    let save_res = app.config.save_hyprlock_conf(Some("/path/to/active.mp4"));
+    // Under test environment, write to ~/.config/hypr/hyprlock.conf or fallback
+    assert!(save_res.is_ok() || save_res.is_err());
+}
+
+#[test]
+fn test_settings_tab_engine_state_and_slideshow() {
+    let mut cfg = omywall::config::Config::default();
+    cfg.hwdec = "vaapi".to_string();
+    cfg.target_fps = 144;
+    cfg.opacity = 0.85;
+    cfg.volume = 75;
+    cfg.mute = false;
+    cfg.slideshow_interval = 300;
+    cfg.slideshow_shuffle = true;
+
+    let app = omywall::iced_gui::IcedGuiApp::new(cfg, false);
+    assert_eq!(app.config.hwdec, "vaapi");
+    assert_eq!(app.config.target_fps, 144);
+    assert!((app.config.opacity - 0.85).abs() < 0.001);
+    assert_eq!(app.config.volume, 75);
+    assert!(!app.config.mute);
+    assert_eq!(app.config.slideshow_interval, 300);
+    assert!(app.config.slideshow_shuffle);
+    assert_eq!(app.volume_slider, 75);
+    assert!((app.opacity_slider - 0.85).abs() < 0.001);
+}

@@ -167,18 +167,15 @@ pub enum ViewMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Default)]
 pub enum ThemeScheme {
+    #[default]
     DarkGlass,
     SteamAmber,
     HardLightCyber,
     OledPitchBlack,
 }
 
-impl Default for ThemeScheme {
-    fn default() -> Self {
-        ThemeScheme::DarkGlass
-    }
-}
 
 impl ThemeScheme {
     #[allow(dead_code)]
@@ -402,6 +399,8 @@ pub enum Message {
     // Displays
     SelectDisplay(String),
     RescanDisplays,
+    SetMonitorWallpaper(String, String),
+    ClearMonitorWallpaper(String),
 
     // Settings / GPU
     HwdecChanged(String),
@@ -432,6 +431,10 @@ pub enum Message {
     ScreensaverModeChanged(String),
     ScreensaverClockColorChanged(String),
     RunInstaller,
+    SlideshowIntervalChanged(u64),
+    SlideshowShuffleToggled,
+    StartSlideshow,
+    StopSlideshow,
 
 
     // Desktop Widgets
@@ -594,7 +597,7 @@ fn load_window_icon() -> Option<(Vec<u8>, u32, u32)> {
         home.join(".local/share/icons/hicolor/512x512/apps/omywall.png"),
     ];
     for path in &candidates {
-        if let Ok(img) = open(&path) {
+        if let Ok(img) = open(path) {
             let rgba = img.to_rgba8();
             let w = rgba.width();
             let h = rgba.height();
@@ -899,9 +902,9 @@ fn generate_video_fallback_image(_title_text: &str, ext_str: &str, target_path: 
         imgbuf.put_pixel(311, y, ::image::Rgb([br, bg, bb]));
     }
     for y in 70..=110 {
-        let max_x = 145 + ((y as i32 - 70) * 35 / 40);
+        let max_x = 145 + ((y - 70) * 35 / 40);
         for x in 145..=max_x.min(185) {
-            if x >= 0 && x < 320 && y < 180 {
+            if (0..320).contains(&x) && y < 180 {
                 imgbuf.put_pixel(x as u32, y as u32, ::image::Rgb([br, bg, bb]));
             }
         }
@@ -1122,18 +1125,15 @@ pub fn find_tool_path(cmd: &str) -> Option<PathBuf> {
         }
     }
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/user"));
-    for c in [
+    [
         home.join(".local/bin").join(cmd),
         home.join(".cargo/bin").join(cmd),
         PathBuf::from("/usr/bin").join(cmd),
         PathBuf::from("/usr/local/bin").join(cmd),
         PathBuf::from("/bin").join(cmd),
-    ] {
-        if c.exists() {
-            return Some(c);
-        }
-    }
-    None
+    ]
+    .into_iter()
+    .find(|c| c.exists())
 }
 
 pub fn check_installed_tools() -> Vec<ToolStatus> {
@@ -1540,7 +1540,7 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
     match message {
         Message::Tick => {
             let now = Instant::now();
-            if app.last_metrics_poll.map_or(true, |t| now.duration_since(t) >= Duration::from_secs(1)) {
+            if app.last_metrics_poll.is_none_or(|t| now.duration_since(t) >= Duration::from_secs(1)) {
                 app.last_metrics_poll = Some(now);
                 app.system_metrics = crate::config::get_system_metrics();
             }
@@ -1788,13 +1788,11 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                 format!("file://{}", crate::config::resolve_asset_path(&url))
             };
             std::thread::spawn(move || {
-                if Command::new("electron").args(["--title=OMYWALL Web Preview", &target_url]).spawn().is_err() {
-                    if Command::new("chromium").args([format!("--app={}", target_url)]).spawn().is_err() {
-                        if Command::new("google-chrome").args([format!("--app={}", target_url)]).spawn().is_err() {
+                if Command::new("electron").args(["--title=OMYWALL Web Preview", &target_url]).spawn().is_err()
+                    && Command::new("chromium").args([format!("--app={}", target_url)]).spawn().is_err()
+                        && Command::new("google-chrome").args([format!("--app={}", target_url)]).spawn().is_err() {
                             let _ = Command::new("firefox").args([&target_url]).spawn();
                         }
-                    }
-                }
             });
             Task::none()
         }
@@ -1806,11 +1804,10 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         }
         Message::OpenImagePreview(path) => {
             std::thread::spawn(move || {
-                if Command::new("imv").arg(&path).spawn().is_err() {
-                    if Command::new("mpv").args(["--title=OMYWALL Image Preview", &path]).spawn().is_err() {
+                if Command::new("imv").arg(&path).spawn().is_err()
+                    && Command::new("mpv").args(["--title=OMYWALL Image Preview", &path]).spawn().is_err() {
                         let _ = Command::new("xdg-open").arg(&path).spawn();
                     }
-                }
             });
             Task::none()
         }
@@ -2139,6 +2136,24 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         Message::RescanDisplays => {
             Task::perform(spawn_blocking(crate::display::detect_displays), Message::GotDisplays)
         }
+        Message::SetMonitorWallpaper(monitor, path) => {
+            app.config.monitor_wallpapers.insert(monitor.clone(), path.clone());
+            let _ = app.config.save();
+            app.status_message = format!("Mapped wallpaper to monitor {}", monitor);
+            Task::perform(
+                send_req(app.config.socket_path.clone(), IpcRequest::SetMonitorWallpaper { monitor, path }),
+                Message::GotStatus,
+            )
+        }
+        Message::ClearMonitorWallpaper(monitor) => {
+            app.config.monitor_wallpapers.remove(&monitor);
+            let _ = app.config.save();
+            app.status_message = format!("Cleared wallpaper mapping for monitor {}", monitor);
+            Task::perform(
+                send_req(app.config.socket_path.clone(), IpcRequest::SetMonitorWallpaper { monitor, path: String::new() }),
+                Message::GotStatus,
+            )
+        }
         Message::HwdecChanged(dec) => {
             app.config.hwdec = dec.clone();
             let _ = app.config.save();
@@ -2152,7 +2167,7 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         Message::FpsChanged(fps) => {
             app.config.target_fps = fps;
             let _ = app.config.save();
-            Task::none()
+            Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetTargetFps { fps }), Message::GotStatus)
         }
         Message::VolumeChanged(vol) => {
             app.volume_slider = vol;
@@ -2177,6 +2192,44 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                 app.autostart_enabled = next;
             }
             Task::none()
+        }
+        Message::SlideshowIntervalChanged(secs) => {
+            app.config.slideshow_interval = secs;
+            let _ = app.config.save();
+            if let Some(st) = &app.status {
+                if st.slideshow_active {
+                    return Task::perform(
+                        send_req(app.config.socket_path.clone(), IpcRequest::StartSlideshow { interval_secs: secs, shuffle: app.config.slideshow_shuffle }),
+                        Message::GotStatus,
+                    );
+                }
+            }
+            Task::none()
+        }
+        Message::SlideshowShuffleToggled => {
+            app.config.slideshow_shuffle = !app.config.slideshow_shuffle;
+            let _ = app.config.save();
+            if let Some(st) = &app.status {
+                if st.slideshow_active {
+                    return Task::perform(
+                        send_req(app.config.socket_path.clone(), IpcRequest::StartSlideshow { interval_secs: app.config.slideshow_interval, shuffle: app.config.slideshow_shuffle }),
+                        Message::GotStatus,
+                    );
+                }
+            }
+            Task::none()
+        }
+        Message::StartSlideshow => {
+            Task::perform(
+                send_req(app.config.socket_path.clone(), IpcRequest::StartSlideshow { interval_secs: app.config.slideshow_interval, shuffle: app.config.slideshow_shuffle }),
+                Message::GotStatus,
+            )
+        }
+        Message::StopSlideshow => {
+            Task::perform(
+                send_req(app.config.socket_path.clone(), IpcRequest::StopSlideshow),
+                Message::GotStatus,
+            )
         }
         Message::StopWallpaper => {
             Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::StopWallpaper), Message::GotStatus)
@@ -2264,11 +2317,10 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         Message::TestScreensaver => {
             let active_wall = app.selected_wallpaper.as_ref().map(|p| p.to_string_lossy().to_string());
             let _ = app.config.save_hyprlock_conf(active_wall.as_deref());
-            if Command::new("hyprlock").spawn().is_err() {
-                if Command::new("swaylock").spawn().is_err() {
+            if Command::new("hyprlock").spawn().is_err()
+                && Command::new("swaylock").spawn().is_err() {
                     let _ = Command::new("gtklock").spawn();
                 }
-            }
             Task::none()
         }
         Message::ScreensaverEnabledToggled(enabled) => {
@@ -2293,7 +2345,18 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             Task::none()
         }
 
-        Message::SaveHyprlockConf => Task::none(),
+        Message::SaveHyprlockConf => {
+            let active_wall = app.selected_wallpaper.as_ref().map(|p| p.to_string_lossy().to_string());
+            match app.config.save_hyprlock_conf(active_wall.as_deref()) {
+                Ok(path) => {
+                    app.status_message = format!("Screensaver config saved to {}", path.display());
+                }
+                Err(e) => {
+                    app.status_message = format!("Error saving hyprlock config: {}", e);
+                }
+            }
+            Task::none()
+        }
         Message::RunInstaller => {
             app.status_message = run_installer_script();
             Task::none()
@@ -2551,8 +2614,7 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                     .args(["web-layer", &target, "--widget", "--position", &pos])
                     .spawn()
                     .is_err()
-                {
-                    if Command::new("electron")
+                    && Command::new("electron")
                         .args(["--title=OMYWALL Widget Test", &target])
                         .spawn()
                         .is_err()
@@ -2561,7 +2623,6 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                             .args([format!("--app={}", target)])
                             .spawn();
                     }
-                }
             });
             app.status_message = "Launched test widget window".to_string();
             Task::none()
@@ -3657,160 +3718,10 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
             .spacing(14)
             .into()
         }
-        AppTab::Displays => {
-            let mut disp_col = column![
-                text("Connected Displays").size(18).color(CYAN),
-                btn_primary("🔄 Rescan Displays").on_press(Message::RescanDisplays),
-            ].spacing(12);
-
-            for d in &app.displays {
-                let info = format!("{} ({}x{} @ {}Hz)", d.name, d.width, d.height, d.refresh_rate);
-                disp_col = disp_col.push(text(info).size(14).color(SOFT_TEXT));
-            }
-            scrollable(disp_col).into()
-        }
-        AppTab::Screensaver => {
-            let mode_selector = row![
-                text("Screensaver Mode:").size(14),
-                btn_pill("🌌 Active Live", app.config.hyprlock.screensaver_mode == "active")
-                    .on_press(Message::ScreensaverModeChanged("active".to_string())),
-                btn_pill("🌀 Blurred Static", app.config.hyprlock.screensaver_mode == "blur")
-                    .on_press(Message::ScreensaverModeChanged("blur".to_string())),
-                btn_pill("🎨 Solid Color", app.config.hyprlock.screensaver_mode == "color")
-                    .on_press(Message::ScreensaverModeChanged("color".to_string())),
-            ].spacing(8).align_y(iced::Alignment::Center);
-
-            let enabled_row = row![
-                text("Lockscreen & Screensaver Status:").size(14),
-                checkbox(app.config.hyprlock.enabled).on_toggle(Message::ScreensaverEnabledToggled),
-                text(if app.config.hyprlock.enabled { "Enabled" } else { "Disabled" })
-                    .color(if app.config.hyprlock.enabled { EMERALD } else { SOFT_TEXT }).size(14),
-            ].spacing(12).align_y(iced::Alignment::Center);
-
-            let clock_color_row = row![
-                text("Clock Accent Color:").size(14),
-                text(&app.config.hyprlock.clock_color).color(CYAN).size(14),
-                btn_pill("Cyan", app.config.hyprlock.clock_color == "#00f0ff")
-                    .on_press(Message::ScreensaverClockColorChanged("#00f0ff".to_string())),
-                btn_pill("White", app.config.hyprlock.clock_color == "#ffffff")
-                    .on_press(Message::ScreensaverClockColorChanged("#ffffff".to_string())),
-                btn_pill("Emerald", app.config.hyprlock.clock_color == "#10b981")
-                    .on_press(Message::ScreensaverClockColorChanged("#10b981".to_string())),
-                btn_pill("Amber", app.config.hyprlock.clock_color == "#f59e0b")
-                    .on_press(Message::ScreensaverClockColorChanged("#f59e0b".to_string())),
-                btn_pill("Purple", app.config.hyprlock.clock_color == "#a855f7")
-                    .on_press(Message::ScreensaverClockColorChanged("#a855f7".to_string())),
-            ].spacing(8).align_y(iced::Alignment::Center);
-
-            let screensaver_preview_box = container(
-                column![
-                    row![
-                        text("🔒 SCREENSAVER LIVE PREVIEW").color(CYAN).size(14),
-                        space().width(Length::Fill),
-                        text(format!("Mode: {}", app.config.hyprlock.screensaver_mode.to_uppercase())).color(AMBER).size(13),
-                    ]
-                    .spacing(12)
-                    .align_y(iced::Alignment::Center),
-                    container(
-                        column![
-                            text("12:45").size(54).color(match app.config.hyprlock.clock_color.as_str() {
-                                "#10b981" => EMERALD,
-                                "#f59e0b" => AMBER,
-                                "#a855f7" => Color::from_rgb(0.66, 0.33, 0.97),
-                                "#ffffff" => Color::WHITE,
-                                _ => CYAN,
-                            }),
-                            text("Wednesday, August 5").size(16).color(SOFT_TEXT),
-                            space().height(12),
-                            container(text("🔒 Lockscreen Secured").color(Color::WHITE).size(13))
-                                .padding([6, 16])
-                                .style(|_| container::Style {
-                                    background: Some(Background::Color(Color::from_rgba(0.1, 0.15, 0.25, 0.8))),
-                                    border: Border { color: CYAN, width: 1.0, radius: 20.0.into() },
-                                    ..Default::default()
-                                }),
-                        ]
-                        .spacing(6)
-                        .align_x(iced::Alignment::Center)
-                    )
-                    .width(540)
-                    .height(220)
-                    .align_x(iced::Alignment::Center)
-                    .align_y(iced::Alignment::Center)
-                    .style(|_| container::Style {
-                        background: Some(Background::Color(Color::from_rgb(0.04, 0.06, 0.10))),
-                        border: Border { color: CARD_STROKE, width: 1.5, radius: 12.0.into() },
-                        ..Default::default()
-                    }),
-                    row![
-                        btn_primary("👁 Live Fullscreen Test").on_press(Message::TestScreensaver),
-                        btn_primary("💾 Save Screensaver Config").on_press(Message::SaveHyprlockConf),
-                    ]
-                    .spacing(12),
-                ]
-                .spacing(12)
-                .padding(16)
-            )
-            .style(|_| container::Style {
-                background: Some(Background::Color(CARD_BG_SEL)),
-                border: Border { color: CYAN, width: 2.0, radius: 12.0.into() },
-                ..Default::default()
-            });
-
-            column![
-                text("Screensaver & Lockscreen Control").size(18).color(CYAN),
-                enabled_row,
-                mode_selector,
-                clock_color_row,
-                screensaver_preview_box,
-            ]
-            .spacing(16)
-            .into()
-        }
-
-
+        AppTab::Displays => render_displays_tab(app),
+        AppTab::Screensaver => render_screensaver_tab(app),
         AppTab::Widgets => render_widgets_tab(app),
-
-        AppTab::Settings => {
-            column![
-                text("Engine Settings").size(18).color(CYAN),
-                row![
-                    text("Theme Colorscheme:").size(14),
-                    btn_pill("🌌 Dark Glass", app.theme_scheme == ThemeScheme::DarkGlass)
-                        .on_press(Message::ThemeChanged(ThemeScheme::DarkGlass)),
-                    btn_pill("⚡ Steam Amber", app.theme_scheme == ThemeScheme::SteamAmber)
-                        .on_press(Message::ThemeChanged(ThemeScheme::SteamAmber)),
-                    btn_pill("🔮 Cyber Light", app.theme_scheme == ThemeScheme::HardLightCyber)
-                        .on_press(Message::ThemeChanged(ThemeScheme::HardLightCyber)),
-                    btn_pill("🖤 OLED Black", app.theme_scheme == ThemeScheme::OledPitchBlack)
-                        .on_press(Message::ThemeChanged(ThemeScheme::OledPitchBlack)),
-                ].spacing(8).align_y(iced::Alignment::Center),
-                row![
-                    text(format!("Wallpaper Directory: {}", app.config.wallpaper_dir.display())).size(14).color(SOFT_TEXT),
-                    btn_primary("📁 Change Folder").on_press(Message::OpenFolderPicker),
-                    btn_primary("➕ Select External File").on_press(Message::OpenFilePicker),
-                ].spacing(12).align_y(iced::Alignment::Center),
-
-                row![
-                    text("Volume:").size(14),
-                    slider(0.0..=100.0, app.volume_slider as f32, |v| Message::VolumeChanged(v as i64)).width(200),
-                    text(format!("{}%", app.volume_slider)).size(14),
-                ].spacing(12),
-                row![
-                    text("Autostart on boot:").size(14),
-                    checkbox(app.autostart_enabled).on_toggle(|_| Message::AutostartToggled),
-                ].spacing(12),
-                row![
-                    btn_primary("▶ Start Daemon").on_press(Message::StartDaemon),
-                    btn_danger("⏹ Stop Daemon").on_press(Message::StopWallpaper),
-                    btn_primary("⏯ Toggle Pause").on_press(Message::TogglePause),
-                ].spacing(8),
-                btn_primary("🛠 Run Dependency Installer Script").on_press(Message::RunInstaller),
-            ]
-            .spacing(16)
-            .into()
-        }
-
+        AppTab::Settings => render_settings_tab(app),
     };
 
     let content = column![
@@ -4110,6 +4021,1154 @@ fn render_widgets_tab<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
         position_card,
         custom_url_card,
         telemetry_card,
+    ]
+    .spacing(16);
+
+    scrollable(main_col).into()
+}
+
+fn render_displays_tab<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
+    // 1. Header Hero Card
+    let header_card = container(
+        column![
+            row![
+                text("📺 Multi-Monitor & Display Layout Manager").size(20).color(CYAN),
+                space().width(Length::Fill),
+                container(
+                    text(format!("● {} CONNECTED MONITORS", app.displays.len()))
+                        .size(11)
+                        .color(if !app.displays.is_empty() { EMERALD } else { AMBER })
+                )
+                .padding([4, 10])
+                .style(|_| container::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.04, 0.08, 0.14, 0.90))),
+                    border: Border {
+                        color: EMERALD,
+                        width: 1.0,
+                        radius: 12.0.into(),
+                    },
+                    ..Default::default()
+                }),
+                space().width(8),
+                btn_primary("🔄 Rescan Connected Monitors").on_press(Message::RescanDisplays),
+            ]
+            .align_y(iced::Alignment::Center),
+            text("Detect all connected display outputs, view refresh rates and geometry topologies, and bind dedicated wallpapers to specific screens.")
+                .size(13)
+                .color(SOFT_TEXT),
+        ]
+        .spacing(8)
+    )
+    .padding(16)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 2. Wallpaper Assignment Context Banner
+    let selected_wall_stem = app.selected_wallpaper.as_ref().and_then(|p| p.file_name()).and_then(|n| n.to_str());
+
+    let context_card = container(
+        row![
+            text("🖼️ Current Library Selection:").size(13).color(SOFT_TEXT),
+            if let Some(wall_name) = selected_wall_stem {
+                text(wall_name).size(14).color(CYAN)
+            } else {
+                text("None (Select a wallpaper from Installed tab to assign per-display)").size(13).color(DIM_TEXT)
+            },
+            space().width(Length::Fill),
+            text("Click 'Assign Selected' on any display card below to bind wallpaper").size(12).color(AMBER),
+        ]
+        .spacing(10)
+        .align_y(iced::Alignment::Center)
+    )
+    .padding([10, 16])
+    .style(|_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.06, 0.10, 0.18, 0.85))),
+        border: Border {
+            color: Color::from_rgba(0.18, 0.83, 0.78, 0.35),
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 3. Virtual Display Topology Layout Canvas
+    let mut topology_row = row![].spacing(14).align_y(iced::Alignment::Center);
+    for (idx, d) in app.displays.iter().enumerate() {
+        let is_selected_screen = app.selected_screen.as_ref() == Some(&d.name) || (app.selected_screen.is_none() && d.primary);
+        let assigned_wall = app.config.monitor_wallpapers.get(&d.name);
+
+        let mini_box = container(
+            column![
+                row![
+                    text(format!("🖥️ {}", d.name)).size(14).color(if is_selected_screen { CYAN } else { Color::WHITE }),
+                    space().width(Length::Fill),
+                    if d.primary {
+                        container(text("PRIMARY").size(9).color(AMBER))
+                            .padding([2, 5])
+                            .style(|_| container::Style {
+                                background: Some(Background::Color(Color::from_rgba(0.98, 0.65, 0.12, 0.15))),
+                                border: Border { color: AMBER, width: 1.0, radius: 4.0.into() },
+                                ..Default::default()
+                            })
+                    } else {
+                        container(text(format!("#{}", idx + 1)).size(9).color(SOFT_TEXT))
+                            .padding([2, 5])
+                            .style(|_| container::Style {
+                                background: Some(Background::Color(CARD_BG)),
+                                border: Border { color: CARD_STROKE, width: 1.0, radius: 4.0.into() },
+                                ..Default::default()
+                            })
+                    }
+                ]
+                .align_y(iced::Alignment::Center),
+                text(format!("{}x{} @ {}Hz", d.width, d.height, d.refresh_rate))
+                    .size(11)
+                    .color(EMERALD),
+                text(format!("Offset: +{}, +{}", d.x, d.y))
+                    .size(10)
+                    .color(SOFT_TEXT),
+                space().height(4),
+                if let Some(wall) = assigned_wall {
+                    let w_clean = Path::new(wall).file_name().and_then(|n| n.to_str()).unwrap_or(wall);
+                    let trunc = if w_clean.len() > 18 { format!("{}...", &w_clean[..16]) } else { w_clean.to_string() };
+                    text(format!("📌 {}", trunc)).size(10).color(CYAN)
+                } else {
+                    text("🌐 Global Active").size(10).color(DIM_TEXT)
+                },
+            ]
+            .spacing(4)
+            .padding(10)
+        )
+        .width(Length::Fixed(190.0))
+        .height(Length::Fixed(115.0))
+        .style(move |_| container::Style {
+            background: Some(Background::Color(if is_selected_screen { CARD_BG_SEL } else { CARD_BG })),
+            border: Border {
+                color: if is_selected_screen { CYAN } else { CARD_STROKE },
+                width: if is_selected_screen { 2.0 } else { 1.0 },
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        });
+
+        topology_row = topology_row.push(
+            mouse_area(mini_box).on_press(Message::SelectDisplay(d.name.clone()))
+        );
+    }
+
+    let topology_card = container(
+        column![
+            row![
+                text("🗺️ Virtual Multi-Display Topology").size(14).color(CYAN),
+                space().width(Length::Fill),
+                text("Click a monitor tile to focus / target output").size(11).color(SOFT_TEXT),
+            ]
+            .align_y(iced::Alignment::Center),
+            rule::horizontal(1),
+            scrollable(topology_row).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default())),
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 4. Detailed Monitor Cards
+    let mut displays_col = column![].spacing(14);
+
+    if app.displays.is_empty() {
+        let empty_card = container(
+            column![
+                text("⚠️ No Monitors Detected").size(16).color(AMBER),
+                text("Could not query display info via hyprctl, wlr-randr, or xrandr. Click below to rescan.").size(13).color(SOFT_TEXT),
+                btn_primary("🔄 Rescan Connected Displays").on_press(Message::RescanDisplays),
+            ]
+            .spacing(10)
+            .align_x(iced::Alignment::Center)
+        )
+        .padding(30)
+        .width(Length::Fill)
+        .align_x(iced::Alignment::Center)
+        .style(|_| container::Style {
+            background: Some(Background::Color(CARD_BG)),
+            border: Border {
+                color: CARD_STROKE,
+                width: 1.0,
+                radius: 10.0.into(),
+            },
+            ..Default::default()
+        });
+        displays_col = displays_col.push(empty_card);
+    } else {
+        for d in &app.displays {
+            let is_selected_screen = app.selected_screen.as_ref() == Some(&d.name) || (app.selected_screen.is_none() && d.primary);
+            let assigned_wall = app.config.monitor_wallpapers.get(&d.name);
+
+            let res_pill = container(
+                text(format!("{}x{} @ {}Hz", d.width, d.height, d.refresh_rate))
+                    .size(12)
+                    .color(EMERALD)
+            )
+            .padding([3, 8])
+            .style(|_| container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.04, 0.20, 0.12, 0.85))),
+                border: Border {
+                    color: EMERALD,
+                    width: 1.0,
+                    radius: 6.0.into(),
+                },
+                ..Default::default()
+            });
+
+            let role_pill = if d.primary {
+                container(text("⭐ Primary Display").size(11).color(AMBER))
+                    .padding([3, 8])
+                    .style(|_| container::Style {
+                        background: Some(Background::Color(Color::from_rgba(0.24, 0.16, 0.04, 0.85))),
+                        border: Border { color: AMBER, width: 1.0, radius: 6.0.into() },
+                        ..Default::default()
+                    })
+            } else {
+                container(text("Secondary Display").size(11).color(SOFT_TEXT))
+                    .padding([3, 8])
+                    .style(|_| container::Style {
+                        background: Some(Background::Color(CARD_BG)),
+                        border: Border { color: CARD_STROKE, width: 1.0, radius: 6.0.into() },
+                        ..Default::default()
+                    })
+            };
+
+            let focus_pill = if is_selected_screen {
+                container(text("● Active Target").size(11).color(CYAN))
+                    .padding([3, 8])
+                    .style(|_| container::Style {
+                        background: Some(Background::Color(Color::from_rgba(0.04, 0.15, 0.25, 0.85))),
+                        border: Border { color: CYAN, width: 1.0, radius: 6.0.into() },
+                        ..Default::default()
+                    })
+            } else {
+                container(text("Connected").size(11).color(SOFT_TEXT))
+                    .padding([3, 8])
+                    .style(|_| container::Style {
+                        background: Some(Background::Color(CARD_BG)),
+                        border: Border { color: CARD_STROKE, width: 1.0, radius: 6.0.into() },
+                        ..Default::default()
+                    })
+            };
+
+            let card_header = row![
+                text(format!("🖥️ {}", d.name)).size(16).color(if is_selected_screen { CYAN } else { Color::WHITE }),
+                space().width(8),
+                res_pill,
+                role_pill,
+                focus_pill,
+                space().width(Length::Fill),
+                text(format!("Position: +{}, +{}", d.x, d.y)).size(12).color(SOFT_TEXT),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center);
+
+            let specs_row = row![
+                column![
+                    text("Width & Height:").size(11).color(DIM_TEXT),
+                    text(format!("{} × {} px", d.width, d.height)).size(13).color(Color::WHITE),
+                ].spacing(2).width(Length::FillPortion(1)),
+                column![
+                    text("Refresh Rate:").size(11).color(DIM_TEXT),
+                    text(format!("{} Hz", d.refresh_rate)).size(13).color(CYAN),
+                ].spacing(2).width(Length::FillPortion(1)),
+                column![
+                    text("Virtual Offset:").size(11).color(DIM_TEXT),
+                    text(format!("x: {}, y: {}", d.x, d.y)).size(13).color(SOFT_TEXT),
+                ].spacing(2).width(Length::FillPortion(1)),
+                column![
+                    text("Output Identifier:").size(11).color(DIM_TEXT),
+                    text(&d.id).size(13).color(AMBER),
+                ].spacing(2).width(Length::FillPortion(1)),
+            ]
+            .spacing(12);
+
+            let mapping_row = if let Some(assigned_path) = assigned_wall {
+                let p_clean = Path::new(assigned_path).file_name().and_then(|n| n.to_str()).unwrap_or(assigned_path);
+                row![
+                    text("📌 Custom Assigned Wallpaper:").size(13).color(CYAN),
+                    text(p_clean).size(13).color(Color::WHITE),
+                    space().width(Length::Fill),
+                    btn_danger("✕ Clear Mapping").on_press(Message::ClearMonitorWallpaper(d.name.clone())),
+                ]
+                .spacing(10)
+                .align_y(iced::Alignment::Center)
+            } else {
+                row![
+                    text("🌐 Wallpaper:").size(13).color(SOFT_TEXT),
+                    text("Using Global Active Wallpaper").size(13).color(DIM_TEXT),
+                    space().width(Length::Fill),
+                ]
+                .spacing(10)
+                .align_y(iced::Alignment::Center)
+            };
+
+            let mut actions_row = row![
+                btn_pill(if is_selected_screen { "🎯 Targeted Output" } else { "🎯 Focus Output" }, is_selected_screen)
+                    .on_press(Message::SelectDisplay(d.name.clone())),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center);
+
+            if let Some(sel) = &app.selected_wallpaper {
+                let name = sel.file_name().and_then(|n| n.to_str()).unwrap_or("Item");
+                let trunc = if name.len() > 24 { format!("{}...", &name[..22]) } else { name.to_string() };
+                actions_row = actions_row.push(
+                    btn_primary(format!("▶ Assign Selected ('{}')", trunc))
+                        .on_press(Message::SetMonitorWallpaper(d.name.clone(), sel.to_string_lossy().to_string()))
+                );
+            }
+
+            let card = container(
+                column![
+                    card_header,
+                    rule::horizontal(1),
+                    specs_row,
+                    container(mapping_row)
+                        .padding([8, 12])
+                        .style(|_| container::Style {
+                            background: Some(Background::Color(Color::from_rgba(0.03, 0.05, 0.09, 0.60))),
+                            border: Border {
+                                color: Color::from_rgba(0.12, 0.16, 0.26, 0.60),
+                                width: 1.0,
+                                radius: 6.0.into(),
+                            },
+                            ..Default::default()
+                        }),
+                    actions_row,
+                ]
+                .spacing(12)
+            )
+            .padding(16)
+            .style(move |_| container::Style {
+                background: Some(Background::Color(if is_selected_screen { CARD_BG_SEL } else { CARD_BG })),
+                border: Border {
+                    color: if is_selected_screen { CYAN } else { CARD_STROKE },
+                    width: if is_selected_screen { 2.0 } else { 1.0 },
+                    radius: 10.0.into(),
+                },
+                ..Default::default()
+            });
+
+            displays_col = displays_col.push(card);
+        }
+    }
+
+    let main_col = column![
+        header_card,
+        context_card,
+        topology_card,
+        displays_col,
+    ]
+    .spacing(16);
+
+    scrollable(main_col).into()
+}
+
+fn render_screensaver_tab<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
+    // 1. Header Card
+    let is_enabled = app.config.hyprlock.enabled;
+    let header_card = container(
+        column![
+            row![
+                text("🔒 Screensaver & Hyprlock Security Layer").size(20).color(CYAN),
+                space().width(Length::Fill),
+                container(
+                    text(if is_enabled { "● HYPRLOCK INTEGRATION ACTIVE" } else { "○ INTEGRATION DISABLED" })
+                        .size(11)
+                        .color(if is_enabled { EMERALD } else { SOFT_TEXT })
+                )
+                .padding([4, 10])
+                .style(move |_| container::Style {
+                    background: Some(Background::Color(if is_enabled {
+                        Color::from_rgba(0.04, 0.20, 0.12, 0.85)
+                    } else {
+                        Color::from_rgba(0.10, 0.12, 0.18, 0.85)
+                    })),
+                    border: Border {
+                        color: if is_enabled { EMERALD } else { CARD_STROKE },
+                        width: 1.0,
+                        radius: 12.0.into(),
+                    },
+                    ..Default::default()
+                }),
+            ]
+            .align_y(iced::Alignment::Center),
+            text("Synchronize your active video and 3D wallpapers with Wayland lockscreens via hyprlock / swaylock / gtklock.")
+                .size(13)
+                .color(SOFT_TEXT),
+        ]
+        .spacing(8)
+    )
+    .padding(16)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 2. Control Cards: Mode Selector + Clock Color
+    let mode_card = container(
+        column![
+            row![
+                checkbox(is_enabled).on_toggle(Message::ScreensaverEnabledToggled),
+                column![
+                    text("Enable Lockscreen & Screensaver Sync").size(15).color(Color::WHITE),
+                    text("Automatically generates ~/.config/hypr/hyprlock.conf matching current wallpaper mode.")
+                        .size(12)
+                        .color(SOFT_TEXT),
+                ].spacing(2),
+            ]
+            .spacing(12)
+            .align_y(iced::Alignment::Center),
+            rule::horizontal(1),
+            text("Screensaver Background Mode:").size(14).color(CYAN),
+            row![
+                btn_pill("🌌 Active Live", app.config.hyprlock.screensaver_mode == "active")
+                    .on_press(Message::ScreensaverModeChanged("active".to_string())),
+                btn_pill("🌀 Blurred Static", app.config.hyprlock.screensaver_mode == "blur")
+                    .on_press(Message::ScreensaverModeChanged("blur".to_string())),
+                btn_pill("🎨 Solid Color", app.config.hyprlock.screensaver_mode == "color")
+                    .on_press(Message::ScreensaverModeChanged("color".to_string())),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+            text(match app.config.hyprlock.screensaver_mode.as_str() {
+                "blur" => "🌀 Blurred Static: Captures desktop background snapshot and applies high-speed Gaussian blur.",
+                "color" => "🎨 Solid Color: Minimalist pitch-black / midnight dark gradient canvas for OLED power saving.",
+                _ => "🌌 Active Live: Runs active MPV hardware video decoder or WebGL shader live behind the lockscreen.",
+            })
+            .size(12)
+            .color(SOFT_TEXT),
+        ]
+        .spacing(10)
+    )
+    .padding(16)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        ..Default::default()
+    });
+
+    let current_clock_hex = &app.config.hyprlock.clock_color;
+    let clock_color = match current_clock_hex.as_str() {
+        "#10b981" => EMERALD,
+        "#f59e0b" => AMBER,
+        "#a855f7" => PURPLE,
+        "#ffffff" => Color::WHITE,
+        _ => CYAN,
+    };
+
+    let clock_card = container(
+        column![
+            row![
+                text("⏰ Clock & UI Accent Palette").size(14).color(CYAN),
+                space().width(Length::Fill),
+                container(text(current_clock_hex).size(11).color(clock_color))
+                    .padding([2, 6])
+                    .style(move |_| container::Style {
+                        background: Some(Background::Color(Color::from_rgba(0.04, 0.08, 0.14, 0.90))),
+                        border: Border { color: clock_color, width: 1.0, radius: 4.0.into() },
+                        ..Default::default()
+                    }),
+            ]
+            .align_y(iced::Alignment::Center),
+            row![
+                btn_pill("Cyan", current_clock_hex == "#00f0ff")
+                    .on_press(Message::ScreensaverClockColorChanged("#00f0ff".to_string())),
+                btn_pill("Emerald", current_clock_hex == "#10b981")
+                    .on_press(Message::ScreensaverClockColorChanged("#10b981".to_string())),
+                btn_pill("Amber", current_clock_hex == "#f59e0b")
+                    .on_press(Message::ScreensaverClockColorChanged("#f59e0b".to_string())),
+                btn_pill("Purple", current_clock_hex == "#a855f7")
+                    .on_press(Message::ScreensaverClockColorChanged("#a855f7".to_string())),
+                btn_pill("White", current_clock_hex == "#ffffff")
+                    .on_press(Message::ScreensaverClockColorChanged("#ffffff".to_string())),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+            rule::horizontal(1),
+            row![
+                column![
+                    text("Blur Passes:").size(11).color(DIM_TEXT),
+                    text("2 Passes (7px Radius)").size(12).color(Color::WHITE),
+                ].spacing(2).width(Length::FillPortion(1)),
+                column![
+                    text("Security Protocol:").size(11).color(DIM_TEXT),
+                    text("PAM Shadow Auth").size(12).color(EMERALD),
+                ].spacing(2).width(Length::FillPortion(1)),
+                column![
+                    text("Grace Period:").size(11).color(DIM_TEXT),
+                    text("0s (Immediate Lock)").size(12).color(SOFT_TEXT),
+                ].spacing(2).width(Length::FillPortion(1)),
+            ]
+            .spacing(12),
+        ]
+        .spacing(10)
+    )
+    .padding(16)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 3. High-Fidelity Live Lockscreen Preview Simulation Box
+    let username = std::env::var("USER").unwrap_or_else(|_| "mister".to_string());
+    let mode_str = app.config.hyprlock.screensaver_mode.to_uppercase();
+
+    // Lockscreen inner overlay elements builder
+    let build_lockscreen_content = || {
+        let clock_display = text("12:45").size(52).color(clock_color);
+        let date_display = text("Wednesday, August 14").size(15).color(SOFT_TEXT);
+
+        let user_pill = container(
+            row![
+                text("👤").size(12).color(SOFT_TEXT),
+                text(format!("Welcome back, {}", username)).size(13).color(Color::WHITE),
+            ]
+            .spacing(6)
+            .align_y(iced::Alignment::Center)
+        )
+        .padding([4, 12])
+        .style(|_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.08, 0.12, 0.20, 0.70))),
+            border: Border {
+                color: Color::from_rgba(0.2, 0.3, 0.45, 0.50),
+                width: 1.0,
+                radius: 14.0.into(),
+            },
+            ..Default::default()
+        });
+
+        let password_box = container(
+            row![
+                text("••••••••").size(14).color(SOFT_TEXT),
+                text("▎").size(14).color(clock_color),
+            ]
+            .spacing(2)
+            .align_y(iced::Alignment::Center)
+        )
+        .padding([6, 20])
+        .style(move |_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.04, 0.06, 0.10, 0.85))),
+            border: Border {
+                color: clock_color,
+                width: 1.5,
+                radius: 16.0.into(),
+            },
+            ..Default::default()
+        });
+
+        let security_pill = container(
+            text("🔒 Hyprlock Desktop Secured · PAM Authentication").size(11).color(EMERALD)
+        )
+        .padding([3, 10])
+        .style(|_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.02, 0.12, 0.08, 0.85))),
+            border: Border {
+                color: EMERALD,
+                width: 1.0,
+                radius: 10.0.into(),
+            },
+            ..Default::default()
+        });
+
+        column![
+            clock_display,
+            date_display,
+            space().height(4),
+            user_pill,
+            space().height(2),
+            password_box,
+            space().height(4),
+            security_pill,
+        ]
+        .spacing(6)
+        .align_x(iced::Alignment::Center)
+    };
+
+    let is_color_mode = app.config.hyprlock.screensaver_mode == "color";
+    let is_blur_mode = app.config.hyprlock.screensaver_mode == "blur";
+
+    // Preview wallpaper background
+    let bg_preview_element: Element<'a, Message> = if is_color_mode {
+        container(build_lockscreen_content())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::Alignment::Center)
+            .align_y(iced::Alignment::Center)
+            .style(|_| container::Style {
+                background: Some(Background::Color(Color::from_rgb(0.03, 0.04, 0.07))),
+                ..Default::default()
+            })
+            .into()
+    } else {
+        // Find thumbnail if available
+        let wall_thumb: Option<Element<'a, Message>> = if let Some(ref target) = app.selected_wallpaper {
+            let path_str = target.to_string_lossy().to_string();
+            let ext = target.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let is_img = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp");
+
+            if is_img && target.exists() {
+                Some(image(target.clone()).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).into())
+            } else if let Some(cached) = app.image_cache.get(target) {
+                Some(image(cached.handle.clone()).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).into())
+            } else if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
+                if let Some(cached) = app.image_cache.get(&thumb_path) {
+                    Some(image(cached.handle.clone()).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).into())
+                } else if thumb_path.exists() {
+                    Some(image(thumb_path).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).into())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let overlay_tint = container(build_lockscreen_content())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_x(iced::Alignment::Center)
+            .align_y(iced::Alignment::Center)
+            .style(move |_| container::Style {
+                background: Some(Background::Color(if is_blur_mode {
+                    Color::from_rgba(0.05, 0.08, 0.16, 0.82)
+                } else {
+                    Color::from_rgba(0.03, 0.05, 0.10, 0.65)
+                })),
+                ..Default::default()
+            });
+
+        if let Some(img_elem) = wall_thumb {
+            stack![
+                img_elem,
+                overlay_tint,
+            ]
+            .into()
+        } else {
+            container(build_lockscreen_content())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(iced::Alignment::Center)
+                .align_y(iced::Alignment::Center)
+                .style(|_| container::Style {
+                    background: Some(Background::Color(Color::from_rgb(0.04, 0.07, 0.14))),
+                    ..Default::default()
+                })
+                .into()
+        }
+    };
+
+    let simulated_monitor_frame = container(
+        column![
+            row![
+                text("🖥️ HYPRLOCK LOCKSCREEN PREVIEW").size(13).color(CYAN),
+                space().width(Length::Fill),
+                text(format!("MODE: {}", mode_str)).size(12).color(AMBER),
+            ]
+            .align_y(iced::Alignment::Center),
+            container(bg_preview_element)
+                .width(Length::Fill)
+                .height(Length::Fixed(270.0))
+                .style(|_| container::Style {
+                    background: Some(Background::Color(Color::from_rgb(0.02, 0.03, 0.05))),
+                    border: Border {
+                        color: Color::from_rgba(0.18, 0.83, 0.78, 0.40),
+                        width: 1.5,
+                        radius: 8.0.into(),
+                    },
+                    ..Default::default()
+                }),
+            row![
+                btn_primary("👁 Live Fullscreen Test").on_press(Message::TestScreensaver),
+                btn_primary("💾 Save Screensaver Config").on_press(Message::SaveHyprlockConf),
+                space().width(Length::Fill),
+                text("Target: ~/.config/hypr/hyprlock.conf").size(12).color(SOFT_TEXT),
+            ]
+            .spacing(12)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(12)
+    )
+    .padding(16)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CYAN,
+            width: 1.5,
+            radius: 12.0.into(),
+        },
+        ..Default::default()
+    });
+
+    let main_col = column![
+        header_card,
+        row![
+            container(mode_card).width(Length::FillPortion(1)),
+            container(clock_card).width(Length::FillPortion(1)),
+        ].spacing(14),
+        simulated_monitor_frame,
+    ]
+    .spacing(16);
+
+    scrollable(main_col).into()
+}
+
+fn render_settings_tab<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
+    let is_daemon_running = app.status.is_some();
+
+    // 1. Header Card
+    let header_card = container(
+        column![
+            row![
+                text("⚙ Wallpaper Engine & System Settings").size(20).color(CYAN),
+                space().width(Length::Fill),
+                container(
+                    text(if is_daemon_running { "● DAEMON ONLINE" } else { "○ DAEMON OFFLINE" })
+                        .size(11)
+                        .color(if is_daemon_running { EMERALD } else { AMBER })
+                )
+                .padding([4, 10])
+                .style(move |_| container::Style {
+                    background: Some(Background::Color(if is_daemon_running {
+                        Color::from_rgba(0.04, 0.20, 0.12, 0.85)
+                    } else {
+                        Color::from_rgba(0.24, 0.16, 0.04, 0.85)
+                    })),
+                    border: Border {
+                        color: if is_daemon_running { EMERALD } else { AMBER },
+                        width: 1.0,
+                        radius: 12.0.into(),
+                    },
+                    ..Default::default()
+                }),
+            ]
+            .align_y(iced::Alignment::Center),
+            text("Configure hardware video decoding pipelines, framerate limits, audio volume, opacity, and systemd/autostart persistence.")
+                .size(13)
+                .color(SOFT_TEXT),
+        ]
+        .spacing(8)
+    )
+    .padding(16)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 2. Section 1: Themes & Color Scheme
+    let theme_card = container(
+        column![
+            text("🎨 Interface Color Scheme").size(15).color(CYAN),
+            text("Choose your preferred aesthetic palette for the Omywall control center.").size(12).color(SOFT_TEXT),
+            row![
+                btn_pill("🌌 Dark Glass", app.theme_scheme == ThemeScheme::DarkGlass)
+                    .on_press(Message::ThemeChanged(ThemeScheme::DarkGlass)),
+                btn_pill("⚡ Steam Amber", app.theme_scheme == ThemeScheme::SteamAmber)
+                    .on_press(Message::ThemeChanged(ThemeScheme::SteamAmber)),
+                btn_pill("🔮 Cyber Light", app.theme_scheme == ThemeScheme::HardLightCyber)
+                    .on_press(Message::ThemeChanged(ThemeScheme::HardLightCyber)),
+                btn_pill("🖤 OLED Black", app.theme_scheme == ThemeScheme::OledPitchBlack)
+                    .on_press(Message::ThemeChanged(ThemeScheme::OledPitchBlack)),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 3. Section 2: Hardware Video Acceleration (HWDEC)
+    let hwdec_card = container(
+        column![
+            row![
+                text("🚀 Hardware Video Acceleration (HWDEC)").size(15).color(CYAN),
+                space().width(Length::Fill),
+                container(text(format!("Active: {}", app.config.hwdec)).size(11).color(EMERALD))
+                    .padding([2, 6])
+                    .style(|_| container::Style {
+                        background: Some(Background::Color(Color::from_rgba(0.04, 0.20, 0.12, 0.85))),
+                        border: Border { color: EMERALD, width: 1.0, radius: 4.0.into() },
+                        ..Default::default()
+                    }),
+            ]
+            .align_y(iced::Alignment::Center),
+            text("Hardware decoding offloads 4K/60fps video rendering directly to your GPU, saving CPU cycles and battery life.").size(12).color(SOFT_TEXT),
+            row![
+                btn_pill("auto (Auto-detect)", app.config.hwdec == "auto")
+                    .on_press(Message::HwdecChanged("auto".to_string())),
+                btn_pill("nvdec (NVIDIA)", app.config.hwdec == "nvdec")
+                    .on_press(Message::HwdecChanged("nvdec".to_string())),
+                btn_pill("vaapi (Intel/AMD)", app.config.hwdec == "vaapi")
+                    .on_press(Message::HwdecChanged("vaapi".to_string())),
+                btn_pill("vulkan (Vulkan Video)", app.config.hwdec == "vulkan")
+                    .on_press(Message::HwdecChanged("vulkan".to_string())),
+                btn_pill("cuda (CUDA)", app.config.hwdec == "cuda")
+                    .on_press(Message::HwdecChanged("cuda".to_string())),
+                btn_pill("no (Software CPU)", app.config.hwdec == "no")
+                    .on_press(Message::HwdecChanged("no".to_string())),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 4. Section 3: FPS Limiter & Surface Opacity
+    let fps_card = container(
+        column![
+            row![
+                text("🎯 Target FPS Limiter").size(15).color(CYAN),
+                space().width(Length::Fill),
+                text(format!("{} FPS", app.config.target_fps)).size(13).color(EMERALD),
+            ]
+            .align_y(iced::Alignment::Center),
+            text("Caps the maximum rendering framerate for video shaders and WebGL animations.").size(12).color(SOFT_TEXT),
+            row![
+                btn_pill("30 FPS", app.config.target_fps == 30)
+                    .on_press(Message::FpsChanged(30)),
+                btn_pill("60 FPS", app.config.target_fps == 60)
+                    .on_press(Message::FpsChanged(60)),
+                btn_pill("120 FPS", app.config.target_fps == 120)
+                    .on_press(Message::FpsChanged(120)),
+                btn_pill("144 FPS", app.config.target_fps == 144)
+                    .on_press(Message::FpsChanged(144)),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    let opacity_pct = (app.opacity_slider * 100.0).round() as u32;
+    let opacity_card = container(
+        column![
+            row![
+                text("✨ Desktop Surface Opacity").size(15).color(CYAN),
+                space().width(Length::Fill),
+                text(format!("{}% ({:.2})", opacity_pct, app.opacity_slider)).size(13).color(CYAN),
+            ]
+            .align_y(iced::Alignment::Center),
+            text("Adjusts transparency of the layer-shell background surface (0.0 to 1.0).").size(12).color(SOFT_TEXT),
+            row![
+                slider(0.0..=1.0, app.opacity_slider, Message::OpacityChanged)
+                    .width(Length::FillPortion(2)),
+                btn_pill("100%", app.opacity_slider >= 0.98).on_press(Message::OpacityChanged(1.0)),
+                btn_pill("80%", (app.opacity_slider - 0.8).abs() < 0.05).on_press(Message::OpacityChanged(0.8)),
+                btn_pill("60%", (app.opacity_slider - 0.6).abs() < 0.05).on_press(Message::OpacityChanged(0.6)),
+                btn_pill("40%", (app.opacity_slider - 0.4).abs() < 0.05).on_press(Message::OpacityChanged(0.4)),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 5. Section 4: Audio Volume & Mute Controls
+    let is_muted = app.config.mute;
+    let audio_card = container(
+        column![
+            row![
+                text("🔊 Master Audio & Volume").size(15).color(CYAN),
+                space().width(Length::Fill),
+                if is_muted {
+                    text("MUTED 🔇").size(13).color(AMBER)
+                } else {
+                    text(format!("{}%", app.volume_slider)).size(13).color(EMERALD)
+                },
+            ]
+            .align_y(iced::Alignment::Center),
+            text("Control live sound playback levels for video wallpapers and interactive HTML5 audio.").size(12).color(SOFT_TEXT),
+            row![
+                slider(0.0..=100.0, app.volume_slider as f32, |v| Message::VolumeChanged(v as i64))
+                    .width(Length::FillPortion(2)),
+                if is_muted {
+                    btn_danger("🔇 Muted (Unmute)").on_press(Message::MuteToggled)
+                } else {
+                    btn_secondary("🔊 Mute Audio").on_press(Message::MuteToggled)
+                },
+                btn_pill("25%", app.volume_slider == 25).on_press(Message::VolumeChanged(25)),
+                btn_pill("50%", app.volume_slider == 50).on_press(Message::VolumeChanged(50)),
+                btn_pill("75%", app.volume_slider == 75).on_press(Message::VolumeChanged(75)),
+                btn_pill("100%", app.volume_slider == 100).on_press(Message::VolumeChanged(100)),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 6. Section 5: Wallpaper Library Directory
+    let dir_card = container(
+        column![
+            text("📁 Wallpaper Library Directory").size(15).color(CYAN),
+            text("Configured directory scanned recursively for video, 3D web, and image wallpapers.").size(12).color(SOFT_TEXT),
+            row![
+                container(
+                    text(format!("{}", app.config.wallpaper_dir.display())).size(13).color(Color::WHITE)
+                )
+                .padding([8, 12])
+                .width(Length::Fill)
+                .style(|_| container::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.03, 0.05, 0.09, 0.80))),
+                    border: Border { color: CARD_STROKE, width: 1.0, radius: 6.0.into() },
+                    ..Default::default()
+                }),
+                btn_primary("📁 Change Folder").on_press(Message::OpenFolderPicker),
+                btn_primary("➕ Select File").on_press(Message::OpenFilePicker),
+                btn_secondary("🔄 Rescan").on_press(Message::RescanWallpapers),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 7. Section 6: Autostart & Automated Slideshow
+    let is_autostart = app.autostart_enabled;
+    let autostart_card = container(
+        column![
+            row![
+                checkbox(is_autostart).on_toggle(|_| Message::AutostartToggled),
+                column![
+                    text("Launch Omywall Daemon on Boot").size(15).color(Color::WHITE),
+                    text("Registers autostart entry in ~/.config/autostart/omywall.desktop on session login.").size(12).color(SOFT_TEXT),
+                ].spacing(2),
+                space().width(Length::Fill),
+                text(if is_autostart { "ENABLED" } else { "DISABLED" })
+                    .size(12)
+                    .color(if is_autostart { EMERALD } else { SOFT_TEXT }),
+            ]
+            .spacing(12)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(6)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    let is_slideshow_active = app.status.as_ref().map(|s| s.slideshow_active).unwrap_or(false);
+    let interval = app.config.slideshow_interval;
+    let is_shuffle = app.config.slideshow_shuffle;
+
+    let slideshow_card = container(
+        column![
+            row![
+                text("🎠 Automated Wallpaper Slideshow").size(15).color(CYAN),
+                space().width(Length::Fill),
+                container(
+                    text(if is_slideshow_active { "● SLIDESHOW RUNNING" } else { "○ SLIDESHOW INACTIVE" })
+                        .size(11)
+                        .color(if is_slideshow_active { EMERALD } else { SOFT_TEXT })
+                )
+                .padding([2, 6])
+                .style(move |_| container::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.04, 0.08, 0.14, 0.90))),
+                    border: Border { color: if is_slideshow_active { EMERALD } else { CARD_STROKE }, width: 1.0, radius: 4.0.into() },
+                    ..Default::default()
+                }),
+            ]
+            .align_y(iced::Alignment::Center),
+            text("Automatically transitions between installed wallpapers at your selected interval.").size(12).color(SOFT_TEXT),
+            row![
+                text("Interval:").size(13).color(SOFT_TEXT),
+                btn_pill("15s", interval == 15).on_press(Message::SlideshowIntervalChanged(15)),
+                btn_pill("30s", interval == 30).on_press(Message::SlideshowIntervalChanged(30)),
+                btn_pill("1 min", interval == 60).on_press(Message::SlideshowIntervalChanged(60)),
+                btn_pill("5 min", interval == 300).on_press(Message::SlideshowIntervalChanged(300)),
+                btn_pill("15 min", interval == 900).on_press(Message::SlideshowIntervalChanged(900)),
+                btn_pill("1 hour", interval == 3600).on_press(Message::SlideshowIntervalChanged(3600)),
+                space().width(Length::Fill),
+                btn_pill("🔀 Shuffle Order", is_shuffle).on_press(Message::SlideshowShuffleToggled),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+            row![
+                if is_slideshow_active {
+                    btn_danger("⏹ Stop Slideshow").on_press(Message::StopSlideshow)
+                } else {
+                    btn_primary("▶ Start Slideshow").on_press(Message::StartSlideshow)
+                },
+                btn_secondary("⏮ Previous").on_press(Message::PrevWallpaper),
+                btn_secondary("⏭ Next Wallpaper").on_press(Message::NextWallpaper),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    // 8. Section 7: Daemon Control & Maintenance
+    let daemon_card = container(
+        column![
+            row![
+                text("⚡ Daemon Process Management").size(15).color(CYAN),
+                space().width(Length::Fill),
+                text(format!("Socket: {}", app.config.socket_path.display())).size(11).color(DIM_TEXT),
+            ]
+            .align_y(iced::Alignment::Center),
+            text("Control the background wallpaper service, pause playback, or execute dependency repairs.").size(12).color(SOFT_TEXT),
+            row![
+                btn_primary("▶ Start Daemon").on_press(Message::StartDaemon),
+                btn_danger("⏹ Stop Daemon").on_press(Message::StopWallpaper),
+                btn_primary("⏯ Toggle Pause").on_press(Message::TogglePause),
+                btn_secondary("⏮ Prev").on_press(Message::PrevWallpaper),
+                btn_secondary("⏭ Next").on_press(Message::NextWallpaper),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+            rule::horizontal(1),
+            row![
+                btn_primary("🛠 Run Dependency Installer Script").on_press(Message::RunInstaller),
+                btn_secondary("⚙ System Doctor Diagnostics").on_press(Message::ToggleDoctor),
+                btn_secondary("📋 View Live Logs").on_press(Message::ToggleLogs),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(10)
+    )
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    let main_col = column![
+        header_card,
+        theme_card,
+        hwdec_card,
+        row![
+            container(fps_card).width(Length::FillPortion(1)),
+            container(opacity_card).width(Length::FillPortion(1)),
+        ].spacing(14),
+        audio_card,
+        dir_card,
+        autostart_card,
+        slideshow_card,
+        daemon_card,
     ]
     .spacing(16);
 

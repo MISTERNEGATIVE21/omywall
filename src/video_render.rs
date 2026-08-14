@@ -64,7 +64,7 @@ impl MadamiruVideoPlayer {
                 .build(),
         );
 
-        playbin.set_property("video-sink", &appsink.upcast::<gst::Element>());
+        playbin.set_property("video-sink", appsink.upcast::<gst::Element>());
 
         let pipeline = playbin
             .downcast::<gst::Pipeline>()

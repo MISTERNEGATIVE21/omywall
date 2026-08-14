@@ -255,7 +255,7 @@ pub fn scan_steam_wallpapers() -> Vec<SteamWallpaper> {
 
             // Fallback for standalone PKG files or directories containing scene.pkg / *.pkg
             let is_pkg = is_pkg_file(&item_path);
-            let has_inner_pkg = item_path.is_dir() && fs::read_dir(&item_path).ok().map_or(false, |entries| {
+            let has_inner_pkg = item_path.is_dir() && fs::read_dir(&item_path).ok().is_some_and(|entries| {
                 entries.flatten().any(|e| is_pkg_file(&e.path()))
             });
 
@@ -288,7 +288,7 @@ pub fn scan_steam_wallpapers() -> Vec<SteamWallpaper> {
         }
     }
 
-    wallpapers.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+    wallpapers.sort_by_key(|a| a.title.to_lowercase());
     wallpapers
 }
 

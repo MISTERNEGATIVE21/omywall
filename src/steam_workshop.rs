@@ -7,6 +7,7 @@ const WORKSHOP_APP_ID: &str = "431960";
 const BROWSE_URL: &str = "https://steamcommunity.com/workshop/browse/?appid=431960&section=readytouseitems&l=english";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub struct WorkshopItem {
     pub id: String,
     pub title: String,
@@ -22,24 +23,6 @@ pub struct WorkshopItem {
     pub url: String,
 }
 
-impl Default for WorkshopItem {
-    fn default() -> Self {
-        Self {
-            id: String::new(),
-            title: String::new(),
-            preview_url: None,
-            author: String::new(),
-            subscriptions: 0,
-            views: 0,
-            file_size: 0,
-            description: String::new(),
-            tags: Vec::new(),
-            hcontent_file: String::new(),
-            time_updated: 0,
-            url: String::new(),
-        }
-    }
-}
 
 fn http_get(url: &str) -> Result<String, String> {
     let client = reqwest::blocking::Client::builder()
@@ -68,7 +51,7 @@ pub fn search_workshop(query: &str, page: u32, sort: &str, days: i64) -> Result<
     };
 
     if let Some(id) = extracted_id {
-        if let Ok(items) = fetch_workshop_details(&[id.clone()]) {
+        if let Ok(items) = fetch_workshop_details(std::slice::from_ref(&id)) {
             if !items.is_empty() {
                 return Ok(items);
             }
@@ -85,7 +68,7 @@ pub fn search_workshop(query: &str, page: u32, sort: &str, days: i64) -> Result<
     for c in trimmed.chars() {
         match c {
             'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => encoded.push(c),
-            ' ' => encoded.push_str("+"),
+            ' ' => encoded.push('+'),
             _ => encoded.push_str(&format!("%{:02X}", c as u32)),
         }
     }
@@ -360,12 +343,7 @@ pub fn find_steamcmd() -> Option<PathBuf> {
         PathBuf::from("/usr/bin/steamcmd"),
         PathBuf::from("/opt/steamcmd/steamcmd.sh"),
     ];
-    for c in candidates {
-        if c.exists() {
-            return Some(c);
-        }
-    }
-    None
+    candidates.into_iter().find(|c| c.exists())
 }
 
 #[allow(dead_code)]
@@ -546,11 +524,10 @@ pub fn open_in_browser(id: &str) {
     let steam_proto = format!("steam://url/CommunityFilePage/{}", id);
     let web_url = format!("https://steamcommunity.com/sharedfiles/filedetails/?id={}", id);
     std::thread::spawn(move || {
-        if Command::new("steam").arg(&steam_proto).spawn().is_err() {
-            if Command::new("xdg-open").arg(&steam_proto).spawn().is_err() {
+        if Command::new("steam").arg(&steam_proto).spawn().is_err()
+            && Command::new("xdg-open").arg(&steam_proto).spawn().is_err() {
                 let _ = Command::new("xdg-open").arg(&web_url).spawn();
             }
-        }
     });
 }
 
@@ -572,7 +549,7 @@ pub fn cached_preview_path(item: &WorkshopItem) -> Option<PathBuf> {
     let url = item.preview_url.as_ref()?;
     let cache_dir = PathBuf::from("/tmp/omywall_workshop_thumbs");
     let hash = format!("{:x}", crate::gui::md5_hash(url.as_bytes()));
-    let out_path = cache_dir.join(format!("{}_{}.jpg", &item.id, &hash[..8]));
+    let out_path = cache_dir.join(format!("{}_{}.jpg", item.id, &hash[..8]));
     if out_path.exists() {
         Some(out_path)
     } else {
@@ -589,7 +566,7 @@ pub fn request_preview_image(item: &WorkshopItem) {
     let cache_dir = PathBuf::from("/tmp/omywall_workshop_thumbs");
     let _ = std::fs::create_dir_all(&cache_dir);
     let hash = format!("{:x}", crate::gui::md5_hash(url.as_bytes()));
-    let out_path = cache_dir.join(format!("{}_{}.jpg", &item.id, &hash[..8]));
+    let out_path = cache_dir.join(format!("{}_{}.jpg", item.id, &hash[..8]));
     if out_path.exists() {
         return;
     }

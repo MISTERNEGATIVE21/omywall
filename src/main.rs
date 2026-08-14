@@ -527,7 +527,7 @@ fn acquire_instance_lock(name: &str) -> Option<std::fs::File> {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
     let lock_path = PathBuf::from(runtime_dir).join(format!("{}.lock", name));
 
-    let file = match fs::OpenOptions::new().write(true).create(true).open(&lock_path) {
+    let file = match fs::OpenOptions::new().write(true).create(true).truncate(true).open(&lock_path) {
         Ok(f) => f,
         Err(_) => return None,
     };

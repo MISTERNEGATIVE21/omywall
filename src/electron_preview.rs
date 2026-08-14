@@ -10,7 +10,6 @@ use std::sync::Mutex;
 ///
 /// Captured frames are written to PNG files polled by the UI (spotlight preview,
 /// hover live preview, card thumbnails).
-
 const PACKAGE_JSON: &str = r#"{
   "name": "omywall-preview",
   "version": "1.0.0",

@@ -130,7 +130,7 @@ impl WallpaperEngine {
 
     fn ensure_mpv_running(&self, initial_file: Option<&str>) -> Result<(), String> {
         let mut mpv_guard = self.mpv_process.lock().unwrap();
-        let is_alive = mpv_guard.as_mut().map_or(false, |child| {
+        let is_alive = mpv_guard.as_mut().is_some_and(|child| {
             child.try_wait().ok().flatten().is_none()
         });
 
@@ -307,7 +307,7 @@ impl WallpaperEngine {
 
         if resolved_path.is_dir() {
             let has_project = resolved_path.join("project.json").exists();
-            let has_pkg = std::fs::read_dir(resolved_path).ok().map_or(false, |entries| {
+            let has_pkg = std::fs::read_dir(resolved_path).ok().is_some_and(|entries| {
                 entries.flatten().any(|e| crate::steam_scanner::is_pkg_file(&e.path()))
             });
             if has_project || has_pkg {
@@ -328,7 +328,7 @@ impl WallpaperEngine {
 
         let is_mpv_alive = {
             let mut mpv_guard = self.mpv_process.lock().unwrap();
-            mpv_guard.as_mut().map_or(false, |c| c.try_wait().ok().flatten().is_none())
+            mpv_guard.as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_none())
         };
 
         if let Some(ref curr) = current_wall {
@@ -387,7 +387,7 @@ impl WallpaperEngine {
     fn set_wallpaper_url_mpv(&self, url: &str) -> Result<(), String> {
         let is_mpv_alive = {
             let mut mpv_guard = self.mpv_process.lock().unwrap();
-            mpv_guard.as_mut().map_or(false, |c| c.try_wait().ok().flatten().is_none())
+            mpv_guard.as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_none())
         };
 
         if is_mpv_alive && self.socket_path.exists() {
