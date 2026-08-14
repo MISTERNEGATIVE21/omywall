@@ -210,7 +210,7 @@ fn theme_for(scheme: ThemeScheme) -> Theme {
     }
 }
 
-fn btn_primary<'a>(txt: &'a str) -> iced::widget::Button<'a, Message> {
+fn btn_primary<'a>(txt: impl iced::widget::text::IntoFragment<'a>) -> iced::widget::Button<'a, Message> {
     button(text(txt).size(13).color(CYAN))
         .padding([8, 14])
         .style(|_theme, status| {
@@ -277,7 +277,7 @@ fn btn_pill<'a>(txt: impl iced::widget::text::IntoFragment<'a>, is_active: bool)
                 border: Border {
                     color: if is_active { CYAN } else { CARD_STROKE },
                     width: 1.0,
-                    radius: 16.0.into(),
+                    radius: 12.0.into(),
                 },
                 shadow: iced::Shadow::default(),
                 snap: true,
@@ -286,7 +286,7 @@ fn btn_pill<'a>(txt: impl iced::widget::text::IntoFragment<'a>, is_active: bool)
 }
 
 
-fn btn_danger<'a>(txt: &'a str) -> iced::widget::Button<'a, Message> {
+fn btn_danger<'a>(txt: impl iced::widget::text::IntoFragment<'a>) -> iced::widget::Button<'a, Message> {
     let danger_red = Color::from_rgb(0.95, 0.25, 0.25);
     button(text(txt).size(13).color(danger_red))
         .padding([8, 14])
@@ -366,6 +366,7 @@ pub enum Message {
     WorkshopDownload(String),
     WorkshopApply(String),
     WorkshopAddToLibrary(String),
+    WorkshopOpenBrowser(String),
 
     // Installed tab
     RescanWallpapers,
@@ -1315,6 +1316,18 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                 }
             }
 
+            if app.active_tab == AppTab::SteamWorkshop {
+                for item in app.workshop_items.iter().take(60) {
+                    if let Some(thumb_path) = crate::steam_workshop::cached_preview_path(item) {
+                        if thumb_path.exists() && !app.image_cache.contains_key(&thumb_path) && !app.pending_decodes.contains(&thumb_path) {
+                            app.pending_decodes.insert(thumb_path.clone());
+                            decode_tasks.push(Task::perform(decode_thumb(thumb_path), |(p, m, r)| Message::ThumbDecoded(p, m, r)));
+                            break;
+                        }
+                    }
+                }
+            }
+
             if !decode_tasks.is_empty() {
                 return Task::batch(decode_tasks);
             }
@@ -1368,6 +1381,11 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             app.workshop_loading = false;
             match res {
                 Ok(items) => {
+                    for item in &items {
+                        if crate::steam_workshop::cached_preview_path(item).is_none() && item.preview_url.is_some() {
+                            crate::steam_workshop::request_preview_image(item);
+                        }
+                    }
                     app.workshop_items = items;
                     app.workshop_status = format!("Loaded {} Workshop items", app.workshop_items.len());
                 }
@@ -1663,7 +1681,13 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             Task::perform(browse(true, q, p, s, d), Message::GotWorkshop)
         }
         Message::WorkshopSortChanged(sort) => {
-            app.workshop_sort = sort;
+            app.workshop_sort = sort.clone();
+            if sort == "trend" {
+                app.workshop_days = 7;
+            } else {
+                app.workshop_days = 0;
+            }
+            app.workshop_page = 1;
             app.workshop_loading = true;
             let q = app.workshop_query.clone();
             let p = app.workshop_page;
@@ -1673,6 +1697,7 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         }
         Message::WorkshopDaysChanged(days) => {
             app.workshop_days = days;
+            app.workshop_page = 1;
             app.workshop_loading = true;
             let q = app.workshop_query.clone();
             let p = app.workshop_page;
@@ -1710,9 +1735,29 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
             Task::perform(spawn_blocking(move || crate::steam_workshop::download_workshop_item(&id)), Message::GotWorkshopDownload)
         }
         Message::WorkshopApply(id) => {
-            Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetSteamWallpaper { path: id, screen: None, overrides: None }), Message::GotStatus)
+            if let Some(path) = crate::steam_workshop::downloaded_item_path(&id).or_else(|| crate::steam_workshop::steam_client_item_path(&id)) {
+                let path_str = path.to_string_lossy().to_string();
+                Task::perform(send_req(app.config.socket_path.clone(), IpcRequest::SetSteamWallpaper { path: path_str, screen: None, overrides: None }), Message::GotStatus)
+            } else {
+                app.workshop_downloading = Some(id.clone());
+                app.status_message = format!("Downloading item {} before applying...", id);
+                Task::perform(spawn_blocking(move || crate::steam_workshop::download_workshop_item(&id)), Message::GotWorkshopDownload)
+            }
         }
-        Message::WorkshopAddToLibrary(_) => Task::none(),
+        Message::WorkshopAddToLibrary(id) => {
+            if crate::steam_workshop::is_downloaded(&id) || crate::steam_workshop::steam_client_item_path(&id).is_some() {
+                app.status_message = format!("Item {} is available in Steam library", id);
+                Task::perform(spawn_blocking(crate::steam_scanner::scan_steam_wallpapers), Message::GotSteamScan)
+            } else {
+                app.workshop_downloading = Some(id.clone());
+                app.status_message = format!("Downloading item {} to library...", id);
+                Task::perform(spawn_blocking(move || crate::steam_workshop::download_workshop_item(&id)), Message::GotWorkshopDownload)
+            }
+        }
+        Message::WorkshopOpenBrowser(id) => {
+            crate::steam_workshop::open_in_browser(&id);
+            Task::none()
+        }
         Message::RescanWallpapers => {
             app.wallpapers = IcedGuiApp::scan_wallpapers(&app.config.wallpaper_dir, &app.config.saved_web_wallpapers);
             Task::none()
@@ -2465,6 +2510,199 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
     .into()
 }
 
+fn format_compact_number(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}k", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
+fn render_workshop_item_card<'a>(app: &'a IcedGuiApp, item: &'a WorkshopItem) -> Element<'a, Message> {
+    let thumb_cached_path = crate::steam_workshop::cached_preview_path(item);
+    let img_elem: Element<'a, Message> = if let Some(ref path) = thumb_cached_path {
+        if let Some(cached) = app.image_cache.get(path) {
+            image(cached.handle.clone())
+                .width(334)
+                .height(188)
+                .content_fit(iced::ContentFit::Cover)
+                .into()
+        } else if path.exists() {
+            image(path.clone())
+                .width(334)
+                .height(188)
+                .content_fit(iced::ContentFit::Cover)
+                .into()
+        } else {
+            container(
+                column![
+                    text("🖼").size(28).color(CYAN),
+                    text("Loading Preview...").size(12).color(SOFT_TEXT),
+                ]
+                .spacing(4)
+                .align_x(iced::Alignment::Center),
+            )
+            .width(334)
+            .height(188)
+            .align_x(iced::Alignment::Center)
+            .align_y(iced::Alignment::Center)
+            .style(|_| container::Style {
+                background: Some(Background::Color(Color::from_rgb(0.06, 0.08, 0.12))),
+                border: Border {
+                    color: Color::from_rgba(0.2, 0.3, 0.4, 0.4),
+                    width: 1.0,
+                    radius: 6.0.into(),
+                },
+                ..Default::default()
+            })
+            .into()
+        }
+    } else {
+        if item.preview_url.is_some() {
+            crate::steam_workshop::request_preview_image(item);
+        }
+        container(
+            column![
+                text("🌐").size(28).color(CYAN),
+                text(if item.preview_url.is_some() { "Fetching Preview..." } else { "No Preview Image" }).size(12).color(SOFT_TEXT),
+            ]
+            .spacing(4)
+            .align_x(iced::Alignment::Center),
+        )
+        .width(334)
+        .height(188)
+        .align_x(iced::Alignment::Center)
+        .align_y(iced::Alignment::Center)
+        .style(|_| container::Style {
+            background: Some(Background::Color(Color::from_rgb(0.06, 0.08, 0.12))),
+            border: Border {
+                color: Color::from_rgba(0.2, 0.3, 0.4, 0.4),
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+    };
+
+    let title_display = if item.title.len() > 30 {
+        format!("{}...", &item.title[..28])
+    } else if item.title.is_empty() {
+        format!("Workshop Item {}", item.id)
+    } else {
+        item.title.clone()
+    };
+
+    let author_display = if item.author.is_empty() {
+        "Steam Creator".to_string()
+    } else if item.author.len() > 18 {
+        format!("by {}...", &item.author[..16])
+    } else {
+        format!("by {}", item.author)
+    };
+
+    let mut stats_row = row![
+        text(author_display).size(12).color(SOFT_TEXT).width(Length::Fill),
+    ].spacing(8).align_y(iced::Alignment::Center);
+
+    if item.subscriptions > 0 {
+        stats_row = stats_row.push(
+            text(format!("👥 {}", format_compact_number(item.subscriptions))).size(11).color(CYAN)
+        );
+    }
+    if item.views > 0 {
+        stats_row = stats_row.push(
+            text(format!("👁 {}", format_compact_number(item.views))).size(11).color(SOFT_TEXT)
+        );
+    }
+    if item.file_size > 0 {
+        stats_row = stats_row.push(
+            text(format!("💾 {}", crate::steam_workshop::get_file_size_str(item.file_size))).size(11).color(DIM_TEXT)
+        );
+    }
+
+    let is_downloaded = crate::steam_workshop::is_downloaded(&item.id)
+        || crate::steam_workshop::steam_client_item_path(&item.id).is_some();
+    let is_downloading = app.workshop_downloading.as_deref() == Some(&item.id);
+
+    let action_row: Element<'a, Message> = if is_downloading {
+        row![
+            btn_pill("⏳ Downloading...", true).width(Length::Fill),
+            btn_primary("🌐 Steam").on_press(Message::WorkshopOpenBrowser(item.id.clone())),
+        ]
+        .spacing(6)
+        .into()
+    } else if is_downloaded {
+        row![
+            btn_primary("▶ Apply").on_press(Message::WorkshopApply(item.id.clone())).width(Length::Fill),
+            btn_pill("✓ Installed", true),
+            btn_primary("🌐 Steam").on_press(Message::WorkshopOpenBrowser(item.id.clone())),
+        ]
+        .spacing(6)
+        .into()
+    } else {
+        row![
+            btn_primary("⬇ Download").on_press(Message::WorkshopDownload(item.id.clone())).width(Length::Fill),
+            btn_primary("▶ Apply").on_press(Message::WorkshopApply(item.id.clone())),
+            btn_primary("➕ Library").on_press(Message::WorkshopAddToLibrary(item.id.clone())),
+            btn_primary("🌐").on_press(Message::WorkshopOpenBrowser(item.id.clone())),
+        ]
+        .spacing(6)
+        .into()
+    };
+
+    let mut tags_row = row![].spacing(4);
+    for tag in item.tags.iter().take(2) {
+        let tag_display = if tag.len() > 14 { format!("{}...", &tag[..12]) } else { tag.clone() };
+        tags_row = tags_row.push(
+            container(text(tag_display).size(10).color(Color::from_rgb(0.7, 0.75, 0.85)))
+                .padding([2, 5])
+                .style(|_| container::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.12, 0.16, 0.24, 0.8))),
+                    border: Border {
+                        color: Color::from_rgba(0.25, 0.35, 0.5, 0.5),
+                        width: 1.0,
+                        radius: 3.0.into(),
+                    },
+                    ..Default::default()
+                })
+        );
+    }
+
+    let card_content = column![
+        img_elem,
+        row![
+            text(title_display).size(14).color(Color::WHITE).width(Length::Fill),
+            tags_row,
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center),
+        stats_row,
+        action_row,
+    ]
+    .spacing(8)
+    .padding(8);
+
+    container(card_content)
+        .width(350)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(CARD_BG)),
+            border: Border {
+                color: if is_downloaded {
+                    Color::from_rgba(0.1, 0.8, 0.5, 0.6)
+                } else {
+                    CARD_STROKE
+                },
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+}
+
 pub fn filtered_wallpapers(app: &IcedGuiApp) -> Vec<PathBuf> {
     let search_query = app.search_filter.trim().to_lowercase();
     app.wallpapers.iter().filter(|w| {
@@ -2887,15 +3125,155 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
             }
         }
         AppTab::SteamWorkshop => {
-            column![
-                text("Steam Workshop Browser").size(18).color(CYAN),
-                text(&app.workshop_status).color(SOFT_TEXT).size(14),
-                row![
-                    btn_primary("🔍 Refresh Workshop").on_press(Message::WorkshopSearch),
-                    btn_primary("📂 Scan Installed Steam Wallpapers").on_press(Message::WorkshopRescanSteam),
-                ].spacing(8),
+            let search_input = text_input("Search Steam Workshop wallpapers or paste ID...", &app.workshop_query)
+                .on_input(Message::WorkshopQueryChanged)
+                .on_submit(Message::WorkshopSearch)
+                .padding(8)
+                .width(320);
+
+            let search_row = row![
+                text("🌐 Steam Workshop Store").size(18).color(CYAN),
+                space().width(Length::Fill),
+                search_input,
+                btn_primary("🔍 Search").on_press(Message::WorkshopSearch),
+                if !app.workshop_query.is_empty() {
+                    btn_pill("✕ Clear", false).on_press(Message::WorkshopClear)
+                } else {
+                    btn_pill("✕ Clear", false)
+                },
+                btn_primary("📂 Scan Local Steam Items").on_press(Message::WorkshopRescanSteam),
+                btn_primary("🔄 Refresh Store").on_press(Message::WorkshopSearch),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center);
+
+            let sort_pills = row![
+                text("Sort:").size(13).color(SOFT_TEXT),
+                btn_pill("🔥 Trending (7 Days)", app.workshop_sort == "trend")
+                    .on_press(Message::WorkshopSortChanged("trend".to_string())),
+                btn_pill("⭐ Most Popular", app.workshop_sort == "top_rated")
+                    .on_press(Message::WorkshopSortChanged("top_rated".to_string())),
+                btn_pill("👥 Most Subscribed", app.workshop_sort == "most_subscribed")
+                    .on_press(Message::WorkshopSortChanged("most_subscribed".to_string())),
+                btn_pill("🕒 Most Recent", app.workshop_sort == "newest")
+                    .on_press(Message::WorkshopSortChanged("newest".to_string())),
+                space().width(Length::Fill),
+                if app.workshop_loading {
+                    text("⏳ Loading workshop items...").size(13).color(CYAN)
+                } else if let Some(ref dl_id) = app.workshop_downloading {
+                    text(format!("⬇ Downloading item {} via SteamCMD...", dl_id)).size(13).color(EMERALD)
+                } else if !app.workshop_status.is_empty() {
+                    text(&app.workshop_status).size(13).color(if app.workshop_status.contains("Error") { AMBER } else { SOFT_TEXT })
+                } else {
+                    text(format!("{} items found", app.workshop_items.len())).size(13).color(SOFT_TEXT)
+                },
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center);
+
+            let top_toolbar = column![
+                search_row,
+                sort_pills,
+            ]
+            .spacing(10);
+
+            let prev_btn = if app.workshop_page > 1 && !app.workshop_loading {
+                btn_primary("◀ Prev Page").on_press(Message::WorkshopPagePrev)
+            } else {
+                btn_pill("◀ Prev Page", false)
+            };
+
+            let next_btn = if !app.workshop_loading && !app.workshop_items.is_empty() {
+                btn_primary("Next Page ▶").on_press(Message::WorkshopPageNext)
+            } else {
+                btn_pill("Next Page ▶", false)
+            };
+
+            let page_indicator = container(
+                text(format!("Page {}", app.workshop_page)).size(14).color(CYAN)
+            )
+            .padding([6, 16])
+            .style(|_| container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.08, 0.12, 0.18, 0.9))),
+                border: Border {
+                    color: Color::from_rgba(0.0, 0.94, 1.0, 0.3),
+                    width: 1.0,
+                    radius: 6.0.into(),
+                },
+                ..Default::default()
+            });
+
+            let pagination_row = row![
+                prev_btn,
+                page_indicator,
+                next_btn,
             ]
             .spacing(12)
+            .align_y(iced::Alignment::Center);
+
+            let pagination_container = container(pagination_row)
+                .width(Length::Fill)
+                .align_x(iced::Alignment::Center)
+                .padding(8);
+
+            let content: Element<'_, Message> = if app.workshop_loading && app.workshop_items.is_empty() {
+                container(
+                    column![
+                        text("⏳ Loading Steam Workshop...").size(18).color(CYAN),
+                        text("Fetching popular and trending wallpapers from Steam...").size(13).color(SOFT_TEXT),
+                    ]
+                    .spacing(8)
+                    .align_x(iced::Alignment::Center)
+                )
+                .width(Length::Fill)
+                .padding(60)
+                .align_x(iced::Alignment::Center)
+                .into()
+            } else if app.workshop_items.is_empty() {
+                container(
+                    column![
+                        text("No Steam Workshop items found").size(18).color(AMBER),
+                        text("Try searching with different keywords or browse trending wallpapers.").size(13).color(SOFT_TEXT),
+                        btn_primary("🔥 Load Popular Wallpapers").on_press(Message::WorkshopClear),
+                    ]
+                    .spacing(12)
+                    .align_x(iced::Alignment::Center)
+                )
+                .width(Length::Fill)
+                .padding(60)
+                .align_x(iced::Alignment::Center)
+                .into()
+            } else {
+                let mut grid_rows = column![].spacing(14);
+                let mut current_row = row![].spacing(14);
+                let mut count_in_row = 0;
+
+                for item in &app.workshop_items {
+                    current_row = current_row.push(render_workshop_item_card(app, item));
+                    count_in_row += 1;
+                    if count_in_row == 3 {
+                        grid_rows = grid_rows.push(current_row);
+                        current_row = row![].spacing(14);
+                        count_in_row = 0;
+                    }
+                }
+                if count_in_row > 0 {
+                    grid_rows = grid_rows.push(current_row);
+                }
+
+                column![
+                    grid_rows,
+                    pagination_container,
+                ]
+                .spacing(16)
+                .into()
+            };
+
+            column![
+                top_toolbar,
+                scrollable(content).width(Length::Fill),
+            ]
+            .spacing(14)
             .into()
         }
         AppTab::Displays => {

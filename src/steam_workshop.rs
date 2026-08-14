@@ -176,6 +176,16 @@ pub fn browse_workshop(page: u32, sort: &str, days: i64) -> Result<Vec<WorkshopI
     }
 }
 
+#[allow(dead_code)]
+pub fn fetch_popular_wallpapers(page: u32) -> Result<Vec<WorkshopItem>, String> {
+    browse_workshop(page, "trend", 7)
+}
+
+#[allow(dead_code)]
+pub fn search_workshop_items(query: &str, page: u32, sort: &str, days: i64) -> Result<Vec<WorkshopItem>, String> {
+    search_workshop(query, page, sort, days)
+}
+
 pub fn fetch_workshop_details(ids: &[String]) -> Result<Vec<WorkshopItem>, String> {
     let client = reqwest::blocking::Client::builder()
         .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
@@ -546,11 +556,11 @@ pub fn open_in_browser(id: &str) {
 
 #[allow(dead_code)]
 pub fn get_file_size_str(bytes: u64) -> String {
-    if bytes > 1024 * 1024 * 1024 {
+    if bytes >= 1024 * 1024 * 1024 {
         format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
-    } else if bytes > 1024 * 1024 {
+    } else if bytes >= 1024 * 1024 {
         format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
-    } else if bytes > 1024 {
+    } else if bytes >= 1024 {
         format!("{:.1} KB", bytes as f64 / 1024.0)
     } else {
         format!("{} B", bytes)
@@ -659,5 +669,27 @@ mod tests {
                 eprintln!("download error (expected if anonymous download blocked): {}", e);
             }
         }
+    }
+
+    #[test]
+    fn test_file_size_formatting() {
+        assert_eq!(get_file_size_str(500), "500 B");
+        assert_eq!(get_file_size_str(1024), "1.0 KB");
+        assert_eq!(get_file_size_str(1024 * 1024 * 5), "5.0 MB");
+        assert_eq!(get_file_size_str(1024 * 1024 * 1024 * 2), "2.0 GB");
+    }
+
+    #[test]
+    fn test_parse_single_item_page_html() {
+        let html = r#"
+            <html>
+                <div class="workshopItemTitle">Cyberpunk Night City</div>
+                <img id="previewImage" src="https://steamuserimages-a.akamaihd.net/ugc/1234/test.jpg" />
+            </html>
+        "#;
+        let item = parse_single_item_page(html, "12345678");
+        assert_eq!(item.id, "12345678");
+        assert_eq!(item.title, "Cyberpunk Night City");
+        assert_eq!(item.preview_url, Some("https://steamuserimages-a.akamaihd.net/ugc/1234/test.jpg".to_string()));
     }
 }
