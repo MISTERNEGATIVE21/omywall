@@ -1,11 +1,11 @@
 use iced::theme::Theme;
 use iced::widget::{
     button, checkbox, column, container, image, mouse_area,
-    row, rule, scrollable, slider, space, text, text_input,
+    row, rule, scrollable, slider, space, stack, text, text_input,
 };
 
 use iced::window;
-use iced::{Background, Border, Color, Element, Length, Subscription, Task};
+use iced::{clipboard, Background, Border, Color, Element, Length, Subscription, Task};
 
 use ::image::{load_from_memory, open, RgbImage};
 use std::collections::{HashMap, HashSet};
@@ -35,6 +35,7 @@ const CARD_BG: Color = Color::from_rgb(0.06, 0.08, 0.14);
 const CARD_BG_SEL: Color = Color::from_rgb(0.09, 0.15, 0.26);
 const CARD_BG_ACTIVE: Color = Color::from_rgb(0.04, 0.14, 0.10);
 const CARD_STROKE: Color = Color::from_rgb(0.12, 0.16, 0.26);
+#[allow(dead_code)]
 const PANEL_BG: Color = Color::from_rgb(0.04, 0.05, 0.09);
 
 
@@ -309,6 +310,28 @@ fn btn_danger<'a>(txt: impl iced::widget::text::IntoFragment<'a>) -> iced::widge
         })
 }
 
+fn btn_secondary<'a>(txt: impl iced::widget::text::IntoFragment<'a>) -> iced::widget::Button<'a, Message> {
+    button(text(txt).size(13).color(SOFT_TEXT))
+        .padding([8, 14])
+        .style(|_theme, status| {
+            let bg = match status {
+                iced::widget::button::Status::Hovered => CARD_BG_SEL,
+                _ => CARD_BG,
+            };
+            iced::widget::button::Style {
+                background: Some(Background::Color(bg)),
+                text_color: SOFT_TEXT,
+                border: Border {
+                    color: CARD_STROKE,
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                shadow: iced::Shadow::default(),
+                snap: true,
+            }
+        })
+}
+
 
 
 // ---------------------------------------------------------------------------
@@ -396,7 +419,11 @@ pub enum Message {
     MinimizeToTray,
     TogglePin,
     ToggleDoctor,
+    RecheckDoctor,
     ToggleLogs,
+    RefreshLogs,
+    ClearLogs,
+    CopyLogs,
     ToggleHyprlock,
     ToggleGpuSettings,
     TestScreensaver,
@@ -1077,18 +1104,20 @@ fn toggle_always_on_top(id: window::Id, on_top: bool) -> Task<Message> {
 // System doctor / installer (kept from egui GUI)
 // ---------------------------------------------------------------------------
 
-#[derive(Clone)]
-struct ToolStatus {
-    name: String,
-    description: String,
-    installed: bool,
+#[derive(Clone, Debug)]
+pub struct ToolStatus {
+    pub name: String,
+    pub description: String,
+    pub installed: bool,
+    pub path_or_info: String,
 }
 
-fn check_tool_installed(cmd: &str) -> bool {
+pub fn find_tool_path(cmd: &str) -> Option<PathBuf> {
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_var) {
-            if dir.join(cmd).exists() {
-                return true;
+            let p = dir.join(cmd);
+            if p.exists() {
+                return Some(p);
             }
         }
     }
@@ -1101,31 +1130,295 @@ fn check_tool_installed(cmd: &str) -> bool {
         PathBuf::from("/bin").join(cmd),
     ] {
         if c.exists() {
-            return true;
+            return Some(c);
         }
     }
-    false
+    None
 }
 
-fn check_installed_tools() -> Vec<ToolStatus> {
-    let tools = vec![
-        ("mpvpaper", "mpvpaper", "Primary Wayland video wallpaper renderer (wlr-layer-shell)"),
-        ("mpv", "mpv", "Hardware-accelerated video player engine"),
-        ("ffmpeg", "ffmpeg", "Video thumbnail generator & media processor"),
-        ("electron", "electron", "Desktop web streams & widget overlay engine"),
-        ("jq", "jq", "JSON processor for IPC & Hyprland events"),
-        ("notify-send", "notify-send", "Desktop notification system"),
-        ("hyprctl", "hyprctl", "Hyprland compositor controller"),
-        ("hyprlock", "hyprlock", "Wayland GPU-accelerated screen locker & screensaver"),
+pub fn check_installed_tools() -> Vec<ToolStatus> {
+    let mut list = Vec::new();
+
+    // 1. mpvpaper
+    if let Some(p) = find_tool_path("mpvpaper") {
+        list.push(ToolStatus {
+            name: "mpvpaper".to_string(),
+            description: "Primary Wayland video wallpaper renderer (wlr-layer-shell protocol)".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "mpvpaper".to_string(),
+            description: "Primary Wayland video wallpaper renderer (wlr-layer-shell protocol)".to_string(),
+            installed: false,
+            path_or_info: "Missing - install via pacman or cargo".to_string(),
+        });
+    }
+
+    // 2. mpv
+    if let Some(p) = find_tool_path("mpv") {
+        list.push(ToolStatus {
+            name: "mpv".to_string(),
+            description: "Hardware-accelerated media player engine & IPC control socket".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "mpv".to_string(),
+            description: "Hardware-accelerated media player engine & IPC control socket".to_string(),
+            installed: false,
+            path_or_info: "Missing - install via package manager".to_string(),
+        });
+    }
+
+    // 3. ffmpeg
+    if let Some(p) = find_tool_path("ffmpeg") {
+        list.push(ToolStatus {
+            name: "ffmpeg".to_string(),
+            description: "Video thumbnail extraction & media transcode pipeline".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "ffmpeg".to_string(),
+            description: "Video thumbnail extraction & media transcode pipeline".to_string(),
+            installed: false,
+            path_or_info: "Missing - install via package manager".to_string(),
+        });
+    }
+
+    // 4. electron
+    if let Some(p) = find_tool_path("electron") {
+        list.push(ToolStatus {
+            name: "electron".to_string(),
+            description: "Desktop web streams & widget overlay runtime engine".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "electron".to_string(),
+            description: "Desktop web streams & widget overlay runtime engine".to_string(),
+            installed: false,
+            path_or_info: "Missing - install electron".to_string(),
+        });
+    }
+
+    // 5. chromium / chrome
+    let chromium_candidates = ["chromium", "google-chrome-stable", "google-chrome", "brave-browser", "chromium-browser"];
+    let chromium_found = chromium_candidates.iter().find_map(|&c| find_tool_path(c));
+    if let Some(p) = chromium_found {
+        list.push(ToolStatus {
+            name: "chromium / chrome".to_string(),
+            description: "Web engine fallback for HTML5 & WebGL live wallpaper scenes".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "chromium".to_string(),
+            description: "Web engine fallback for HTML5 & WebGL live wallpaper scenes".to_string(),
+            installed: false,
+            path_or_info: "Missing - install chromium or google-chrome".to_string(),
+        });
+    }
+
+    // 6. webkit2gtk
+    let webkit_paths = [
+        "/usr/lib/libwebkit2gtk-4.1.so",
+        "/usr/lib/libwebkit2gtk-4.0.so",
+        "/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so",
+        "/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.0.so",
+        "/usr/lib64/libwebkit2gtk-4.1.so",
+        "/usr/lib64/libwebkit2gtk-4.0.so",
     ];
-    tools
-        .into_iter()
-        .map(|(name, cmd, desc)| ToolStatus {
-            name: name.to_string(),
-            description: desc.to_string(),
-            installed: check_tool_installed(cmd),
-        })
-        .collect()
+    let webkit_found = webkit_paths.iter().find(|&&p| Path::new(p).exists());
+    let webkit_pkg = if webkit_found.is_none() {
+        Command::new("pkg-config")
+            .args(["--exists", "webkit2gtk-4.1"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    } else {
+        true
+    };
+
+    if let Some(&p) = webkit_found {
+        list.push(ToolStatus {
+            name: "webkit2gtk".to_string(),
+            description: "WebKitGTK hardware-accelerated embedded web engine".to_string(),
+            installed: true,
+            path_or_info: p.to_string(),
+        });
+    } else if webkit_pkg {
+        list.push(ToolStatus {
+            name: "webkit2gtk".to_string(),
+            description: "WebKitGTK hardware-accelerated embedded web engine".to_string(),
+            installed: true,
+            path_or_info: "libwebkit2gtk-4.1 (System Library)".to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "webkit2gtk".to_string(),
+            description: "WebKitGTK hardware-accelerated embedded web engine".to_string(),
+            installed: false,
+            path_or_info: "Missing - install webkit2gtk-4.1 library".to_string(),
+        });
+    }
+
+    // 7. hyprctl / swaymsg
+    let comp_tools = ["hyprctl", "swaymsg", "niri", "riverctl"];
+    let comp_found = comp_tools.iter().find_map(|&c| find_tool_path(c));
+    if let Some(p) = comp_found {
+        list.push(ToolStatus {
+            name: "hyprctl / swaymsg".to_string(),
+            description: "Wayland compositor IPC & display geometry controller".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "hyprctl / swaymsg".to_string(),
+            description: "Wayland compositor IPC & display geometry controller".to_string(),
+            installed: false,
+            path_or_info: "Missing - no active Wayland IPC controller found".to_string(),
+        });
+    }
+
+    // 8. steamcmd / steam
+    let steam_candidates = ["steamcmd", "steam"];
+    let steam_found = steam_candidates.iter().find_map(|&c| find_tool_path(c));
+    if let Some(p) = steam_found {
+        list.push(ToolStatus {
+            name: "steamcmd / steam".to_string(),
+            description: "Steam Workshop wallpaper scanner & background asset downloader".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "steamcmd".to_string(),
+            description: "Steam Workshop wallpaper scanner & background asset downloader".to_string(),
+            installed: false,
+            path_or_info: "Optional - install steamcmd for direct workshop downloading".to_string(),
+        });
+    }
+
+    // 9. nmcli
+    if let Some(p) = find_tool_path("nmcli") {
+        list.push(ToolStatus {
+            name: "nmcli".to_string(),
+            description: "NetworkManager CLI for desktop telemetry & WiFi overlay widgets".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "nmcli".to_string(),
+            description: "NetworkManager CLI for desktop telemetry & WiFi overlay widgets".to_string(),
+            installed: false,
+            path_or_info: "Missing - install networkmanager".to_string(),
+        });
+    }
+
+    // 10. bluetoothctl
+    if let Some(p) = find_tool_path("bluetoothctl") {
+        list.push(ToolStatus {
+            name: "bluetoothctl".to_string(),
+            description: "BlueZ Bluetooth controller for desktop status widgets".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "bluetoothctl".to_string(),
+            description: "BlueZ Bluetooth controller for desktop status widgets".to_string(),
+            installed: false,
+            path_or_info: "Missing - install bluez-utils".to_string(),
+        });
+    }
+
+    // 11. GPU Drivers & Acceleration
+    let has_dri = Path::new("/dev/dri/renderD128").exists() || Path::new("/dev/dri/card0").exists();
+    let has_nvidia = find_tool_path("nvidia-smi").is_some();
+    if has_dri || has_nvidia {
+        let info = if has_nvidia {
+            "NVIDIA GPU Driver & NVDEC / NVENC Active"
+        } else {
+            "Direct Rendering Manager (/dev/dri/renderD128 - VA-API/Vulkan)"
+        };
+        list.push(ToolStatus {
+            name: "GPU Drivers (VA-API / NVDEC)".to_string(),
+            description: "Hardware video decoding & zero-copy GPU wallpaper rendering".to_string(),
+            installed: true,
+            path_or_info: info.to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "GPU Drivers".to_string(),
+            description: "Hardware video decoding & zero-copy GPU wallpaper rendering".to_string(),
+            installed: false,
+            path_or_info: "No /dev/dri/renderD128 or nvidia device found".to_string(),
+        });
+    }
+
+    // 12. hyprlock / swaylock
+    let lock_tools = ["hyprlock", "swaylock", "gtklock", "waylock"];
+    let lock_found = lock_tools.iter().find_map(|&c| find_tool_path(c));
+    if let Some(p) = lock_found {
+        list.push(ToolStatus {
+            name: "hyprlock / swaylock".to_string(),
+            description: "Wayland GPU-accelerated screen locker & animated screensaver".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "hyprlock".to_string(),
+            description: "Wayland GPU-accelerated screen locker & animated screensaver".to_string(),
+            installed: false,
+            path_or_info: "Missing - install hyprlock or swaylock for screensavers".to_string(),
+        });
+    }
+
+    // 13. notify-send
+    if let Some(p) = find_tool_path("notify-send") {
+        list.push(ToolStatus {
+            name: "notify-send".to_string(),
+            description: "Desktop notification daemon client (libnotify)".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "notify-send".to_string(),
+            description: "Desktop notification daemon client (libnotify)".to_string(),
+            installed: false,
+            path_or_info: "Missing - install libnotify".to_string(),
+        });
+    }
+
+    // 14. jq
+    if let Some(p) = find_tool_path("jq") {
+        list.push(ToolStatus {
+            name: "jq".to_string(),
+            description: "High-performance JSON processor for IPC & events".to_string(),
+            installed: true,
+            path_or_info: p.to_string_lossy().to_string(),
+        });
+    } else {
+        list.push(ToolStatus {
+            name: "jq".to_string(),
+            description: "High-performance JSON processor for IPC & events".to_string(),
+            installed: false,
+            path_or_info: "Missing - install jq".to_string(),
+        });
+    }
+
+    list
 }
 
 fn run_installer_script() -> String {
@@ -1920,15 +2213,45 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         }
         Message::ToggleDoctor => {
             app.show_doctor = !app.show_doctor;
+            if app.show_doctor {
+                app.show_logs = false;
+            }
+            Task::none()
+        }
+        Message::RecheckDoctor => {
+            app.status_message = "Re-checked system dependencies.".to_string();
             Task::none()
         }
         Message::ToggleLogs => {
             app.show_logs = !app.show_logs;
             if app.show_logs {
+                app.show_doctor = false;
                 Task::perform(load_logs(), Message::GotLogs)
             } else {
                 Task::none()
             }
+        }
+        Message::RefreshLogs => {
+            app.status_message = "Refreshing live logs...".to_string();
+            Task::perform(load_logs(), Message::GotLogs)
+        }
+        Message::ClearLogs => {
+            let log_path = get_log_path();
+            let _ = std::fs::write(&log_path, "");
+            app.logs_content = String::new();
+            app.status_message = format!("Cleared log file: {}", log_path.display());
+            Task::none()
+        }
+        Message::CopyLogs => {
+            let text = app.logs_content.clone();
+            if let Ok(mut child) = Command::new("wl-copy").stdin(std::process::Stdio::piped()).spawn() {
+                use std::io::Write;
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+            }
+            app.status_message = "Logs copied to clipboard!".to_string();
+            clipboard::write(text)
         }
         Message::ToggleHyprlock => {
             app.show_hyprlock = !app.show_hyprlock;
@@ -3000,6 +3323,64 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
         ..Default::default()
     });
 
+    let btn_doctor_active = app.show_doctor;
+    let btn_doctor = button(
+        row![
+            text("⚙").size(13).color(if btn_doctor_active { CYAN } else { SOFT_TEXT }),
+            text("System Doctor").size(12).color(if btn_doctor_active { CYAN } else { SOFT_TEXT }),
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center)
+    )
+    .padding([6, 12])
+    .style(move |_, status| {
+        let bg = match status {
+            iced::widget::button::Status::Hovered => CARD_BG_SEL,
+            _ => if btn_doctor_active { CARD_BG_SEL } else { CARD_BG },
+        };
+        iced::widget::button::Style {
+            background: Some(Background::Color(bg)),
+            text_color: if btn_doctor_active { CYAN } else { SOFT_TEXT },
+            border: Border {
+                color: if btn_doctor_active { CYAN } else { CARD_STROKE },
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            shadow: iced::Shadow::default(),
+            snap: true,
+        }
+    })
+    .on_press(Message::ToggleDoctor);
+
+    let btn_logs_active = app.show_logs;
+    let btn_logs = button(
+        row![
+            text("📋").size(13).color(if btn_logs_active { CYAN } else { SOFT_TEXT }),
+            text("Logs").size(12).color(if btn_logs_active { CYAN } else { SOFT_TEXT }),
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center)
+    )
+    .padding([6, 12])
+    .style(move |_, status| {
+        let bg = match status {
+            iced::widget::button::Status::Hovered => CARD_BG_SEL,
+            _ => if btn_logs_active { CARD_BG_SEL } else { CARD_BG },
+        };
+        iced::widget::button::Style {
+            background: Some(Background::Color(bg)),
+            text_color: if btn_logs_active { CYAN } else { SOFT_TEXT },
+            border: Border {
+                color: if btn_logs_active { CYAN } else { CARD_STROKE },
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            shadow: iced::Shadow::default(),
+            snap: true,
+        }
+    })
+    .on_press(Message::ToggleLogs);
+
     let header = row![
         header_title,
         space().width(Length::Fill),
@@ -3007,8 +3388,8 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
         space().width(12),
         status_indicator,
         space().width(12),
-        button(text("⚙ System Doctor")).on_press(Message::ToggleDoctor),
-        button(text("📋 Logs")).on_press(Message::ToggleLogs),
+        btn_doctor,
+        btn_logs,
     ]
     .spacing(12)
     .align_y(iced::Alignment::Center);
@@ -3432,90 +3813,36 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
 
     };
 
-    let mut content = column![
+    let content = column![
         header,
         rule::horizontal(1),
         nav_bar,
         rule::horizontal(1),
+        body_content,
     ]
     .spacing(16);
 
-    if app.show_doctor {
-        let tools = check_installed_tools();
-        let mut doc_col = column![
-            row![
-                text("⚙ System Doctor - Installed Dependencies").size(16).color(CYAN),
-                space().width(Length::Fill),
-                button(text("✖ Close")).on_press(Message::ToggleDoctor),
-            ].align_y(iced::Alignment::Center),
-        ].spacing(8);
-
-        for t in tools {
-            let status_txt = if t.installed { "✔ Installed" } else { "✖ Missing" };
-            let status_clr = if t.installed { EMERALD } else { Color::from_rgb(0.95, 0.25, 0.25) };
-            doc_col = doc_col.push(
-                row![
-                    text(format!("{}:", t.name)).size(13).color(Color::WHITE).width(120),
-                    text(status_txt).size(13).color(status_clr).width(100),
-                    text(t.description).size(12).color(SOFT_TEXT),
-                ].spacing(8).align_y(iced::Alignment::Center)
-            );
-        }
-        doc_col = doc_col.push(
-            btn_primary("🛠 Run Installer Script to Fix Missing Dependencies").on_press(Message::RunInstaller)
-        );
-
-        let doc_box = container(doc_col)
-            .padding(14)
-            .style(|_| container::Style {
-                background: Some(Background::Color(PANEL_BG)),
-                border: Border {
-                    color: CYAN,
-                    width: 1.5,
-                    radius: 8.0.into(),
-                },
-                ..Default::default()
-            });
-
-        content = content.push(doc_box);
-    }
-
-    if app.show_logs {
-        let logs_box = container(
-            column![
-                row![
-                    text("📋 System Logs").size(16).color(CYAN),
-                    space().width(Length::Fill),
-                    button(text("✖ Close")).on_press(Message::ToggleLogs),
-                ].align_y(iced::Alignment::Center),
-                scrollable(
-                    text(if app.logs_content.is_empty() { "No logs available." } else { &app.logs_content })
-                        .size(12)
-                        .color(SOFT_TEXT)
-                ).height(180),
-            ].spacing(8)
-        )
-        .padding(14)
-        .style(|_| container::Style {
-            background: Some(Background::Color(PANEL_BG)),
-            border: Border {
-                color: CARD_STROKE,
-                width: 1.0,
-                radius: 8.0.into(),
-            },
-            ..Default::default()
-        });
-
-        content = content.push(logs_box);
-    }
-
-    content = content.push(body_content);
-
-    container(content)
+    let base_container: Element<'_, Message> = container(content)
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(20)
+        .into();
+
+    if app.show_doctor {
+        stack![
+            base_container,
+            render_system_doctor_modal(app),
+        ]
         .into()
+    } else if app.show_logs {
+        stack![
+            base_container,
+            render_logs_modal(app),
+        ]
+        .into()
+    } else {
+        base_container
+    }
 }
 
 fn render_widgets_tab<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
@@ -3788,3 +4115,356 @@ fn render_widgets_tab<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
 
     scrollable(main_col).into()
 }
+
+fn render_system_doctor_modal<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
+    let tools = check_installed_tools();
+    let total_count = tools.len();
+    let installed_count = tools.iter().filter(|t| t.installed).count();
+    let all_installed = installed_count == total_count;
+
+    // Header title and count badge
+    let summary_badge = container(
+        text(format!("{}/{} INSTALLED", installed_count, total_count))
+            .size(11)
+            .color(if all_installed { EMERALD } else { AMBER })
+    )
+    .padding([4, 10])
+    .style(move |_| container::Style {
+        background: Some(Background::Color(if all_installed {
+            Color::from_rgba(0.04, 0.20, 0.12, 0.90)
+        } else {
+            Color::from_rgba(0.24, 0.16, 0.04, 0.90)
+        })),
+        border: Border {
+            color: if all_installed { EMERALD } else { AMBER },
+            width: 1.0,
+            radius: 12.0.into(),
+        },
+        ..Default::default()
+    });
+
+    let header_row = row![
+        text("⚙ System Doctor & Dependency Diagnostics").size(18).color(CYAN),
+        space().width(12),
+        summary_badge,
+        space().width(Length::Fill),
+        button(text("✕ Close").size(13).color(SOFT_TEXT))
+            .padding([6, 12])
+            .style(|_, status| {
+                let bg = match status {
+                    iced::widget::button::Status::Hovered => Color::from_rgba(0.95, 0.25, 0.25, 0.2),
+                    _ => Color::from_rgba(0.1, 0.12, 0.18, 0.8),
+                };
+                iced::widget::button::Style {
+                    background: Some(Background::Color(bg)),
+                    text_color: Color::WHITE,
+                    border: Border {
+                        color: CARD_STROKE,
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    shadow: iced::Shadow::default(),
+                    snap: true,
+                }
+            })
+            .on_press(Message::ToggleDoctor),
+    ]
+    .align_y(iced::Alignment::Center);
+
+    let subtitle = text(
+        "Diagnostic checklist for hardware-accelerated video decoding, WebGL rendering engines, IPC bridges, and desktop layer-shell integrations."
+    )
+    .size(12)
+    .color(SOFT_TEXT);
+
+    // Table Header
+    let table_header = container(
+        row![
+            text("COMPONENT").size(11).color(DIM_TEXT).width(160),
+            text("STATUS").size(11).color(DIM_TEXT).width(110),
+            text("DETECTED PATH / CAPABILITY").size(11).color(DIM_TEXT).width(250),
+            text("DESCRIPTION & ROLE").size(11).color(DIM_TEXT).width(Length::Fill),
+        ]
+        .spacing(12)
+        .align_y(iced::Alignment::Center)
+    )
+    .padding([8, 12])
+    .style(|_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.08, 0.10, 0.16, 0.90))),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..Default::default()
+    });
+
+    let mut rows_col = column![].spacing(6);
+
+    for (idx, t) in tools.into_iter().enumerate() {
+        let is_alt = idx % 2 == 1;
+
+        let status_badge = if t.installed {
+            container(
+                text("● Installed").size(11).color(EMERALD)
+            )
+            .padding([3, 8])
+            .style(|_| container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.04, 0.20, 0.12, 0.85))),
+                border: Border {
+                    color: EMERALD,
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            })
+        } else {
+            container(
+                text("▲ Missing").size(11).color(Color::from_rgb(0.95, 0.25, 0.25))
+            )
+            .padding([3, 8])
+            .style(|_| container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.25, 0.06, 0.06, 0.85))),
+                border: Border {
+                    color: Color::from_rgb(0.95, 0.25, 0.25),
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            })
+        };
+
+        let row_item = container(
+            row![
+                text(t.name).size(13).color(Color::WHITE).width(160),
+                container(status_badge).width(110),
+                text(t.path_or_info)
+                    .size(11)
+                    .color(if t.installed { SOFT_TEXT } else { Color::from_rgb(0.90, 0.45, 0.45) })
+                    .width(250),
+                text(t.description).size(12).color(DIM_TEXT).width(Length::Fill),
+            ]
+            .spacing(12)
+            .align_y(iced::Alignment::Center)
+        )
+        .padding([8, 12])
+        .style(move |_| container::Style {
+            background: Some(Background::Color(if is_alt {
+                Color::from_rgba(0.06, 0.08, 0.14, 0.60)
+            } else {
+                Color::from_rgba(0.04, 0.05, 0.09, 0.40)
+            })),
+            border: Border {
+                color: Color::from_rgba(0.12, 0.16, 0.26, 0.40),
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            ..Default::default()
+        });
+
+        rows_col = rows_col.push(row_item);
+    }
+
+    let scrollable_table = scrollable(rows_col)
+        .height(Length::Fixed(320.0));
+
+    // Action footer
+    let mut footer_row = row![
+        btn_primary("🛠 Run Auto-Fix / Install Missing Tools")
+            .on_press(Message::RunInstaller),
+        btn_secondary("🔄 Re-Check Dependencies")
+            .on_press(Message::RecheckDoctor),
+        space().width(Length::Fill),
+    ]
+    .spacing(12)
+    .align_y(iced::Alignment::Center);
+
+    if !app.status_message.is_empty() && app.status_message != "Ready" {
+        footer_row = footer_row.push(
+            text(&app.status_message).size(12).color(AMBER)
+        );
+        footer_row = footer_row.push(space().width(12));
+    }
+
+    footer_row = footer_row.push(
+        btn_secondary("✕ Close Dialog")
+            .on_press(Message::ToggleDoctor)
+    );
+
+    let modal_card = container(
+        column![
+            header_row,
+            subtitle,
+            rule::horizontal(1),
+            table_header,
+            scrollable_table,
+            rule::horizontal(1),
+            footer_row,
+        ]
+        .spacing(14)
+    )
+    .width(Length::Fixed(880.0))
+    .max_height(600.0)
+    .padding(22)
+    .style(|_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.05, 0.07, 0.12, 0.97))),
+        border: Border {
+            color: CYAN,
+            width: 1.5,
+            radius: 12.0.into(),
+        },
+        shadow: iced::Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.75),
+            offset: iced::Vector::new(0.0, 10.0),
+            blur_radius: 28.0,
+        },
+        ..Default::default()
+    });
+
+    container(modal_card)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(iced::Alignment::Center)
+        .align_y(iced::Alignment::Center)
+        .style(|_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.01, 0.02, 0.04, 0.78))),
+            ..Default::default()
+        })
+        .into()
+}
+
+fn render_logs_modal<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
+    let log_path_display = get_log_path().display().to_string();
+
+    let path_badge = container(
+        text(log_path_display)
+            .size(11)
+            .color(SOFT_TEXT)
+    )
+    .padding([4, 10])
+    .style(|_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.08, 0.10, 0.16, 0.90))),
+        border: Border {
+            color: CARD_STROKE,
+            width: 1.0,
+            radius: 10.0.into(),
+        },
+        ..Default::default()
+    });
+
+    let header_row = row![
+        text("📋 Omywall Live System Logs").size(18).color(CYAN),
+        space().width(12),
+        path_badge,
+        space().width(Length::Fill),
+        button(text("✕ Close").size(13).color(SOFT_TEXT))
+            .padding([6, 12])
+            .style(|_, status| {
+                let bg = match status {
+                    iced::widget::button::Status::Hovered => Color::from_rgba(0.95, 0.25, 0.25, 0.2),
+                    _ => Color::from_rgba(0.1, 0.12, 0.18, 0.8),
+                };
+                iced::widget::button::Style {
+                    background: Some(Background::Color(bg)),
+                    text_color: Color::WHITE,
+                    border: Border {
+                        color: CARD_STROKE,
+                        width: 1.0,
+                        radius: 6.0.into(),
+                    },
+                    shadow: iced::Shadow::default(),
+                    snap: true,
+                }
+            })
+            .on_press(Message::ToggleLogs),
+    ]
+    .align_y(iced::Alignment::Center);
+
+    let logs_text_display = if app.logs_content.is_empty() {
+        "No logs recorded yet. Background daemon events, IPC transactions, and render pipeline messages will appear here."
+    } else {
+        &app.logs_content
+    };
+
+    let log_box = container(
+        scrollable(
+            text(logs_text_display)
+                .size(12)
+                .color(Color::from_rgb(0.85, 0.90, 0.96))
+        )
+        .height(Length::Fill)
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .padding(14)
+    .style(|_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.02, 0.03, 0.05, 0.95))),
+        border: Border {
+            color: Color::from_rgba(0.15, 0.20, 0.32, 0.80),
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        ..Default::default()
+    });
+
+    let mut footer_row = row![
+        btn_primary("🔄 Refresh Logs").on_press(Message::RefreshLogs),
+        btn_secondary("📋 Copy to Clipboard").on_press(Message::CopyLogs),
+        btn_danger("🧹 Clear Log File").on_press(Message::ClearLogs),
+        space().width(Length::Fill),
+    ]
+    .spacing(12)
+    .align_y(iced::Alignment::Center);
+
+    if !app.status_message.is_empty() && app.status_message != "Ready" {
+        footer_row = footer_row.push(
+            text(&app.status_message).size(12).color(AMBER)
+        );
+        footer_row = footer_row.push(space().width(12));
+    }
+
+    footer_row = footer_row.push(
+        btn_secondary("✕ Close Dialog")
+            .on_press(Message::ToggleLogs)
+    );
+
+    let modal_card = container(
+        column![
+            header_row,
+            rule::horizontal(1),
+            log_box,
+            rule::horizontal(1),
+            footer_row,
+        ]
+        .spacing(14)
+    )
+    .width(Length::Fixed(880.0))
+    .height(Length::Fixed(560.0))
+    .padding(22)
+    .style(|_| container::Style {
+        background: Some(Background::Color(Color::from_rgba(0.04, 0.06, 0.10, 0.97))),
+        border: Border {
+            color: CYAN,
+            width: 1.5,
+            radius: 12.0.into(),
+        },
+        shadow: iced::Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.75),
+            offset: iced::Vector::new(0.0, 10.0),
+            blur_radius: 28.0,
+        },
+        ..Default::default()
+    });
+
+    container(modal_card)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(iced::Alignment::Center)
+        .align_y(iced::Alignment::Center)
+        .style(|_| container::Style {
+            background: Some(Background::Color(Color::from_rgba(0.01, 0.02, 0.04, 0.78))),
+            ..Default::default()
+        })
+        .into()
+}
+

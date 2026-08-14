@@ -274,3 +274,61 @@ fn test_minimal_clock_stats_widget_file() {
     assert!(content.contains("clock-time"), "minimal clock must have clock-time element");
 }
 
+#[test]
+fn test_system_doctor_tool_checklist() {
+    let tools = omywall::iced_gui::check_installed_tools();
+    assert!(!tools.is_empty(), "Doctor tool checklist must not be empty");
+    assert!(tools.len() >= 10, "Expected at least 10 core diagnostic tools, got {}", tools.len());
+
+    let required_tool_names = [
+        "mpvpaper",
+        "mpv",
+        "ffmpeg",
+        "electron",
+        "chromium",
+        "webkit2gtk",
+        "hyprctl",
+        "steamcmd",
+        "nmcli",
+        "bluetoothctl",
+        "GPU Drivers",
+    ];
+
+    for req in required_tool_names {
+        let found = tools.iter().any(|t| t.name.to_lowercase().contains(&req.to_lowercase()));
+        assert!(found, "Expected tool checklist to include item matching '{}'", req);
+    }
+
+    for t in &tools {
+        assert!(!t.name.is_empty(), "Tool name must not be empty");
+        assert!(!t.description.is_empty(), "Tool description must not be empty");
+        assert!(!t.path_or_info.is_empty(), "Tool path or status info must not be empty");
+    }
+}
+
+#[test]
+fn test_system_doctor_and_logs_modal_messages() {
+    let cfg = omywall::config::Config::default();
+    let mut app = omywall::iced_gui::IcedGuiApp::new(cfg, false);
+
+    assert!(!app.show_doctor, "Doctor modal should start closed");
+    assert!(!app.show_logs, "Logs modal should start closed");
+
+    // Toggle doctor
+    app.show_doctor = true;
+    assert!(app.show_doctor);
+
+    // Toggle logs should close doctor
+    app.show_doctor = false;
+    app.show_logs = true;
+    assert!(!app.show_doctor);
+    assert!(app.show_logs);
+
+    // Clear logs buffer
+    app.logs_content = "some test log message".to_string();
+    assert_eq!(app.logs_content, "some test log message");
+    app.logs_content.clear();
+    assert!(app.logs_content.is_empty());
+}
+
+
