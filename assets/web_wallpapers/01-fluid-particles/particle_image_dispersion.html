@@ -3,15 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OMYWALL Cyber Geometric Particle Dispersion</title>
+<title>OMY WALL Particle Dispersion</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #040508;
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #030407;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
   canvas { display: block; width: 100%; height: 100%; }
 </style>
@@ -25,7 +25,8 @@
 
   let width, height;
   let particles = [];
-  const mouse = { x: -2000, y: -2000, radius: 52 };
+  // Extra small, delicate, razor-sharp mouse pointer
+  const mouse = { x: -2000, y: -2000, radius: 32 };
   let shockwaves = [];
 
   function resize() {
@@ -58,9 +59,9 @@
     shockwaves.push({
       x: e.clientX,
       y: e.clientY,
-      radius: 4,
-      maxRadius: 200,
-      strength: 30,
+      radius: 3,
+      maxRadius: 180,
+      strength: 26,
       alpha: 1.0
     });
   });
@@ -69,26 +70,26 @@
       shockwaves.push({
         x: e.touches[0].clientX,
         y: e.touches[0].clientY,
-        radius: 4,
-        maxRadius: 200,
-        strength: 30,
+        radius: 3,
+        maxRadius: 180,
+        strength: 26,
         alpha: 1.0
       });
     }
   }, { passive: true });
 
   class ImageParticle {
-    constructor(originX, originY, color, size) {
+    constructor(originX, originY, color) {
       this.originX = originX;
       this.originY = originY;
-      this.x = originX + (Math.random() - 0.5) * 500;
-      this.y = originY + (Math.random() - 0.5) * 500;
+      this.x = originX + (Math.random() - 0.5) * 400;
+      this.y = originY + (Math.random() - 0.5) * 400;
       this.vx = (Math.random() - 0.5) * 2;
       this.vy = (Math.random() - 0.5) * 2;
       this.color = color;
-      this.size = size || 2.2;
+      this.size = 2.4;
       this.ease = 0.08 + Math.random() * 0.02;
-      this.friction = 0.87;
+      this.friction = 0.86;
     }
     update() {
       // Spring attraction to origin coordinate
@@ -97,14 +98,14 @@
       this.vx += dxOrigin * this.ease;
       this.vy += dyOrigin * this.ease;
 
-      // Tight, delicate mouse pointer repulsion
+      // Small, precise pointer repulsion
       const dxMouse = this.x - mouse.x;
       const dyMouse = this.y - mouse.y;
       const distMouse = Math.sqrt(dxMouse * dxMouse + dyMouse * dyMouse);
       if (distMouse < mouse.radius && distMouse > 0.1) {
         const force = (mouse.radius - distMouse) / mouse.radius;
         const angle = Math.atan2(dyMouse, dxMouse);
-        const push = force * force * 18.0;
+        const push = force * force * 16.0;
         this.vx += Math.cos(angle) * push;
         this.vy += Math.sin(angle) * push;
       }
@@ -114,9 +115,9 @@
         const dxSw = this.x - sw.x;
         const dySw = this.y - sw.y;
         const distSw = Math.sqrt(dxSw * dxSw + dySw * dySw);
-        if (Math.abs(distSw - sw.radius) < 25 && distSw > 0.1) {
+        if (Math.abs(distSw - sw.radius) < 22 && distSw > 0.1) {
           const angle = Math.atan2(dySw, dxSw);
-          const push = (1.0 - Math.abs(distSw - sw.radius) / 25) * sw.strength * sw.alpha;
+          const push = (1.0 - Math.abs(distSw - sw.radius) / 22) * sw.strength * sw.alpha;
           this.vx += Math.cos(angle) * push;
           this.vy += Math.sin(angle) * push;
         }
@@ -136,95 +137,50 @@
 
   function initParticles() {
     particles = [];
-    // Render large classic geometric emblem onto high-res offscreen canvas
-    const size = Math.min(width, height) * 0.82;
+
+    const boxW = Math.min(width * 0.88, 850);
+    const boxH = Math.min(height * 0.78, 650);
     const offCanvas = document.createElement('canvas');
-    offCanvas.width = Math.floor(size);
-    offCanvas.height = Math.floor(size);
+    offCanvas.width = Math.floor(boxW);
+    offCanvas.height = Math.floor(boxH);
     const offCtx = offCanvas.getContext('2d');
 
-    offCtx.clearRect(0, 0, size, size);
-    offCtx.save();
-    offCtx.translate(size * 0.5, size * 0.5);
+    offCtx.clearRect(0, 0, boxW, boxH);
 
-    // 1. Glowing Concentric Neon Rings
-    // Outer Cyan Ring
-    offCtx.strokeStyle = '#00f0ff';
-    offCtx.lineWidth = Math.max(14, size * 0.024);
-    offCtx.beginPath();
-    offCtx.arc(0, 0, size * 0.38, 0, Math.PI * 2);
-    offCtx.stroke();
-
-    // Inner Emerald Ring Accent
-    offCtx.strokeStyle = '#00ff9d';
-    offCtx.lineWidth = Math.max(6, size * 0.010);
-    offCtx.beginPath();
-    offCtx.arc(0, 0, size * 0.43, 0, Math.PI * 2);
-    offCtx.stroke();
-
-    // 2. Glowing Cyber Diamond (Magenta/Pink)
-    offCtx.strokeStyle = '#ff007f';
-    offCtx.lineWidth = Math.max(12, size * 0.020);
-    offCtx.beginPath();
-    offCtx.moveTo(0, -size * 0.42);
-    offCtx.lineTo(size * 0.42, 0);
-    offCtx.lineTo(0, size * 0.42);
-    offCtx.lineTo(-size * 0.42, 0);
-    offCtx.closePath();
-    offCtx.stroke();
-
-    // Secondary Inner Diamond Accent
-    offCtx.strokeStyle = '#9900ff';
-    offCtx.lineWidth = Math.max(5, size * 0.008);
-    offCtx.beginPath();
-    offCtx.moveTo(0, -size * 0.28);
-    offCtx.lineTo(size * 0.28, 0);
-    offCtx.lineTo(0, size * 0.28);
-    offCtx.lineTo(-size * 0.28, 0);
-    offCtx.closePath();
-    offCtx.stroke();
-
-    // 3. Omarchy / Arch Apex Geometric Chevron
-    offCtx.strokeStyle = '#00e5ff';
-    offCtx.lineWidth = Math.max(7, size * 0.012);
-    offCtx.beginPath();
-    offCtx.moveTo(-size * 0.22, -size * 0.08);
-    offCtx.lineTo(0, -size * 0.24);
-    offCtx.lineTo(size * 0.22, -size * 0.08);
-    offCtx.stroke();
-
-    // 4. Bold Centered "OMYWALL" Typography
-    const fontSize = Math.floor(size * 0.135);
-    offCtx.fillStyle = '#ffffff';
-    offCtx.font = `900 ${fontSize}px 'Inter', sans-serif`;
+    // Large Bold Simple Typography: OMY on top line, WALL on next line
+    const fontSize = Math.floor(Math.min(boxW * 0.42, boxH * 0.44));
+    offCtx.font = `900 ${fontSize}px sans-serif`;
     offCtx.textAlign = 'center';
     offCtx.textBaseline = 'middle';
-    offCtx.fillText('OMYWALL', 0, size * 0.02);
 
-    // Subtitle "OMARCHY" in neon cyan
-    const subFontSize = Math.floor(size * 0.045);
-    offCtx.font = `800 ${subFontSize}px 'Inter', sans-serif`;
+    const cx = boxW * 0.5;
+    const y1 = boxH * 0.28;
+    const y2 = boxH * 0.72;
+
+    // Line 1: OMY in bright cyan
     offCtx.fillStyle = '#00f0ff';
-    offCtx.fillText('OMARCHY ENGINE', 0, size * 0.15);
+    offCtx.fillText('OMY', cx, y1);
 
-    offCtx.restore();
+    // Line 2: WALL in vibrant neon pink
+    offCtx.fillStyle = '#ff007f';
+    offCtx.fillText('WALL', cx, y2);
 
-    // Sample pixels at regular stride to generate high density particles
-    const imgData = offCtx.getImageData(0, 0, Math.floor(size), Math.floor(size)).data;
-    const startX = (width - size) * 0.5;
-    const startY = (height - size) * 0.5;
+    // Sample pixels to generate particles
+    const imgData = offCtx.getImageData(0, 0, Math.floor(boxW), Math.floor(boxH)).data;
+    const startX = (width - boxW) * 0.5;
+    const startY = (height - boxH) * 0.5;
     const step = 4; // High density sampling
 
-    for (let y = 0; y < size; y += step) {
-      for (let x = 0; x < size; x += step) {
-        const idx = Math.floor(y * Math.floor(size) + x) * 4;
+    for (let y = 0; y < boxH; y += step) {
+      for (let x = 0; x < boxW; x += step) {
+        const idx = Math.floor(y * Math.floor(boxW) + x) * 4;
         const alpha = imgData[idx + 3];
-        if (alpha > 75) {
+        if (alpha > 70) {
           const r = imgData[idx];
           const g = imgData[idx + 1];
           const b = imgData[idx + 2];
           const col = `rgb(${r}, ${g}, ${b})`;
-          particles.push(new ImageParticle(startX + x, startY + y, col, 2.2));
+          particles.push(new ImageParticle(startX + x, startY + y, col));
         }
       }
     }
@@ -233,13 +189,13 @@
   resize();
 
   function animate() {
-    ctx.fillStyle = 'rgba(4, 5, 8, 0.22)';
+    ctx.fillStyle = 'rgba(3, 4, 7, 0.22)';
     ctx.fillRect(0, 0, width, height);
 
     // Update shockwaves
     for (let i = shockwaves.length - 1; i >= 0; i--) {
       const sw = shockwaves[i];
-      sw.radius += 6.0;
+      sw.radius += 5.5;
       sw.alpha = 1.0 - (sw.radius / sw.maxRadius);
       if (sw.radius >= sw.maxRadius) {
         shockwaves.splice(i, 1);
@@ -252,10 +208,10 @@
       particles[i].draw();
     }
 
-    // Subtle pointer aura
+    // Small subtle pointer aura
     if (mouse.x > 0 && mouse.y > 0) {
-      const pGrad = ctx.createRadialGradient(mouse.x, mouse.y, 2, mouse.x, mouse.y, mouse.radius);
-      pGrad.addColorStop(0, 'rgba(0, 240, 255, 0.25)');
+      const pGrad = ctx.createRadialGradient(mouse.x, mouse.y, 1, mouse.x, mouse.y, mouse.radius);
+      pGrad.addColorStop(0, 'rgba(0, 240, 255, 0.3)');
       pGrad.addColorStop(1, 'rgba(0, 240, 255, 0)');
       ctx.fillStyle = pGrad;
       ctx.beginPath();
