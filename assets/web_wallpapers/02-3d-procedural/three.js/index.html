@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Three.js 3D Visualizer Scene</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #020617; overflow: hidden; width: 100vw; height: 100vh; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script src="build/three.min.js" onerror="loadCdn()"></script>
+  <script>
+    function loadCdn() {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+      s.onload = init;
+      document.head.appendChild(s);
+    }
+    if (window.THREE) { init(); }
+
+    function init() {
+      const canvas = document.getElementById('c');
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x020617, 0.002);
+
+      const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 3000);
+      camera.position.set(0, 150, 400);
+      camera.lookAt(0, 0, 0);
+
+      const geom = new THREE.PlaneGeometry(1200, 1200, 64, 64);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x00f0ff,
+        wireframe: true,
+        roughness: 0.1,
+        metalness: 0.8
+      });
+      const plane = new THREE.Mesh(geom, mat);
+      plane.rotation.x = -Math.PI / 2;
+      scene.add(plane);
+
+      const torusGeom = new THREE.TorusKnotGeometry(60, 18, 128, 32);
+      const torusMat = new THREE.MeshStandardMaterial({
+        color: 0xff007f,
+        roughness: 0.2,
+        metalness: 0.9,
+        wireframe: false
+      });
+      const torus = new THREE.Mesh(torusGeom, torusMat);
+      torus.position.y = 80;
+      scene.add(torus);
+
+      const light1 = new THREE.PointLight(0x00f0ff, 2, 800);
+      light1.position.set(-200, 300, 200);
+      scene.add(light1);
+
+      const light2 = new THREE.PointLight(0xff007f, 2, 800);
+      light2.position.set(200, 300, -200);
+      scene.add(light2);
+
+      const amb = new THREE.AmbientLight(0x222233);
+      scene.add(amb);
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      let clock = 0;
+      function animate() {
+        requestAnimationFrame(animate);
+        clock += 0.015;
+        torus.rotation.x += 0.008;
+        torus.rotation.y += 0.012;
+
+        const pos = geom.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          const u = pos.getX(i);
+          const v = pos.getY(i);
+          const z = Math.sin(u * 0.01 + clock) * 20 + Math.cos(v * 0.01 + clock) * 20;
+          pos.setZ(i, z);
+        }
+        pos.needsUpdate = true;
+        renderer.render(scene, camera);
+      }
+      animate();
+    }
+  </script>
+</body>
+</html>

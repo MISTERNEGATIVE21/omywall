@@ -724,6 +724,28 @@ impl IcedGuiApp {
             if depth > 4 {
                 return;
             }
+            let dir_name = d.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if dir_name.starts_with('.')
+                || dir_name.eq_ignore_ascii_case("docs")
+                || dir_name.eq_ignore_ascii_case("documentation")
+                || dir_name.eq_ignore_ascii_case("test")
+                || dir_name.eq_ignore_ascii_case("tests")
+                || dir_name.eq_ignore_ascii_case("node_modules")
+                || dir_name.eq_ignore_ascii_case("manual")
+                || dir_name.eq_ignore_ascii_case("devtools")
+                || dir_name.eq_ignore_ascii_case("coverage")
+            {
+                return;
+            }
+
+            if d.join("project.json").exists() {
+                let canon = std::fs::canonicalize(d).unwrap_or_else(|_| d.to_path_buf());
+                if seen.insert(canon.clone()) {
+                    files.push(canon);
+                }
+                return;
+            }
+
             if let Ok(entries) = std::fs::read_dir(d) {
                 for entry in entries.flatten() {
                     let path = entry.path();
@@ -737,6 +759,19 @@ impl IcedGuiApp {
                             }
                         }
                     } else if path.is_dir() {
+                        let sub_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        if sub_name.starts_with('.')
+                            || sub_name.eq_ignore_ascii_case("docs")
+                            || sub_name.eq_ignore_ascii_case("documentation")
+                            || sub_name.eq_ignore_ascii_case("test")
+                            || sub_name.eq_ignore_ascii_case("tests")
+                            || sub_name.eq_ignore_ascii_case("node_modules")
+                            || sub_name.eq_ignore_ascii_case("manual")
+                            || sub_name.eq_ignore_ascii_case("devtools")
+                            || sub_name.eq_ignore_ascii_case("coverage")
+                        {
+                            continue;
+                        }
                         walk_dir(&path, depth + 1, files, seen, valid_exts);
                     }
                 }
@@ -926,6 +961,58 @@ fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
     let cache_dir = PathBuf::from("/tmp/omywall_thumbs");
     let _ = std::fs::create_dir_all(&cache_dir);
 
+    // Handle Directory (Steam Workshop Item or Web Wallpaper Folder)
+    if video_path.is_dir() {
+        let project_file = video_path.join("project.json");
+        if project_file.exists() {
+            if let Ok(content) = std::fs::read_to_string(&project_file) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(preview) = json.get("preview").and_then(|v| v.as_str()) {
+                        let p = video_path.join(preview);
+                        if p.exists() {
+                            return Some(p);
+                        }
+                    }
+                    let w_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                    let w_file = json.get("file").and_then(|v| v.as_str()).unwrap_or("");
+                    if w_type == "video" && !w_file.is_empty() {
+                        let p = video_path.join(w_file);
+                        if p.exists() {
+                            return get_thumbnail_path(&p);
+                        }
+                    } else if w_type == "web" && !w_file.is_empty() {
+                        let p = video_path.join(w_file);
+                        if p.exists() {
+                            return get_web_thumbnail_path(&p.to_string_lossy());
+                        }
+                    }
+                }
+            }
+        }
+
+        let candidates = ["preview.jpg", "preview.png", "preview.gif", "preview.jpeg", "preview.webp", "thumb.jpg", "thumb.png", "thumbnail.jpg", "cover.jpg"];
+        for cand in candidates {
+            let p = video_path.join(cand);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+
+        if let Some(html_entry) = crate::config::find_primary_html_entry(video_path) {
+            return get_web_thumbnail_path(&html_entry.to_string_lossy());
+        }
+
+        if let Ok(entries) = std::fs::read_dir(video_path) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                if matches!(ext.as_str(), "mp4" | "webm" | "mkv" | "mov" | "avi") {
+                    return get_thumbnail_path(&p);
+                }
+            }
+        }
+    }
+
     let ext = video_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
     if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp") {
         return Some(video_path.to_path_buf());
@@ -978,6 +1065,14 @@ fn get_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
 pub fn get_web_thumbnail_path(target: &str) -> Option<PathBuf> {
     let resolved = crate::config::resolve_asset_path(target);
     let path = Path::new(&resolved);
+
+    if path.is_dir() {
+        if let Some(html_entry) = crate::config::find_primary_html_entry(path) {
+            return get_web_thumbnail_path(&html_entry.to_string_lossy());
+        }
+        return get_thumbnail_path(path);
+    }
+
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
 
     if matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif" | "png" | "jpg" | "jpeg" | "webp") {

@@ -313,6 +313,9 @@ impl WallpaperEngine {
             if has_project || has_pkg {
                 return self.set_steam_wallpaper(resolved_path, None, None);
             }
+            if let Some(html_entry) = crate::config::find_primary_html_entry(resolved_path) {
+                return self.set_url(&html_entry.to_string_lossy());
+            }
         }
 
         if !resolved_path.exists() {
@@ -527,9 +530,84 @@ impl WallpaperEngine {
         screen: Option<&str>,
         overrides: Option<&crate::config::WallpaperOverrides>,
     ) -> Result<(), String> {
-        let lwe_bin = find_lwe_binary().ok_or_else(|| {
-            "linux-wallpaperengine binary not found. Please install linux-wallpaperengine.".to_string()
-        })?;
+        // 1. Inspect project.json if present
+        let project_json_path = if wallpaper_path.is_dir() {
+            wallpaper_path.join("project.json")
+        } else if let Some(parent) = wallpaper_path.parent() {
+            parent.join("project.json")
+        } else {
+            PathBuf::from("project.json")
+        };
+
+        if project_json_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&project_json_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    let w_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                    let w_file = json.get("file").and_then(|v| v.as_str()).unwrap_or("");
+                    let base_dir = project_json_path.parent().unwrap_or(wallpaper_path);
+
+                    // Video Steam Wallpaper -> Route to native mpvpaper
+                    if w_type == "video" || matches!(Path::new(w_file).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase().as_str(), "mp4" | "webm" | "mkv" | "mov" | "avi" | "flv") {
+                        let target_video = if !w_file.is_empty() && base_dir.join(w_file).exists() {
+                            base_dir.join(w_file)
+                        } else {
+                            std::fs::read_dir(base_dir).ok().and_then(|entries| {
+                                entries.flatten().map(|e| e.path()).find(|p| {
+                                    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                                    matches!(ext.as_str(), "mp4" | "webm" | "mkv" | "mov")
+                                })
+                            }).unwrap_or_else(|| base_dir.to_path_buf())
+                        };
+                        if target_video.is_file() {
+                            log_info(&format!("Steam Workshop: Playing native video wallpaper: {}", target_video.display()));
+                            return self.set_wallpaper(&target_video);
+                        }
+                    }
+
+                    // Web Steam Wallpaper -> Route to WebKit layer
+                    if w_type == "web" || matches!(Path::new(w_file).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase().as_str(), "html" | "htm") || base_dir.join("index.html").exists() {
+                        let target_web = if !w_file.is_empty() && base_dir.join(w_file).exists() {
+                            base_dir.join(w_file)
+                        } else if let Some(html_entry) = crate::config::find_primary_html_entry(base_dir) {
+                            html_entry
+                        } else {
+                            base_dir.join("index.html")
+                        };
+                        if target_web.exists() {
+                            log_info(&format!("Steam Workshop: Launching web wallpaper: {}", target_web.display()));
+                            return self.set_url(&target_web.to_string_lossy());
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Direct Web Wallpaper check
+        if wallpaper_path.is_dir() {
+            if let Some(html_entry) = crate::config::find_primary_html_entry(wallpaper_path) {
+                if !wallpaper_path.join("project.json").exists() && !std::fs::read_dir(wallpaper_path).ok().is_some_and(|entries| entries.flatten().any(|e| crate::steam_scanner::is_pkg_file(&e.path()))) {
+                    return self.set_url(&html_entry.to_string_lossy());
+                }
+            }
+        }
+
+        // 3. Scene Wallpaper (.pkg / scene.json) -> linux-wallpaperengine
+        let lwe_bin = match find_lwe_binary() {
+            Some(bin) => bin,
+            None => {
+                // Fallback: Check if there's a preview video or image in the folder
+                let base_dir = if wallpaper_path.is_dir() { wallpaper_path } else { wallpaper_path.parent().unwrap_or(wallpaper_path) };
+                let fallback_video_candidates = ["preview.mp4", "preview.webm", "preview.gif", "preview.jpg", "preview.png", "preview.jpeg"];
+                for cand in fallback_video_candidates {
+                    let p = base_dir.join(cand);
+                    if p.exists() {
+                        log_info(&format!("Steam Workshop: linux-wallpaperengine not found; rendering fallback preview: {}", p.display()));
+                        return self.set_wallpaper(&p);
+                    }
+                }
+                return Err("linux-wallpaperengine binary not found. Please install linux-wallpaperengine (e.g. `yay -S linux-wallpaperengine` or `pacman -S linux-wallpaperengine`) to render 3D .pkg scene wallpapers.".to_string());
+            }
+        };
 
         self.stop_mpv_internal();
         self.web_engine.stop();

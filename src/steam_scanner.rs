@@ -191,6 +191,21 @@ pub fn scan_steam_wallpapers() -> Vec<SteamWallpaper> {
         workshop_dirs.push(temp_workshop);
     }
 
+    let home = get_home_dir();
+    let custom_candidates = [
+        home.join(".local").join("share").join("omywall").join("workshop"),
+        home.join(".local").join("share").join("omywall").join("steam_workshop"),
+        home.join(".config").join("omywall").join("workshop"),
+        home.join("workshop"),
+        PathBuf::from("assets/workshop"),
+        PathBuf::from("assets/steam_workshop"),
+    ];
+    for cand in custom_candidates {
+        if cand.exists() && !workshop_dirs.contains(&cand) {
+            workshop_dirs.push(cand);
+        }
+    }
+
     let mut wallpapers = Vec::new();
     let mut seen_ids = std::collections::HashSet::new();
 
@@ -300,11 +315,23 @@ fn resolve_thumbnail(item_path: &Path, json: &serde_json::Value) -> Option<PathB
         }
     }
 
-    let candidates = ["preview.jpg", "preview.png", "preview.gif", "preview.jpeg"];
+    let candidates = [
+        "preview.jpg", "preview.png", "preview.gif", "preview.jpeg", "preview.webp",
+        "thumb.jpg", "thumb.png", "thumbnail.jpg", "thumbnail.png", "cover.jpg", "cover.png",
+        "screenshot.jpg", "screenshot.png",
+    ];
     for cand in candidates {
         let p = item_path.join(cand);
         if p.exists() {
             return Some(p);
+        }
+    }
+
+    if item_path.is_file() {
+        if let Some(ext) = item_path.extension().and_then(|e| e.to_str()) {
+            if matches!(ext.to_lowercase().as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif") {
+                return Some(item_path.to_path_buf());
+            }
         }
     }
 

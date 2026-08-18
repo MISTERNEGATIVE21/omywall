@@ -175,8 +175,96 @@ pub fn resolve_widgets_dir() -> Option<PathBuf> {
     }
 }
 
+pub fn find_primary_html_entry(dir: &Path) -> Option<PathBuf> {
+    if !dir.is_dir() {
+        if dir.is_file() {
+            if let Some(ext) = dir.extension().and_then(|e| e.to_str()) {
+                if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+                    return Some(dir.to_path_buf());
+                }
+            }
+        }
+        return None;
+    }
+
+    let candidates = [
+        "index.html",
+        "index.htm",
+        "demo.html",
+        "demo/index.html",
+        "demo/index.htm",
+        "demo/static/index.html",
+        "examples/index.html",
+        "example/index.html",
+        "app.html",
+        "main.html",
+        "Geometry_Showcase.html",
+        "dist/index.html",
+        "build/index.html",
+        "public/index.html",
+    ];
+
+    for cand in candidates {
+        let p = dir.join(cand);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+
+    if let Ok(entries) = fs::read_dir(dir) {
+        let mut root_htmls = Vec::new();
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() {
+                if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                    if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+                        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        if !name.starts_with('.') && !name.contains("test") && !name.contains("spec") {
+                            root_htmls.push(p);
+                        }
+                    }
+                }
+            }
+        }
+        root_htmls.sort();
+        if let Some(first) = root_htmls.into_iter().next() {
+            return Some(first);
+        }
+    }
+
+    for sub in &["demo", "examples", "example", "dist", "public", "src"] {
+        let sub_dir = dir.join(sub);
+        if sub_dir.is_dir() {
+            if let Ok(entries) = fs::read_dir(&sub_dir) {
+                let mut sub_htmls = Vec::new();
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_file() {
+                        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                            if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+                                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                                if !name.starts_with('.') && !name.contains("test") {
+                                    sub_htmls.push(p);
+                                }
+                            }
+                        }
+                    }
+                }
+                sub_htmls.sort();
+                if let Some(first) = sub_htmls.into_iter().next() {
+                    return Some(first);
+                }
+            }
+        }
+    }
+
+    None
+}
+
 pub fn scan_web_asset_bookmarks() -> Vec<WebBookmark> {
     let mut bookmarks = Vec::new();
+    let mut seen_urls = std::collections::HashSet::new();
+
     if let Some(web_dir) = resolve_web_assets_dir() {
         if let Ok(entries) = fs::read_dir(&web_dir) {
             let mut categories: Vec<PathBuf> = Vec::new();
@@ -188,12 +276,15 @@ pub fn scan_web_asset_bookmarks() -> Vec<WebBookmark> {
                     if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
                         if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
                             let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("wallpaper");
-                            bookmarks.push(WebBookmark {
-                                title: humanize_title(stem),
-                                url: format!("assets/web_wallpapers/{}", p.file_name().unwrap_or_default().to_string_lossy()),
-                                category: "3D WebGL".to_string(),
-                                is_demo: true,
-                            });
+                            let url = format!("assets/web_wallpapers/{}", p.file_name().unwrap_or_default().to_string_lossy());
+                            if seen_urls.insert(url.clone()) {
+                                bookmarks.push(WebBookmark {
+                                    title: humanize_title(stem),
+                                    url,
+                                    category: "3D WebGL".to_string(),
+                                    is_demo: true,
+                                });
+                            }
                         }
                     }
                 }
@@ -202,28 +293,50 @@ pub fn scan_web_asset_bookmarks() -> Vec<WebBookmark> {
             categories.sort_by_key(|c| c.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
             for cat in categories {
                 let cat_name = cat.file_name().and_then(|n| n.to_str()).unwrap_or("Misc").to_string();
-                if let Ok(files) = fs::read_dir(&cat) {
-                    let mut cat_files: Vec<PathBuf> = Vec::new();
-                    for f in files.flatten() {
-                        let p = f.path();
+                if let Ok(entries) = fs::read_dir(&cat) {
+                    let mut cat_items: Vec<PathBuf> = Vec::new();
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        cat_items.push(p);
+                    }
+                    cat_items.sort();
+
+                    for p in cat_items {
                         if p.is_file() {
                             if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
                                 if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
-                                    cat_files.push(p);
+                                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("wallpaper");
+                                    let url = format!("assets/web_wallpapers/{}/{}", cat_name, p.file_name().unwrap_or_default().to_string_lossy());
+                                    if seen_urls.insert(url.clone()) {
+                                        bookmarks.push(WebBookmark {
+                                            title: humanize_title(stem),
+                                            url,
+                                            category: humanize_title(&cat_name),
+                                            is_demo: true,
+                                        });
+                                    }
+                                }
+                            }
+                        } else if p.is_dir() {
+                            let sub_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                            if sub_name.starts_with('.') || sub_name.eq_ignore_ascii_case("docs") || sub_name.eq_ignore_ascii_case("test") || sub_name.eq_ignore_ascii_case("node_modules") {
+                                continue;
+                            }
+                            if let Some(html_entry) = find_primary_html_entry(&p) {
+                                if let Ok(rel) = html_entry.strip_prefix(&web_dir) {
+                                    let url = format!("assets/web_wallpapers/{}", rel.to_string_lossy());
+                                    if seen_urls.insert(url.clone()) {
+                                        let title = humanize_title(sub_name);
+                                        bookmarks.push(WebBookmark {
+                                            title,
+                                            url,
+                                            category: humanize_title(&cat_name),
+                                            is_demo: true,
+                                        });
+                                    }
                                 }
                             }
                         }
-                    }
-                    cat_files.sort();
-                    for p in cat_files {
-                        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("wallpaper");
-                        let url = format!("assets/web_wallpapers/{}/{}", cat_name, p.file_name().unwrap_or_default().to_string_lossy());
-                        bookmarks.push(WebBookmark {
-                            title: humanize_title(stem),
-                            url,
-                            category: humanize_title(&cat_name),
-                            is_demo: true,
-                        });
                     }
                 }
             }
@@ -756,12 +869,28 @@ pub fn resolve_asset_path(url: &str) -> String {
 
     let p = std::path::Path::new(trimmed);
     if p.is_absolute() && p.exists() {
+        if p.is_dir() {
+            if let Some(html_entry) = find_primary_html_entry(p) {
+                return std::fs::canonicalize(&html_entry)
+                    .unwrap_or(html_entry)
+                    .to_string_lossy()
+                    .to_string();
+            }
+        }
         return std::fs::canonicalize(p)
             .unwrap_or_else(|_| p.to_path_buf())
             .to_string_lossy()
             .to_string();
     }
     if p.exists() {
+        if p.is_dir() {
+            if let Some(html_entry) = find_primary_html_entry(p) {
+                return std::fs::canonicalize(&html_entry)
+                    .unwrap_or(html_entry)
+                    .to_string_lossy()
+                    .to_string();
+            }
+        }
         return std::fs::canonicalize(p)
             .unwrap_or_else(|_| p.to_path_buf())
             .to_string_lossy()
@@ -790,6 +919,14 @@ pub fn resolve_asset_path(url: &str) -> String {
 
     for c in &candidates {
         if c.exists() {
+            if c.is_dir() {
+                if let Some(html_entry) = find_primary_html_entry(c) {
+                    return std::fs::canonicalize(&html_entry)
+                        .unwrap_or(html_entry)
+                        .to_string_lossy()
+                        .to_string();
+                }
+            }
             return std::fs::canonicalize(c)
                 .unwrap_or_else(|_| c.clone())
                 .to_string_lossy()

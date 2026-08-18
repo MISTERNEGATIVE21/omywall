@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Three.js Postprocessing Bloom & Glitch</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #030712; overflow: hidden; width: 100vw; height: 100vh; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    const canvas = document.getElementById('c');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 80;
+
+    const group = new THREE.Group();
+    const geom = new THREE.IcosahedronGeometry(25, 2);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: true });
+    const sphere = new THREE.Mesh(geom, mat);
+    group.add(sphere);
+
+    const innerGeom = new THREE.OctahedronGeometry(12, 0);
+    const innerMat = new THREE.MeshBasicMaterial({ color: 0xff007f, wireframe: true });
+    const inner = new THREE.Mesh(innerGeom, innerMat);
+    group.add(inner);
+
+    scene.add(group);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    let clock = 0;
+    function animate() {
+      requestAnimationFrame(animate);
+      clock += 0.01;
+      group.rotation.x = Math.sin(clock * 0.5) * 0.4;
+      group.rotation.y = clock * 0.8;
+      inner.rotation.y = -clock * 1.5;
+      inner.rotation.z = clock * 0.5;
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

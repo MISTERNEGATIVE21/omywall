@@ -220,7 +220,13 @@ pub fn resolve_target_url(raw: &str) -> String {
     }
 
     let resolved = crate::config::resolve_asset_path(trimmed);
-    if Path::new(&resolved).exists() {
+    let path = Path::new(&resolved);
+    if path.is_dir() {
+        if let Some(html_entry) = crate::config::find_primary_html_entry(path) {
+            return format!("file://{}", html_entry.display());
+        }
+    }
+    if path.exists() {
         format!("file://{}", resolved)
     } else if trimmed.contains('.') && !trimmed.contains(' ') {
         format!("https://{}", trimmed)
