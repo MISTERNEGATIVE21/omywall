@@ -3,10 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Particle Image Dispersion</title>
+<title>OMYWALL & Omarchy Particle Dispersion</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #05060a; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #030509;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
   canvas { display: block; width: 100%; height: 100%; }
 </style>
 </head>
@@ -18,6 +24,10 @@
   const ctx = canvas.getContext('2d');
 
   let width, height;
+  let particles = [];
+  const mouse = { x: -2000, y: -2000, radius: 52 };
+  let shockwaves = [];
+
   function resize() {
     width = canvas.width = window.innerWidth;
     height = canvas.height = window.innerHeight;
@@ -25,45 +35,92 @@
   }
   window.addEventListener('resize', resize);
 
-  const mouse = { x: -1000, y: -1000, radius: 120 };
   window.addEventListener('mousemove', e => {
     mouse.x = e.clientX;
     mouse.y = e.clientY;
   });
   window.addEventListener('mouseleave', () => {
-    mouse.x = -1000;
-    mouse.y = -1000;
+    mouse.x = -2000;
+    mouse.y = -2000;
+  });
+  window.addEventListener('touchmove', e => {
+    if (e.touches && e.touches[0]) {
+      mouse.x = e.touches[0].clientX;
+      mouse.y = e.touches[0].clientY;
+    }
+  }, { passive: true });
+  window.addEventListener('touchend', () => {
+    mouse.x = -2000;
+    mouse.y = -2000;
   });
 
-  class ImageParticle {
-    constructor(originX, originY, color) {
+  window.addEventListener('mousedown', e => {
+    shockwaves.push({
+      x: e.clientX,
+      y: e.clientY,
+      radius: 5,
+      maxRadius: 180,
+      strength: 28,
+      alpha: 1.0
+    });
+  });
+  window.addEventListener('touchstart', e => {
+    if (e.touches && e.touches[0]) {
+      shockwaves.push({
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        radius: 5,
+        maxRadius: 180,
+        strength: 28,
+        alpha: 1.0
+      });
+    }
+  }, { passive: true });
+
+  class Particle {
+    constructor(originX, originY, color, size) {
       this.originX = originX;
       this.originY = originY;
-      this.x = Math.random() * width;
-      this.y = Math.random() * height;
-      this.vx = (Math.random() - 0.5) * 4;
-      this.vy = (Math.random() - 0.5) * 4;
+      // Start scattered with dynamic entrance
+      this.x = originX + (Math.random() - 0.5) * 600;
+      this.y = originY + (Math.random() - 0.5) * 600;
+      this.vx = (Math.random() - 0.5) * 2;
+      this.vy = (Math.random() - 0.5) * 2;
       this.color = color;
-      this.size = 2.2;
-      this.ease = 0.08;
-      this.friction = 0.88;
+      this.size = size || 2.2;
+      this.ease = 0.08 + Math.random() * 0.03;
+      this.friction = 0.86;
     }
     update() {
-      // Spring attraction to origin position
+      // Spring attraction to original coordinate
       const dxOrigin = this.originX - this.x;
       const dyOrigin = this.originY - this.y;
       this.vx += dxOrigin * this.ease;
       this.vy += dyOrigin * this.ease;
 
-      // Mouse dispersion force field
+      // Tight, delicate mouse pointer repulsion
       const dxMouse = this.x - mouse.x;
       const dyMouse = this.y - mouse.y;
       const distMouse = Math.sqrt(dxMouse * dxMouse + dyMouse * dyMouse);
-      if (distMouse < mouse.radius) {
+      if (distMouse < mouse.radius && distMouse > 0.1) {
         const force = (mouse.radius - distMouse) / mouse.radius;
         const angle = Math.atan2(dyMouse, dxMouse);
-        this.vx += Math.cos(angle) * force * 16.0;
-        this.vy += Math.sin(angle) * force * 16.0;
+        const push = force * force * 18.0;
+        this.vx += Math.cos(angle) * push;
+        this.vy += Math.sin(angle) * push;
+      }
+
+      // Shockwave impact
+      for (const sw of shockwaves) {
+        const dxSw = this.x - sw.x;
+        const dySw = this.y - sw.y;
+        const distSw = Math.sqrt(dxSw * dxSw + dySw * dySw);
+        if (Math.abs(distSw - sw.radius) < 25 && distSw > 0.1) {
+          const angle = Math.atan2(dySw, dxSw);
+          const push = (1.0 - Math.abs(distSw - sw.radius) / 25) * sw.strength * sw.alpha;
+          this.vx += Math.cos(angle) * push;
+          this.vy += Math.sin(angle) * push;
+        }
       }
 
       this.vx *= this.friction;
@@ -78,63 +135,118 @@
     }
   }
 
-  let particles = [];
-
   function initParticles() {
     particles = [];
-    // Render high-res emblem / geometry onto offscreen canvas to sample particle targets
+    // Render large emblem onto high-resolution offscreen canvas
+    const emblemW = Math.min(width * 0.82, 1000);
+    const emblemH = emblemW * 0.68;
     const offCanvas = document.createElement('canvas');
+    offCanvas.width = Math.floor(emblemW);
+    offCanvas.height = Math.floor(emblemH);
     const offCtx = offCanvas.getContext('2d');
-    const size = Math.min(width, height) * 0.55;
-    offCanvas.width = size;
-    offCanvas.height = size;
 
-    // Draw stylized OMYWALL Cyber Geometric Core
-    offCtx.clearRect(0, 0, size, size);
-    offCtx.save();
-    offCtx.translate(size * 0.5, size * 0.5);
+    const cx = emblemW * 0.5;
+    const cy = emblemH * 0.44;
 
-    // Glowing concentric rings & cyber diamond
-    offCtx.strokeStyle = '#00f0ff';
-    offCtx.lineWidth = 14;
+    offCtx.clearRect(0, 0, emblemW, emblemH);
+
+    // 1. Draw Outer Desktop Monitor / Linux Horizon Frame
+    const frameW = emblemW * 0.72;
+    const frameH = emblemH * 0.58;
+    const frameX = cx - frameW * 0.5;
+    const frameY = cy - frameH * 0.52;
+
+    offCtx.strokeStyle = '#00e5ff';
+    offCtx.lineWidth = 6;
     offCtx.beginPath();
-    offCtx.arc(0, 0, size * 0.35, 0, Math.PI * 2);
+    offCtx.roundRect(frameX, frameY, frameW, frameH, 18);
     offCtx.stroke();
 
-    offCtx.strokeStyle = '#ff007f';
-    offCtx.lineWidth = 12;
+    // 2. Glowing Sun in Sky
+    const sunGrad = offCtx.createRadialGradient(cx, frameY + frameH * 0.38, 5, cx, frameY + frameH * 0.38, frameH * 0.32);
+    sunGrad.addColorStop(0, '#ffff55');
+    sunGrad.addColorStop(0.4, '#ff3388');
+    sunGrad.addColorStop(1, 'rgba(255, 0, 100, 0)');
+    offCtx.fillStyle = sunGrad;
     offCtx.beginPath();
-    offCtx.moveTo(0, -size * 0.38);
-    offCtx.lineTo(size * 0.38, 0);
-    offCtx.lineTo(0, size * 0.38);
-    offCtx.lineTo(-size * 0.38, 0);
+    offCtx.arc(cx, frameY + frameH * 0.38, frameH * 0.32, 0, Math.PI * 2);
+    offCtx.fill();
+
+    // 3. Omarchy Cyber Mountain Peaks
+    // Left Mountain Peak
+    offCtx.fillStyle = '#6a11cb';
+    offCtx.beginPath();
+    offCtx.moveTo(frameX + frameW * 0.05, frameY + frameH * 0.9);
+    offCtx.lineTo(cx - frameW * 0.16, frameY + frameH * 0.28);
+    offCtx.lineTo(cx + frameW * 0.12, frameY + frameH * 0.9);
     offCtx.closePath();
+    offCtx.fill();
+
+    // Right Mountain Peak (Arch Apex)
+    offCtx.fillStyle = '#2575fc';
+    offCtx.beginPath();
+    offCtx.moveTo(cx - frameW * 0.08, frameY + frameH * 0.9);
+    offCtx.lineTo(cx + frameW * 0.18, frameY + frameH * 0.22);
+    offCtx.lineTo(frameX + frameW * 0.95, frameY + frameH * 0.9);
+    offCtx.closePath();
+    offCtx.fill();
+
+    // Foreground Mountain Ridge (Dark Violet)
+    offCtx.fillStyle = '#120b29';
+    offCtx.beginPath();
+    offCtx.moveTo(frameX, frameY + frameH * 0.9);
+    offCtx.lineTo(cx - frameW * 0.25, frameY + frameH * 0.62);
+    offCtx.lineTo(cx, frameY + frameH * 0.48);
+    offCtx.lineTo(cx + frameW * 0.28, frameY + frameH * 0.65);
+    offCtx.lineTo(frameX + frameW, frameY + frameH * 0.9);
+    offCtx.closePath();
+    offCtx.fill();
+
+    // 4. Glowing Neon Horizon Wave
+    const waveGrad = offCtx.createLinearGradient(frameX, 0, frameX + frameW, 0);
+    waveGrad.addColorStop(0, '#00f5ff');
+    waveGrad.addColorStop(0.5, '#00ff9d');
+    waveGrad.addColorStop(1, '#00aaff');
+    offCtx.strokeStyle = waveGrad;
+    offCtx.lineWidth = 5;
+    offCtx.beginPath();
+    offCtx.moveTo(frameX + 10, frameY + frameH * 0.88);
+    offCtx.lineTo(frameX + frameW - 10, frameY + frameH * 0.88);
     offCtx.stroke();
 
-    offCtx.fillStyle = '#ffffff';
-    offCtx.font = `900 ${Math.floor(size * 0.12)}px 'Inter', sans-serif`;
+    // 5. Large, Bold "OMYWALL" & "OMARCHY" Typography
+    const fontSize = Math.floor(emblemW * 0.095);
+    offCtx.font = `900 ${fontSize}px 'Inter', sans-serif`;
     offCtx.textAlign = 'center';
     offCtx.textBaseline = 'middle';
-    offCtx.fillText('OMYWALL', 0, 0);
 
-    offCtx.restore();
+    // OMYWALL Main Title
+    offCtx.fillStyle = '#ffffff';
+    offCtx.fillText('OMYWALL', cx, cy + frameH * 0.62);
 
-    // Sample pixels at regular stride
-    const imgData = offCtx.getImageData(0, 0, size, size).data;
-    const startX = (width - size) * 0.5;
-    const startY = (height - size) * 0.5;
-    const step = 5;
+    // OMARCHY Subtitle with Cyber Cyan Accent
+    const subSize = Math.floor(emblemW * 0.038);
+    offCtx.font = `800 ${subSize}px 'Inter', sans-serif`;
+    offCtx.letterSpacing = '6px';
+    offCtx.fillStyle = '#00f0ff';
+    offCtx.fillText('OMARCHY DESKTOP ENGINE', cx, cy + frameH * 0.78);
 
-    for (let y = 0; y < size; y += step) {
-      for (let x = 0; x < size; x += step) {
-        const idx = (y * size + x) * 4;
+    // Sample high-density pixels to generate particles
+    const imgData = offCtx.getImageData(0, 0, Math.floor(emblemW), Math.floor(emblemH)).data;
+    const startX = (width - emblemW) * 0.5;
+    const startY = (height - emblemH) * 0.5;
+    const step = 4; // High density sampling
+
+    for (let y = 0; y < emblemH; y += step) {
+      for (let x = 0; x < emblemW; x += step) {
+        const idx = Math.floor(y * Math.floor(emblemW) + x) * 4;
         const alpha = imgData[idx + 3];
-        if (alpha > 80) {
+        if (alpha > 70) {
           const r = imgData[idx];
           const g = imgData[idx + 1];
           const b = imgData[idx + 2];
           const col = `rgb(${r}, ${g}, ${b})`;
-          particles.push(new ImageParticle(startX + x, startY + y, col));
+          particles.push(new Particle(startX + x, startY + y, col, 2.3));
         }
       }
     }
@@ -143,16 +255,39 @@
   resize();
 
   function animate() {
-    ctx.fillStyle = 'rgba(5, 6, 10, 0.2)';
+    ctx.fillStyle = 'rgba(3, 5, 9, 0.22)';
     ctx.fillRect(0, 0, width, height);
 
-    for (const p of particles) {
-      p.update();
-      p.draw();
+    // Update shockwaves
+    for (let i = shockwaves.length - 1; i >= 0; i--) {
+      const sw = shockwaves[i];
+      sw.radius += 5.5;
+      sw.alpha = 1.0 - (sw.radius / sw.maxRadius);
+      if (sw.radius >= sw.maxRadius) {
+        shockwaves.splice(i, 1);
+      }
+    }
+
+    // Update and draw particles
+    for (let i = 0; i < particles.length; i++) {
+      particles[i].update();
+      particles[i].draw();
+    }
+
+    // Subtle pointer aura
+    if (mouse.x > 0 && mouse.y > 0) {
+      const pGrad = ctx.createRadialGradient(mouse.x, mouse.y, 2, mouse.x, mouse.y, mouse.radius);
+      pGrad.addColorStop(0, 'rgba(0, 240, 255, 0.25)');
+      pGrad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+      ctx.fillStyle = pGrad;
+      ctx.beginPath();
+      ctx.arc(mouse.x, mouse.y, mouse.radius, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     requestAnimationFrame(animate);
   }
+
   animate();
 })();
 </script>

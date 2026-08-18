@@ -370,6 +370,12 @@ pub fn scan_web_asset_bookmarks() -> Vec<WebBookmark> {
         }
     }
 
+    if let Some(pos) = bookmarks.iter().position(|b| b.url.contains("particle_image_dispersion")) {
+        let mut top = bookmarks.remove(pos);
+        top.title = "OMYWALL & Omarchy Particle Dispersion".to_string();
+        bookmarks.insert(0, top);
+    }
+
     bookmarks
 }
 
@@ -380,6 +386,12 @@ pub fn default_web_bookmarks() -> Vec<WebBookmark> {
     }
 
     vec![
+        WebBookmark {
+            title: "OMYWALL & Omarchy Particle Dispersion".to_string(),
+            url: "assets/web_wallpapers/01-fluid-particles/particle_image_dispersion.html".to_string(),
+            category: "Fluid & Particles".to_string(),
+            is_demo: true,
+        },
         WebBookmark {
             title: "Desktop HUD (System Telemetry & Weather)".to_string(),
             url: "assets/widgets/desktop_hud.html".to_string(),
@@ -413,12 +425,6 @@ pub fn default_web_bookmarks() -> Vec<WebBookmark> {
         WebBookmark {
             title: "FieldPlay Vector Flow Field".to_string(),
             url: "assets/web_wallpapers/01-fluid-particles/fieldplay_vector_flow.html".to_string(),
-            category: "Fluid & Particles".to_string(),
-            is_demo: true,
-        },
-        WebBookmark {
-            title: "Particle Image Dispersion".to_string(),
-            url: "assets/web_wallpapers/01-fluid-particles/particle_image_dispersion.html".to_string(),
             category: "Fluid & Particles".to_string(),
             is_demo: true,
         },
@@ -534,20 +540,15 @@ impl Default for Config {
             slideshow_interval: 300,
             slideshow_shuffle: false,
             default_wallpaper: {
-                let default_wall = PathBuf::from("assets/wallpapers/bunny.mp4");
+                let default_wall = PathBuf::from("assets/web_wallpapers/01-fluid-particles/particle_image_dispersion.html");
                 if default_wall.exists() {
                     Some(default_wall)
                 } else if let Some(home) = dirs::home_dir() {
-                    let user_wall = home.join(".local").join("share").join("omywall").join("assets").join("wallpapers").join("bunny.mp4");
+                    let user_wall = home.join(".local").join("share").join("omywall").join("assets").join("web_wallpapers").join("01-fluid-particles").join("particle_image_dispersion.html");
                     if user_wall.exists() {
                         Some(user_wall)
                     } else {
-                        let user_wall2 = home.join(".local").join("share").join("omywall").join("wallpapers").join("bunny.mp4");
-                        if user_wall2.exists() {
-                            Some(user_wall2)
-                        } else {
-                            Some(default_wall)
-                        }
+                        Some(default_wall)
                     }
                 } else {
                     Some(default_wall)

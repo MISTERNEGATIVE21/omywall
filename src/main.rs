@@ -1233,12 +1233,13 @@ fn apply_active_wallpaper(
         }
     }
 
-    let bunny_candidates = [
+    let default_candidates = [
+        PathBuf::from("assets/web_wallpapers/01-fluid-particles/particle_image_dispersion.html"),
+        dirs::home_dir().unwrap_or_default().join(".local/share/omywall/assets/web_wallpapers/01-fluid-particles/particle_image_dispersion.html"),
         PathBuf::from("assets/wallpapers/bunny.mp4"),
         dirs::home_dir().unwrap_or_default().join(".local/share/omywall/assets/wallpapers/bunny.mp4"),
-        dirs::home_dir().unwrap_or_default().join(".local/share/omywall/wallpapers/bunny.mp4"),
     ];
-    for b in &bunny_candidates {
+    for b in &default_candidates {
         if b.exists() {
             let _ = engine.set_wallpaper(b);
             return;
