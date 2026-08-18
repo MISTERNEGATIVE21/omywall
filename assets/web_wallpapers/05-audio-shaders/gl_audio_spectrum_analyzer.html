@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GL Audio Spectrum Analyzer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #03050a; }
+  canvas { width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  if (!gl) return;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const vsSource = `
+    attribute vec2 aPosition;
+    varying vec2 vUv;
+    void main() {
+      vUv = aPosition * 0.5 + 0.5;
+      gl_Position = vec4(aPosition, 0.0, 1.0);
+    }
+  `;
+
+  // GLSL Audio Spectrum & Waveform GPU Analyzer
+  const fsSource = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform float uTime;
+    uniform vec2 uResolution;
+    uniform vec2 uMouse;
+
+    float getFreqBand(float index, float t) {
+      // Procedural synthetic audio frequency spectrum (Bass, Mids, Treble)
+      float bass = sin(t * 4.0) * 0.4 + 0.6;
+      float mids = sin(t * 8.0 + index * 3.0) * 0.3 + 0.5;
+      float treble = cos(t * 14.0 + index * 6.0) * 0.2 + 0.4;
+      return clamp(bass * (1.0 - index) + mids * sin(index * 3.14) + treble * index, 0.05, 1.0);
+    }
+
+    void main() {
+      vec2 uv = gl_FragCoord.xy / uResolution.xy;
+      vec2 p = (uv - 0.5) * vec2(uResolution.x / uResolution.y, 1.0);
+
+      float t = uTime * 1.5;
+      float numBars = 64.0;
+      float barIdx = floor(uv.x * numBars) / numBars;
+      float barFrac = fract(uv.x * numBars);
+
+      float amp = getFreqBand(barIdx, t);
+      float barHeight = amp * 0.75;
+
+      // Draw Equalizer Bars with Neon Gradient
+      float inBar = step(0.15, barFrac) * step(barFrac, 0.85);
+      float barMask = inBar * step(uv.y, barHeight);
+
+      // Peak Meter Dots
+      float peakY = barHeight + 0.03 + 0.02 * sin(t * 3.0 + barIdx * 10.0);
+      float peakMask = inBar * step(abs(uv.y - peakY), 0.008);
+
+      // Bar color: Cyan -> Magenta -> Yellow
+      vec3 colBottom = vec3(0.0, 0.95, 1.0);
+      vec3 colMid = vec3(0.9, 0.1, 0.8);
+      vec3 colTop = vec3(1.0, 0.9, 0.1);
+
+      vec3 barCol = mix(colBottom, colMid, uv.y / 0.5);
+      if (uv.y > 0.5) barCol = mix(colMid, colTop, (uv.y - 0.5) / 0.5);
+
+      vec3 finalColor = vec3(0.02, 0.03, 0.08);
+
+      // Grid Lines
+      float gridY = step(0.92, fract(uv.y * 30.0));
+      finalColor += vec3(0.0, 0.3, 0.4) * gridY * 0.15;
+
+      // Add Bars & Glow
+      finalColor += barCol * barMask * 1.5;
+      finalColor += vec3(1.0, 1.0, 1.0) * peakMask * 2.0;
+
+      // Reflection on bottom plane
+      float mirrorY = 1.0 - uv.y;
+      if (mirrorY < barHeight * 0.4) {
+        finalColor += barCol * 0.25 * (1.0 - mirrorY / 0.4);
+      }
+
+      gl_FragColor = vec4(finalColor, 1.0);
+    }
+  `;
+
+  function createShader(gl, type, source) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, source);
+    gl.compileShader(s);
+    return s;
+  }
+
+  const program = gl.createProgram();
+  gl.attachShader(program, createShader(gl, gl.VERTEX_SHADER, vsSource));
+  gl.attachShader(program, createShader(gl, gl.FRAGMENT_SHADER, fsSource));
+  gl.linkProgram(program);
+  gl.useProgram(program);
+
+  const quad = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1, -1,  1, -1, -1,  1,
+    -1,  1,  1, -1,  1,  1,
+  ]), gl.STATIC_DRAW);
+
+  const aPos = gl.getAttribLocation(program, 'aPosition');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  const uTimeLoc = gl.getUniformLocation(program, 'uTime');
+  const uResLoc = gl.getUniformLocation(program, 'uResolution');
+  const uMouseLoc = gl.getUniformLocation(program, 'uMouse');
+
+  const startTime = performance.now();
+  function render() {
+    const time = (performance.now() - startTime) * 0.001;
+    gl.uniform1f(uTimeLoc, time);
+    gl.uniform2f(uResLoc, canvas.width, canvas.height);
+    gl.uniform2f(uMouseLoc, 0, 0);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    requestAnimationFrame(render);
+  }
+  render();
+})();
+</script>
+</body>
+</html>

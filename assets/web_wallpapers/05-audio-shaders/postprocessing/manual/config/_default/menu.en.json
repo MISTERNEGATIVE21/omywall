@@ -1,0 +1,30 @@
+{
+	"main": [
+		{
+			"identifier": "docs",
+			"name": "API Reference",
+			"url": "../docs/",
+			"weight": 100
+		}
+	],
+	"community": [
+		{
+			"identifier": "bugs",
+			"name": "Issue Tracker",
+			"url": "https://github.com/pmndrs/postprocessing/issues",
+			"weight": 70
+		},
+		{
+			"identifier": "discord",
+			"name": "Discord",
+			"url": "https://discord.com/invite/poimandres",
+			"weight": 80
+		},
+		{
+			"identifier": "forum",
+			"name": "Forum",
+			"url": "https://github.com/pmndrs/postprocessing/discussions",
+			"weight": 90
+		}
+	]
+}

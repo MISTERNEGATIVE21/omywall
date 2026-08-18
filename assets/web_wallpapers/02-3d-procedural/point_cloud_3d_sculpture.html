@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Point Cloud Sculpture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #040508; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let width, height;
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const POINT_COUNT = 3200;
+  const rawPoints = [];
+
+  // Generate 3D parametric sculpture (Dual Torus + Mobius Vortex)
+  for (let i = 0; i < POINT_COUNT; i++) {
+    const u = (i / POINT_COUNT) * Math.PI * 2 * 14;
+    const v = (i / POINT_COUNT) * Math.PI * 2;
+    const R = 160;
+    const r = 65 + Math.sin(u * 3) * 20;
+
+    const x = (R + r * Math.cos(v)) * Math.cos(u * 0.2);
+    const y = (R + r * Math.cos(v)) * Math.sin(u * 0.2);
+    const z = r * Math.sin(v) + Math.cos(u * 2.0) * 30;
+
+    rawPoints.push({ x, y, z, baseU: u, baseV: v });
+  }
+
+  const mouse = { x: 0, y: 0, targetX: 0, targetY: 0 };
+  window.addEventListener('mousemove', e => {
+    mouse.targetX = (e.clientX / width - 0.5) * 2.0;
+    mouse.targetY = (e.clientY / height - 0.5) * 2.0;
+  });
+
+  let t = 0;
+  function animate() {
+    t += 0.015;
+    mouse.x += (mouse.targetX - mouse.x) * 0.05;
+    mouse.y += (mouse.targetY - mouse.y) * 0.05;
+
+    ctx.fillStyle = 'rgba(4, 5, 8, 0.25)';
+    ctx.fillRect(0, 0, width, height);
+
+    const rotX = t * 0.3 + mouse.y * 0.8;
+    const rotY = t * 0.5 + mouse.x * 0.8;
+    const rotZ = t * 0.15;
+
+    const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+    const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+    const cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
+
+    const projected = [];
+    const fov = 500;
+    const cameraDist = 550;
+
+    for (let i = 0; i < rawPoints.length; i++) {
+      const p = rawPoints[i];
+
+      // Procedural breathing pulse
+      const pulse = 1.0 + Math.sin(t * 2.0 + p.baseU * 0.5) * 0.08;
+      let px = p.x * pulse;
+      let py = p.y * pulse;
+      let pz = p.z * pulse;
+
+      // 3D rotation matrix
+      let x1 = px * cosY - pz * sinY;
+      let z1 = px * sinY + pz * cosY;
+
+      let y2 = py * cosX - z1 * sinX;
+      let z2 = py * sinX + z1 * cosX;
+
+      let x3 = x1 * cosZ - y2 * sinZ;
+      let y3 = x1 * sinZ + y2 * cosZ;
+
+      const pZ = z2 + cameraDist;
+      if (pZ > 10) {
+        const scale = fov / pZ;
+        const screenX = width * 0.5 + x3 * scale;
+        const screenY = height * 0.5 + y3 * scale;
+        projected.push({
+          x: screenX,
+          y: screenY,
+          z: pZ,
+          scale,
+          u: p.baseU,
+        });
+      }
+    }
+
+    // Depth sort (painter's algorithm)
+    projected.sort((a, b) => b.z - a.z);
+
+    // Draw illuminated 3D points
+    for (const pt of projected) {
+      const depthFactor = Math.max(0, Math.min(1, (900 - pt.z) / 600));
+      const radius = Math.max(0.8, pt.scale * 2.6);
+
+      const hue = (160 + pt.u * 15 + t * 40) % 360;
+      const alpha = depthFactor * 0.85 + 0.15;
+      const color = `hsla(${hue}, 100%, ${45 + depthFactor * 35}%, ${alpha})`;
+
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = depthFactor > 0.6 ? 8 : 0;
+      ctx.fill();
+    }
+
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

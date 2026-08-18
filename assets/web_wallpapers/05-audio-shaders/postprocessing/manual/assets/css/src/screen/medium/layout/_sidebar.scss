@@ -1,0 +1,11 @@
+.sidebar {
+	pointer-events: initial;
+	position: relative;
+	transform: none;
+	transition: none;
+}
+
+.sidebar-button-open,
+.sidebar-button-close {
+	display: none;
+}

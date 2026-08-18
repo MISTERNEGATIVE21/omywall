@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="{{ .Site.Language.Lang }}">
+	<head>
+
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+		<meta name="author" content="{{ .Site.Params.Author }}">
+		{{ with .Description }}<meta name="description" content="{{ . }}">{{ end }}
+		<meta name="generator" content="Hugo {{ hugo.Version }}">
+
+		<title>{{ block "title" . }}{{ .Title }}{{ end }} &middot; {{ .Site.Title }}</title>
+
+		<base href="{{ .Site.BaseURL }}">
+		<link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+
+		{{/* Prevent white flash on navigation in dark mode. */}}
+		<script>document.documentElement.classList[localStorage.getItem("dark-mode")?"add":"remove"]("dark")</script>
+
+		{{ with resources.Get "css/dist/index.css" }}
+			{{ $stylesheet := . | fingerprint }}
+			<link rel="stylesheet" href="{{ $stylesheet.RelPermalink }}" integrity="{{ $stylesheet.Data.Integrity }}">
+		{{ end }}
+		{{ block "styles" . }}{{ end }}
+
+		{{ with resources.Get "js/dist/index.js" }}
+			{{ $script := . | fingerprint }}
+			<script defer src="{{ $script.RelPermalink }}" integrity="{{ $script.Data.Integrity }}"></script>
+		{{ end }}
+		{{ with resources.Get "js/dist/libs/vendor.js" }}
+			{{ $script := . | fingerprint }}
+			<script defer src="{{ $script.RelPermalink }}" integrity="{{ $script.Data.Integrity }}"></script>
+		{{ end }}
+		{{ block "scripts" . }}{{ end }}
+
+	</head>
+
+	{{ $class := slice "preload" -}}
+	{{ if eq .Kind "home" -}}
+		{{ $class = $class | append "home" -}}
+	{{ else if eq .Kind "404" -}}
+		{{ $class = $class | append "error404" -}}
+	{{ else if eq .Kind "page" -}}
+		{{ $class = $class | append .Type -}}
+		{{ $class = $class | append "single" -}}
+	{{ else -}}
+		{{ $class = $class | append .Type -}}
+		{{ $class = $class | append "list" -}}
+	{{ end -}}
+
+	<body class="{{ delimit $class ` ` }}">
+
+		<div class="frame-content">
+			<div>
+				<a class="skip-main" href="#main">{{ i18n "skipToContent" . }}</a>
+				<div class="sidebar-button-open" aria-label="{{ i18n `openNav` . }}"></div>
+				<div class="sidebar">
+					{{ block "header" . }}{{ partial "header.html" . }}{{ end }}
+					{{ block "navigation" . }}{{ partial "navigation.html" . }}{{ end }}
+					{{ block "footer" . }}{{ partial "footer.html" . }}{{ end }}
+				</div>
+				<main id="main"{{ if not .IsHome }} class="{{ path.Base .RelPermalink -}}"{{ end }} tabindex="-1">
+					{{ partial "viewport.html" . }}
+					<div class="content">
+						<div>{{ block "main" . }}{{ end }}</div>
+					</div>
+				</main>
+			</div>
+		</div>
+
+		{{/* Immediately restore scroll positions. */}}
+		<script>
+			document.querySelector(".navigation").scrollTop = Number(sessionStorage.getItem("nav-scroll"));
+			document.querySelector("main").scrollTop = Number(sessionStorage.getItem("main-scroll"));
+		</script>
+
+	</body>
+</html>

@@ -1,0 +1,28 @@
+{{ if .Params.script }}
+	<div class="viewport loading">
+		<div class="progress" aria-label="{{ i18n `loading` . }}">
+			<div class="spinner cubegrid">
+				<div></div><div></div><div></div>
+				<div></div><div></div><div></div>
+				<div></div><div></div><div></div>
+			</div>
+		</div>
+		<div class="icons">
+			<div class="icon fullscreen" title="{{ i18n `fullscreen` . }}"></div>
+			{{ $src := printf "%s/assets/js/src/demos/%s.js" .Site.Params.ManualURL .Params.script }}
+			<a class="icon" href="{{ $src }}" target="_blank"  title="{{ i18n `code` . }}">
+				<div class="icon code"></div>
+			</a>
+		</div>
+		<div class="tp"></div>
+		<div class="warning hidden" aria-label="{{ i18n `warning` . }}">
+			<h4>{{ i18n "warning" . }}</h4>
+			<p>{{ i18n "epilepsyWarning" . }}</p>
+			<a>{{ i18n "continue" . }}</a>
+		</div>
+		<div class="error hidden" aria-label="{{ i18n `error` . }}">
+			<h4>{{ i18n "error" . }}</h4>
+			<p></p>
+		</div>
+	</div>
+{{ end }}

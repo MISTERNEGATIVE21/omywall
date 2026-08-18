@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Real-Time Path Tracing & Glass Refraction</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  if (!gl) return;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const vsSource = `
+    attribute vec2 aPosition;
+    varying vec2 vUv;
+    void main() {
+      vUv = aPosition * 0.5 + 0.5;
+      gl_Position = vec4(aPosition, 0.0, 1.0);
+    }
+  `;
+
+  // Real-time Path Tracing & Glass Refraction Raymarching Shader
+  const fsSource = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform float uTime;
+    uniform vec2 uResolution;
+    uniform vec2 uMouse;
+
+    #define MAX_STEPS 90
+    #define SURF_DIST 0.001
+    #define MAX_DIST 50.0
+
+    mat2 rot(float a) {
+      float s = sin(a), c = cos(a);
+      return mat2(c, -s, s, c);
+    }
+
+    // Signed Distance Functions
+    float sdSphere(vec3 p, float r) {
+      return length(p) - r;
+    }
+
+    float sdBox(vec3 p, vec3 b) {
+      vec3 q = abs(p) - b;
+      return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+    }
+
+    float getDist(vec3 p) {
+      float d = p.y + 1.2; // Floor plane
+
+      // Central morphing glass refractive orb
+      vec3 spherePos = p - vec3(0.0, 0.0, 0.0);
+      spherePos.xz *= rot(uTime * 0.4);
+      spherePos.xy *= rot(uTime * 0.3);
+      float sphere = sdSphere(spherePos, 1.25);
+
+      // Surrounding orbiting specular satellite orbs
+      for (int i = 0; i < 4; i++) {
+        float fi = float(i) * 1.57;
+        float orbitR = 2.4;
+        vec3 satPos = p - vec3(sin(uTime * 0.8 + fi) * orbitR, sin(uTime * 1.2 + fi) * 0.6, cos(uTime * 0.8 + fi) * orbitR);
+        float sat = sdSphere(satPos, 0.32);
+        sphere = min(sphere, sat);
+      }
+
+      return min(d, sphere);
+    }
+
+    vec3 getNormal(vec3 p) {
+      float d = getDist(p);
+      vec2 e = vec2(0.001, 0.0);
+      vec3 n = d - vec3(
+        getDist(p - e.xyy),
+        getDist(p - e.yxy),
+        getDist(p - e.yyx)
+      );
+      return normalize(n);
+    }
+
+    // Sky / Studio HDR Environment Map
+    vec3 getEnvMap(vec3 dir) {
+      float t = uTime * 0.1;
+      vec3 col1 = vec3(0.05, 0.1, 0.25);
+      vec3 col2 = vec3(0.9, 0.2, 0.6);
+      vec3 col3 = vec3(0.1, 0.85, 0.95);
+
+      float grad = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
+      vec3 sky = mix(col1, col2, grad);
+      
+      // Radiant studio light panels
+      float panel1 = pow(max(0.0, dot(dir, normalize(vec3(1.0, 1.2, 1.0)))), 16.0) * 2.5;
+      float panel2 = pow(max(0.0, dot(dir, normalize(vec3(-1.2, 0.8, -1.0)))), 12.0) * 1.8;
+      sky += col3 * panel1 + vec3(1.0, 0.9, 0.7) * panel2;
+
+      return sky;
+    }
+
+    void main() {
+      vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution.xy) / uResolution.y;
+      vec2 m = (uMouse.xy / uResolution.xy - 0.5) * 3.0;
+
+      // Ray origin and camera setup
+      vec3 ro = vec3(0.0, 1.2, -4.2);
+      ro.yz *= rot(m.y * 0.4);
+      ro.xz *= rot(m.x * 0.8 + uTime * 0.15);
+
+      vec3 lookAt = vec3(0.0, 0.0, 0.0);
+      vec3 f = normalize(lookAt - ro);
+      vec3 r = normalize(cross(vec3(0.0, 1.0, 0.0), f));
+      vec3 u = cross(f, r);
+      vec3 rd = normalize(uv.x * r + uv.y * u + 1.6 * f);
+
+      // Primary ray march
+      float dO = 0.0;
+      for (int i = 0; i < MAX_STEPS; i++) {
+        vec3 p = ro + rd * dO;
+        float dS = getDist(p);
+        dO += dS;
+        if (dO > MAX_DIST || dS < SURF_DIST) break;
+      }
+
+      vec3 color = vec3(0.0);
+      if (dO < MAX_DIST) {
+        vec3 p = ro + rd * dO;
+        vec3 n = getNormal(p);
+
+        // Glass Refraction Fresnel Approximation (IOR = 1.5)
+        float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 3.0);
+        vec3 refDir = reflect(rd, n);
+        vec3 refrDir = refract(rd, n, 0.68);
+
+        vec3 reflColor = getEnvMap(refDir);
+        vec3 refrColor = getEnvMap(refrDir) * vec3(0.85, 0.95, 1.05);
+
+        // Internal dispersion & dispersion chromatic fringes
+        vec3 refrR = getEnvMap(refract(rd, n, 0.66));
+        vec3 refrB = getEnvMap(refract(rd, n, 0.70));
+        refrColor = vec3(refrR.r, refrColor.g, refrB.b);
+
+        color = mix(refrColor, reflColor, fresnel * 0.85 + 0.15);
+
+        // Caustic highlight pass
+        float caustic = pow(max(0.0, dot(n, normalize(vec3(0.6, 1.0, -0.4)))), 32.0);
+        color += vec3(1.0, 0.95, 0.85) * caustic * 1.5;
+      } else {
+        color = getEnvMap(rd);
+      }
+
+      // Atmospheric post-bloom tone mapping
+      color = color / (color + vec3(1.0));
+      color = pow(color, vec3(1.0 / 2.2));
+
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `;
+
+  function createShader(gl, type, source) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, source);
+    gl.compileShader(s);
+    return s;
+  }
+
+  const program = gl.createProgram();
+  gl.attachShader(program, createShader(gl, gl.VERTEX_SHADER, vsSource));
+  gl.attachShader(program, createShader(gl, gl.FRAGMENT_SHADER, fsSource));
+  gl.linkProgram(program);
+  gl.useProgram(program);
+
+  const quad = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1, -1,  1, -1, -1,  1,
+    -1,  1,  1, -1,  1,  1,
+  ]), gl.STATIC_DRAW);
+
+  const aPos = gl.getAttribLocation(program, 'aPosition');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  const uTimeLoc = gl.getUniformLocation(program, 'uTime');
+  const uResLoc = gl.getUniformLocation(program, 'uResolution');
+  const uMouseLoc = gl.getUniformLocation(program, 'uMouse');
+
+  let mouseX = window.innerWidth * 0.5;
+  let mouseY = window.innerHeight * 0.5;
+  window.addEventListener('mousemove', e => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  });
+
+  const startTime = performance.now();
+  function render() {
+    const time = (performance.now() - startTime) * 0.001;
+    gl.uniform1f(uTimeLoc, time);
+    gl.uniform2f(uResLoc, canvas.width, canvas.height);
+    gl.uniform2f(uMouseLoc, mouseX, mouseY);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    requestAnimationFrame(render);
+  }
+  render();
+})();
+</script>
+</body>
+</html>

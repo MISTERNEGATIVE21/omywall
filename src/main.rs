@@ -253,6 +253,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None => {
                     let msg = "⚠️ OMYWALL Wallpaper Engine GUI process is already running!";
                     println!("{}", msg);
+                    let _ = std::process::Command::new("notify-send")
+                        .args(["-u", "normal", "-a", "OMYWALL", "OMYWALL Wallpaper Engine", "Process is already running! Focusing existing window..."])
+                        .output();
+
+                    // Attempt to focus existing GUI window across Hyprland, Sway, wmctrl, xdotool
+                    let _ = std::process::Command::new("hyprctl").args(["dispatch", "focuswindow", "OMYWALL Wallpaper Engine"]).output();
+                    let _ = std::process::Command::new("swaymsg").args(["[title=\"OMYWALL Wallpaper Engine.*\"] focus"]).output();
+                    let _ = std::process::Command::new("wmctrl").args(["-a", "OMYWALL Wallpaper Engine"]).output();
                     return Ok(());
                 }
             };
@@ -529,7 +537,7 @@ fn acquire_instance_lock(name: &str) -> Option<std::fs::File> {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
     let lock_path = PathBuf::from(runtime_dir).join(format!("{}.lock", name));
 
-    let file = match fs::OpenOptions::new().write(true).create(true).truncate(true).open(&lock_path) {
+    let file = match fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&lock_path) {
         Ok(f) => f,
         Err(_) => return None,
     };

@@ -1,0 +1,21 @@
+{
+	"author": "Raoul van Rüschen",
+	"paginate": 3,
+	"manualURL": "https://github.com/pmndrs/postprocessing/tree/main/manual",
+	"sidebarMenus": [
+		"main",
+		"community",
+		"demos"
+	],
+	"footerIcons": [
+		{
+			"name": "dark-mode"
+		}, {
+			"name": "repository",
+			"url": "https://github.com/pmndrs/postprocessing"
+		}, {
+			"name": "support",
+			"url": "https://www.patreon.com/vanruesc"
+		}
+	]
+}

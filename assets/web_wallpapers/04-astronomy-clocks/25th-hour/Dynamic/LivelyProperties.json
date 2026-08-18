@@ -1,0 +1,151 @@
+{
+  "label-general": {
+    "type": "label",
+    "value": "------ General settings ------"
+  },
+  "tree-animation-play": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Play tree animation"
+  },
+  "offset": {
+    "max": 24,
+    "min": -24,
+    "text": "Time Offset - Half-hour increments",
+    "type": "slider",
+    "value": 0
+  },
+  "y-offset": {
+    "max": 30,
+    "min": 0,
+    "step": 0.01,
+    "text": "Y Offset",
+    "type": "slider",
+    "value": 0
+  },
+  "pixel-noise": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Add some pixel noise"
+  },
+  "247-sprites": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Show fireflies 24/7"
+  },
+  "label-visualizer": {
+    "type": "label",
+    "value": "------ Music Visualizer settings ------"
+  },
+  "visualizer-toggle": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Enable music visualizer"
+  },
+  "show-when-not-playing": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Show visualizer when not playing"
+  },
+  "label-spectrum": {
+    "type": "label",
+    "value": "------ Spectrum settings ------"
+  },
+  "vertical-scale": {
+    "max": 50,
+    "min": 0,
+    "step": 0.1,
+    "text": "Amplitude",
+    "type": "slider",
+    "value": 10
+  },
+  "visualizer-dots": {
+    "max": 512,
+    "min": 0,
+    "step": 1,
+    "text": "Number of dots",
+    "type": "slider",
+    "value": 256
+  },
+  "dot-scale": {
+    "max": 5,
+    "min": 0,
+    "step": 0.1,
+    "text": "Dot size",
+    "type": "slider",
+    "value": 1
+  },
+  "sorting-mode": {
+    "type": "dropdown",
+    "value": 5,
+    "text": "Spectrum mode",
+    "items": [
+      "Concentrated",
+      "Separated",
+      "Center-split",
+      "Mirror",
+      "Reverse mirror",
+      "Keep original"
+    ]
+  },
+  "label-sysinfo": {
+    "type": "label",
+    "value": "------ System info settings ------"
+  },
+  "sysinfo-toggle": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Enable system information"
+  },
+  "sys-y-offset": {
+    "max": 30,
+    "min": 0,
+    "step": 0.01,
+    "text": "System Info Y Offset",
+    "type": "slider",
+    "value": 0
+  },
+  "sysinfo-location": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "System info location",
+    "items": ["Bottom Left", "Bottom Right"]
+  },
+  "sysinfo-duration": {
+    "max": 60,
+    "min": 10,
+    "text": "System info animation duration (seconds)",
+    "type": "slider",
+    "value": 20
+  },
+  "sysinfo-cpu-toggle": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Show cpu graph"
+  },
+  "sysinfo-ram-toggle": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Show ram graph"
+  },
+  "sysinfo-gpu-toggle": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Show gpu graph"
+  },
+  "label-controls": {
+    "type": "label",
+    "value": "------ Panel settings ------"
+  },
+  "controls-visible": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Show settings panel"
+  },
+  "controls-location": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Settings panel location",
+    "items": ["Left", "Right"]
+  }
+}

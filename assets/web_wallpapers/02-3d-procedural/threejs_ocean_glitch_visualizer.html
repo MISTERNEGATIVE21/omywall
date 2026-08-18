@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Three.js Ocean & Glitch Visualizer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #01030a; }
+  canvas { width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  if (!gl) return;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const vsSource = `
+    attribute vec2 aPosition;
+    varying vec2 vUv;
+    void main() {
+      vUv = aPosition * 0.5 + 0.5;
+      gl_Position = vec4(aPosition, 0.0, 1.0);
+    }
+  `;
+
+  // Procedural Ocean Waves with Glitch Post-Processing
+  const fsSource = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform float uTime;
+    uniform vec2 uResolution;
+    uniform vec2 uMouse;
+
+    #define NUM_WAVES 5
+
+    float wave(vec2 p, vec2 dir, float freq, float speed, float amp) {
+      return sin(dot(p, dir) * freq + uTime * speed) * amp;
+    }
+
+    float oceanHeight(vec2 p) {
+      float h = 0.0;
+      h += wave(p, vec2(1.0, 0.2), 0.6, 2.0, 0.35);
+      h += wave(p, vec2(-0.7, 0.7), 1.1, 1.8, 0.22);
+      h += wave(p, vec2(0.2, -1.0), 2.2, 3.2, 0.12);
+      h += wave(p, vec2(0.8, -0.6), 4.5, 4.0, 0.06);
+      h += wave(p, vec2(-0.3, -0.9), 8.0, 5.5, 0.03);
+      return h;
+    }
+
+    vec3 oceanNormal(vec2 p) {
+      vec2 e = vec2(0.01, 0.0);
+      float h = oceanHeight(p);
+      return normalize(vec3(
+        h - oceanHeight(p + e.xy),
+        e.x * 2.0,
+        h - oceanHeight(p + e.yx)
+      ));
+    }
+
+    void main() {
+      vec2 uv = gl_FragCoord.xy / uResolution.xy;
+      vec2 m = (uMouse / uResolution.xy - 0.5) * 2.0;
+
+      // Digital Glitch RGB Split & Scanlines
+      float glitchTrigger = step(0.96, sin(uTime * 14.0) * cos(uTime * 23.0));
+      float glitchOffset = glitchTrigger * (sin(uv.y * 80.0 + uTime * 40.0) * 0.02);
+      vec2 pUv = uv + vec2(glitchOffset, 0.0);
+
+      vec2 ndc = (pUv - 0.5) * vec2(uResolution.x / uResolution.y, 1.0);
+
+      // Camera setup looking at the infinite ocean horizon
+      vec3 ro = vec3(0.0, 2.2, -4.0);
+      vec3 rd = normalize(vec3(ndc.x + m.x * 0.2, ndc.y - 0.2 + m.y * 0.2, 1.5));
+
+      vec3 color = vec3(0.0);
+
+      if (rd.y < 0.0) {
+        // Intersect ocean plane y ≈ 0
+        float t = -ro.y / rd.y;
+        vec3 hit = ro + rd * t;
+
+        // Iterative refinement with ocean heightmap
+        for (int i = 0; i < 4; i++) {
+          float h = oceanHeight(hit.xz);
+          t = (h - ro.y) / rd.y;
+          hit = ro + rd * t;
+        }
+
+        vec3 N = oceanNormal(hit.xz);
+        vec3 L = normalize(vec3(0.0, 0.3, 1.0)); // Horizon sun
+
+        // Deep ocean color & foam
+        vec3 deepCol = vec3(0.02, 0.08, 0.22);
+        vec3 crestCol = vec3(0.0, 0.9, 0.95);
+        float fresnel = pow(1.0 - max(0.0, dot(-rd, N)), 4.0);
+        float spec = pow(max(0.0, dot(reflect(L, N), -rd)), 64.0);
+
+        vec3 oceanCol = mix(deepCol, crestCol, fresnel * 0.6 + 0.1);
+        oceanCol += vec3(1.0, 0.9, 0.7) * spec * 2.2;
+
+        // Atmospheric distance fog
+        float fog = exp(-t * 0.035);
+        vec3 skyCol = mix(vec3(0.95, 0.2, 0.6), vec3(0.05, 0.02, 0.15), clamp(rd.y + 0.5, 0.0, 1.0));
+        color = mix(skyCol, oceanCol, fog);
+      } else {
+        // Neon Sunset / Cyber Sky with Glowing Sun
+        float horizonGrad = clamp(rd.y * 3.0, 0.0, 1.0);
+        vec3 skyBottom = vec3(0.98, 0.25, 0.65);
+        vec3 skyTop = vec3(0.05, 0.02, 0.18);
+        color = mix(skyBottom, skyTop, horizonGrad);
+
+        // Sun disc
+        vec3 sunDir = normalize(vec3(0.0, 0.08, 1.0));
+        float sunDist = length(rd - sunDir);
+        float sunDisc = smoothstep(0.18, 0.16, sunDist);
+        float sunGlow = pow(max(0.0, 1.0 - sunDist * 1.5), 4.0);
+        color += vec3(1.0, 0.85, 0.2) * sunDisc * 2.0 + vec3(1.0, 0.3, 0.6) * sunGlow * 1.5;
+      }
+
+      // Glitch Chromatic Aberration & CRT lines
+      float scanline = sin(uv.y * 600.0) * 0.04;
+      color -= scanline;
+      if (glitchTrigger > 0.5) {
+        color.r += 0.2;
+        color.b += 0.3;
+      }
+
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `;
+
+  function createShader(gl, type, source) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, source);
+    gl.compileShader(s);
+    return s;
+  }
+
+  const program = gl.createProgram();
+  gl.attachShader(program, createShader(gl, gl.VERTEX_SHADER, vsSource));
+  gl.attachShader(program, createShader(gl, gl.FRAGMENT_SHADER, fsSource));
+  gl.linkProgram(program);
+  gl.useProgram(program);
+
+  const quad = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1, -1,  1, -1, -1,  1,
+    -1,  1,  1, -1,  1,  1,
+  ]), gl.STATIC_DRAW);
+
+  const aPos = gl.getAttribLocation(program, 'aPosition');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  const uTimeLoc = gl.getUniformLocation(program, 'uTime');
+  const uResLoc = gl.getUniformLocation(program, 'uResolution');
+  const uMouseLoc = gl.getUniformLocation(program, 'uMouse');
+
+  let mouseX = window.innerWidth * 0.5;
+  let mouseY = window.innerHeight * 0.5;
+  window.addEventListener('mousemove', e => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  });
+
+  const startTime = performance.now();
+  function render() {
+    const time = (performance.now() - startTime) * 0.001;
+    gl.uniform1f(uTimeLoc, time);
+    gl.uniform2f(uResLoc, canvas.width, canvas.height);
+    gl.uniform2f(uMouseLoc, mouseX, mouseY);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    requestAnimationFrame(render);
+  }
+  render();
+})();
+</script>
+</body>
+</html>

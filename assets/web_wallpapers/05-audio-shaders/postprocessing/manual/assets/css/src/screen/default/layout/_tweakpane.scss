@@ -1,0 +1,13 @@
+@use "layers";
+
+.tp {
+	position: absolute;
+	right: 3px;
+	top: 3px;
+	user-select: none;
+	width: 256px;
+	z-index: layers.$hud;
+	&.hidden {
+		visibility: hidden;
+	}
+}

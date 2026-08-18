@@ -84,14 +84,13 @@ app.whenReady().then(() => {
   win = new BrowserWindow({
     width,
     height,
-    show: true,
+    show: false,
     frame: false,
     opacity: 0.0,
     transparent: false,
     backgroundColor: '#000000',
     skipTaskbar: true,
     focusable: false,
-    alwaysOnTop: true,
     webPreferences: {
       backgroundThrottling: false,
       autoplayPolicy: 'no-user-gesture-required',
@@ -99,7 +98,6 @@ app.whenReady().then(() => {
       allowRunningInsecureContent: true,
     },
   });
-  win.setAlwaysOnTop(true, 'screen-saver');
   win.webContents.setAudioMuted(true);
   win.webContents.setFrameRate(5);
   win.webContents.on('did-finish-load', () => setTimeout(capture, 400));

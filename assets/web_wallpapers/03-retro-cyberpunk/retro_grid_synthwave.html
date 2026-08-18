@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Retro Grid Synthwave Outrun</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #08020f; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let width, height;
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const mouse = { x: 0, y: 0 };
+  window.addEventListener('mousemove', e => {
+    mouse.x = (e.clientX / width - 0.5) * 80;
+    mouse.y = (e.clientY / height - 0.5) * 30;
+  });
+
+  // Background stars
+  const stars = Array.from({ length: 150 }, () => ({
+    x: Math.random(),
+    y: Math.random() * 0.55,
+    size: Math.random() * 1.8 + 0.5,
+    twinkle: Math.random() * Math.PI * 2,
+  }));
+
+  let offset = 0;
+  function animate() {
+    offset = (offset + 2.2) % 40;
+
+    ctx.fillStyle = '#08020f';
+    ctx.fillRect(0, 0, width, height);
+
+    const horizonY = height * 0.55 + mouse.y;
+
+    // 1. Sky Gradient
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
+    skyGrad.addColorStop(0, '#04010a');
+    skyGrad.addColorStop(0.65, '#2b0c3d');
+    skyGrad.addColorStop(1, '#ff007f');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, width, horizonY);
+
+    // Stars
+    for (const s of stars) {
+      s.twinkle += 0.05;
+      const alpha = 0.4 + 0.6 * Math.sin(s.twinkle);
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.fillRect(s.x * width, s.y * height, s.size, s.size);
+    }
+
+    // 2. Synthwave Sunset Glowing Sun with Segment Slices
+    const sunRadius = Math.min(width, height) * 0.22;
+    const sunX = width * 0.5 + mouse.x * 0.5;
+    const sunY = horizonY - sunRadius * 0.4;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, sunRadius, 0, Math.PI * 2);
+    ctx.clip();
+
+    const sunGrad = ctx.createLinearGradient(sunX, sunY - sunRadius, sunX, sunY + sunRadius);
+    sunGrad.addColorStop(0, '#ffe600');
+    sunGrad.addColorStop(0.5, '#ff007f');
+    sunGrad.addColorStop(1, '#7900ff');
+    ctx.fillStyle = sunGrad;
+    ctx.fillRect(sunX - sunRadius, sunY - sunRadius, sunRadius * 2, sunRadius * 2);
+
+    // Horizontal retro slice cutouts
+    for (let i = 0; i < 10; i++) {
+      const sliceH = (i + 1) * 2.2;
+      const sliceY = sunY + (i / 10) * sunRadius;
+      ctx.fillStyle = '#08020f';
+      ctx.fillRect(sunX - sunRadius, sliceY, sunRadius * 2, sliceH);
+    }
+    ctx.restore();
+
+    // 3. Neon Mountain Silhouettes
+    ctx.fillStyle = '#10031c';
+    ctx.beginPath();
+    ctx.moveTo(0, horizonY);
+    for (let x = 0; x <= width; x += 40) {
+      const mHeight = Math.sin(x * 0.008) * 45 + Math.cos(x * 0.02) * 25 + 30;
+      ctx.lineTo(x, horizonY - mHeight);
+    }
+    ctx.lineTo(width, horizonY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Mountain neon edge
+    ctx.strokeStyle = '#ff00aa';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // 4. Rolling 3D Perspective Grid
+    const groundH = height - horizonY;
+    const groundGrad = ctx.createLinearGradient(0, horizonY, 0, height);
+    groundGrad.addColorStop(0, '#0d011c');
+    groundGrad.addColorStop(1, '#000000');
+    ctx.fillStyle = groundGrad;
+    ctx.fillRect(0, horizonY, width, groundH);
+
+    ctx.strokeStyle = '#00f0ff';
+    ctx.shadowColor = '#00f0ff';
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = 1.2;
+
+    // Perspective vanishing lines (vertical rays)
+    const rayCount = 36;
+    for (let i = -rayCount; i <= rayCount; i++) {
+      const xBottom = width * 0.5 + i * (width / rayCount) * 2.2 + mouse.x * 2.0;
+      ctx.beginPath();
+      ctx.moveTo(width * 0.5 + mouse.x * 0.5, horizonY);
+      ctx.lineTo(xBottom, height);
+      ctx.stroke();
+    }
+
+    // Moving horizontal grid lines (logarithmic depth spacing)
+    for (let y = offset; y < groundH; y += 40) {
+      const depth = Math.pow(y / groundH, 2.2);
+      const lineY = horizonY + depth * groundH;
+      const alpha = depth;
+
+      ctx.beginPath();
+      ctx.moveTo(0, lineY);
+      ctx.lineTo(width, lineY);
+      ctx.strokeStyle = `rgba(255, 0, 140, ${alpha * 0.85})`;
+      ctx.stroke();
+    }
+
+    ctx.shadowBlur = 0;
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orbital Minimalist Chrono Clock</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #060810; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let width, height;
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function animate() {
+    ctx.fillStyle = '#060810';
+    ctx.fillRect(0, 0, width, height);
+
+    const now = new Date();
+    const ms = now.getMilliseconds();
+    const sec = now.getSeconds() + ms * 0.001;
+    const min = now.getMinutes() + sec / 60;
+    const hr = (now.getHours() % 12) + min / 60;
+
+    const cx = width * 0.5;
+    const cy = height * 0.5;
+    const baseRadius = Math.min(width, height) * 0.32;
+
+    // 1. Orbital Ring Backgrounds
+    const rings = [
+      { radius: baseRadius * 1.15, val: sec / 60, color: '#00f0ff', width: 3, glow: 12 },
+      { radius: baseRadius * 0.95, val: min / 60, color: '#ff007f', width: 5, glow: 16 },
+      { radius: baseRadius * 0.75, val: hr / 12, color: '#ffe600', width: 7, glow: 20 },
+    ];
+
+    for (const r of rings) {
+      // Background full circle track
+      ctx.beginPath();
+      ctx.arc(cx, cy, r.radius, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+      ctx.lineWidth = r.width;
+      ctx.stroke();
+
+      // Active progress arc
+      const startAngle = -Math.PI * 0.5;
+      const endAngle = startAngle + r.val * Math.PI * 2;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r.radius, startAngle, endAngle);
+      ctx.strokeStyle = r.color;
+      ctx.lineWidth = r.width;
+      ctx.shadowColor = r.color;
+      ctx.shadowBlur = r.glow;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // Glowing orbital satellite bead
+      const headX = cx + Math.cos(endAngle) * r.radius;
+      const headY = cy + Math.sin(endAngle) * r.radius;
+      ctx.beginPath();
+      ctx.arc(headX, headY, r.width * 1.2, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 2. Central Typographic Digital Clock
+    const hrStr = String(now.getHours()).padStart(2, '0');
+    const minStr = String(now.getMinutes()).padStart(2, '0');
+    const secStr = String(now.getSeconds()).padStart(2, '0');
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `900 ${Math.floor(baseRadius * 0.32)}px monospace`;
+    ctx.fillText(`${hrStr}:${minStr}`, cx, cy - baseRadius * 0.05);
+
+    ctx.fillStyle = '#00f0ff';
+    ctx.font = `600 ${Math.floor(baseRadius * 0.14)}px monospace`;
+    ctx.fillText(`:${secStr} SEC`, cx, cy + baseRadius * 0.18);
+
+    // Date & Day Display
+    const dateOptions = { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' };
+    const dateStr = now.toLocaleDateString('en-US', dateOptions).toUpperCase();
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `500 ${Math.floor(baseRadius * 0.09)}px monospace`;
+    ctx.fillText(dateStr, cx, cy + baseRadius * 0.32);
+
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

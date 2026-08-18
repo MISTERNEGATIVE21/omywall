@@ -1,0 +1,18 @@
+@font-face {
+  font-family: "Digital-7 Mono Mono";
+  font-style: normal;
+  font-weight: normal;
+  src: local("Digital-7 Mono Mono"), url("../../fonts/digital-7 (mono).woff") format("woff");
+}
+.rotate {
+  animation: rotation 10s infinite linear;
+}
+
+@keyframes rotation {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}/*# sourceMappingURL=styles.css.map */

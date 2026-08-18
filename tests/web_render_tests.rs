@@ -132,7 +132,7 @@ fn test_catalog_synchronization_web_assets_and_widgets() {
     // Verify 3D WebGL assets are discoverable
     let has_webgl_asset = scanned.iter().any(|p| {
         let s = p.to_string_lossy();
-        s.contains("matrix_rain.html") || s.contains("aurora_borealis_3d.html") || s.contains("cyberpunk_city_3d.html")
+        s.contains("webgl_fluid_simulation.html") || s.contains("vanta_waves_topology.html") || s.contains("rezmason_matrix_3d.html")
     });
     assert!(has_webgl_asset, "Catalog must include built-in WebGL HTML assets");
 }
@@ -166,8 +166,8 @@ fn test_resolve_asset_paths() {
     let hud_resolved = omywall::config::resolve_asset_path("assets/widgets/desktop_hud.html");
     assert!(PathBuf::from(&hud_resolved).exists(), "assets/widgets/desktop_hud.html must resolve to an existing file");
 
-    let matrix_resolved = omywall::config::resolve_asset_path("assets/web_wallpapers/matrix_rain.html");
-    assert!(PathBuf::from(&matrix_resolved).exists(), "assets/web_wallpapers/matrix_rain.html must resolve to an existing file");
+    let fluid_resolved = omywall::config::resolve_asset_path("assets/web_wallpapers/01-fluid-particles/webgl_fluid_simulation.html");
+    assert!(PathBuf::from(&fluid_resolved).exists(), "assets/web_wallpapers/01-fluid-particles/webgl_fluid_simulation.html must resolve to an existing file");
 
     let remote_url = "https://youtube.com/live/xyz";
     let remote_resolved = omywall::config::resolve_asset_path(remote_url);
@@ -185,7 +185,7 @@ fn test_default_web_bookmarks_contains_widgets_and_webgl() {
     let has_pill = bookmarks.iter().any(|b| b.url.contains("wifi_bluetooth_pill.html"));
     assert!(has_pill, "Default web bookmarks must include wifi_bluetooth_pill.html widget");
 
-    let has_particles = bookmarks.iter().any(|b| b.category.contains("Particles") || b.category.contains("WebGL") || b.category.contains("Space"));
+    let has_particles = bookmarks.iter().any(|b| b.category.contains("Fluid") || b.category.contains("3D") || b.category.contains("Retro") || b.category.contains("Audio"));
     assert!(has_particles, "Default web bookmarks must include 3D WebGL categories");
 }
 
@@ -386,4 +386,19 @@ fn test_settings_tab_engine_state_and_slideshow() {
     assert!(app.config.slideshow_shuffle);
     assert_eq!(app.volume_slider, 75);
     assert!((app.opacity_slider - 0.85).abs() < 0.001);
+}
+
+#[test]
+fn test_truncate_text_unicode_safety() {
+    let ascii = "This is a very long ASCII title string";
+    assert_eq!(omywall::iced_gui::truncate_text(ascii, 10), "This is a...");
+
+    let cjk = "壁纸架构分析测试超长标题";
+    assert_eq!(omywall::iced_gui::truncate_text(cjk, 5), "壁纸架构...");
+
+    let emoji = "🌌🎨✨🚀🛸🌟💫🔥";
+    assert_eq!(omywall::iced_gui::truncate_text(emoji, 4), "🌌🎨✨...");
+
+    let short = "Short";
+    assert_eq!(omywall::iced_gui::truncate_text(short, 10), "Short");
 }

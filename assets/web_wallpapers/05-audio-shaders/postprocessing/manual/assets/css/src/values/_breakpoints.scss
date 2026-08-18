@@ -1,0 +1,9 @@
+$small: 512px;
+$medium: 1024px;
+$large: 2048px;
+
+:root {
+	--breakpoint-small: #{$small};
+	--breakpoint-medium: #{$medium};
+	--breakpoint-large: #{$large};
+}

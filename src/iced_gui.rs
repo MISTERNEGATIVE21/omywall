@@ -793,6 +793,16 @@ impl IcedGuiApp {
     }
 }
 
+pub fn truncate_text(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count > max_chars {
+        let truncated: String = s.chars().take(max_chars.saturating_sub(1)).collect();
+        format!("{}...", truncated)
+    } else {
+        s.to_string()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Async helpers
 // ---------------------------------------------------------------------------
@@ -2818,7 +2828,7 @@ fn render_wallpaper_card<'a>(app: &'a IcedGuiApp, path: &PathBuf) -> Element<'a,
         ..Default::default()
     });
 
-    let truncated_title = if name.len() > 20 { format!("{}...", &name[..18]) } else { name.to_string() };
+    let truncated_title = truncate_text(&name, 20);
 
     let action_row = if let Some(bm) = bookmark_opt {
         if !bm.is_demo {
@@ -2971,20 +2981,16 @@ fn render_workshop_item_card<'a>(app: &'a IcedGuiApp, item: &'a WorkshopItem) ->
         .into()
     };
 
-    let title_display = if item.title.len() > 30 {
-        format!("{}...", &item.title[..28])
-    } else if item.title.is_empty() {
+    let title_display = if item.title.is_empty() {
         format!("Workshop Item {}", item.id)
     } else {
-        item.title.clone()
+        truncate_text(&item.title, 30)
     };
 
     let author_display = if item.author.is_empty() {
         "Steam Creator".to_string()
-    } else if item.author.len() > 18 {
-        format!("by {}...", &item.author[..16])
     } else {
-        format!("by {}", item.author)
+        format!("by {}", truncate_text(&item.author, 18))
     };
 
     let mut stats_row = row![
@@ -3039,7 +3045,7 @@ fn render_workshop_item_card<'a>(app: &'a IcedGuiApp, item: &'a WorkshopItem) ->
 
     let mut tags_row = row![].spacing(4);
     for tag in item.tags.iter().take(2) {
-        let tag_display = if tag.len() > 14 { format!("{}...", &tag[..12]) } else { tag.clone() };
+        let tag_display = truncate_text(tag, 14);
         tags_row = tags_row.push(
             container(text(tag_display).size(10).color(Color::from_rgb(0.7, 0.75, 0.85)))
                 .padding([2, 5])
@@ -3316,7 +3322,7 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
     for (idx, w) in filtered.iter().enumerate().take(24) {
         let is_current = idx == active_idx;
         let w_name = w.file_name().and_then(|n| n.to_str()).unwrap_or("Item");
-        let truncated = if w_name.len() > 14 { format!("{}...", &w_name[..12]) } else { w_name.to_string() };
+        let truncated = truncate_text(w_name, 14);
         let path_clone = w.clone();
         filmstrip = filmstrip.push(
             btn_pill(truncated, is_current)
@@ -3341,7 +3347,7 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
 
     let status_indicator = if let Some(st) = &app.status {
         let active = st.current_wallpaper.as_deref().unwrap_or("None");
-        let truncated = if active.len() > 30 { &active[..30] } else { active };
+        let truncated = truncate_text(active, 30);
         text(format!("● Running | Active: {}", truncated)).color(EMERALD).size(13)
     } else {
         text(&app.status_message).color(AMBER).size(13)
@@ -3355,12 +3361,10 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
         EMERALD
     };
 
-    let gpu_name_display = if app.system_metrics.gpu_name.len() > 18 {
-        format!("{}...", &app.system_metrics.gpu_name[..16])
-    } else if app.system_metrics.gpu_name.is_empty() {
+    let gpu_name_display = if app.system_metrics.gpu_name.is_empty() {
         "GPU".to_string()
     } else {
-        app.system_metrics.gpu_name.clone()
+        truncate_text(&app.system_metrics.gpu_name, 18)
     };
 
     let gpu_metrics_badge = container(
@@ -4137,7 +4141,7 @@ fn render_displays_tab<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
                 space().height(4),
                 if let Some(wall) = assigned_wall {
                     let w_clean = Path::new(wall).file_name().and_then(|n| n.to_str()).unwrap_or(wall);
-                    let trunc = if w_clean.len() > 18 { format!("{}...", &w_clean[..16]) } else { w_clean.to_string() };
+                    let trunc = truncate_text(w_clean, 18);
                     text(format!("📌 {}", trunc)).size(10).color(CYAN)
                 } else {
                     text("🌐 Global Active").size(10).color(DIM_TEXT)
@@ -4331,7 +4335,7 @@ fn render_displays_tab<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
 
             if let Some(sel) = &app.selected_wallpaper {
                 let name = sel.file_name().and_then(|n| n.to_str()).unwrap_or("Item");
-                let trunc = if name.len() > 24 { format!("{}...", &name[..22]) } else { name.to_string() };
+                let trunc = truncate_text(name, 24);
                 actions_row = actions_row.push(
                     btn_primary(format!("▶ Assign Selected ('{}')", trunc))
                         .on_press(Message::SetMonitorWallpaper(d.name.clone(), sel.to_string_lossy().to_string()))

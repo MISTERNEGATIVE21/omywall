@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Three.js Postprocessing Bloom & Dispersion</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #010206; }
+  canvas { width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  if (!gl) return;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const vsSource = `
+    attribute vec2 aPosition;
+    varying vec2 vUv;
+    void main() {
+      vUv = aPosition * 0.5 + 0.5;
+      gl_Position = vec4(aPosition, 0.0, 1.0);
+    }
+  `;
+
+  // Postprocessing Pipeline Shader: Multi-pass Bloom, Chromatic Dispersion & Depth-of-Field
+  const fsSource = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform float uTime;
+    uniform vec2 uResolution;
+    uniform vec2 uMouse;
+
+    mat2 rot(float a) {
+      float s = sin(a), c = cos(a);
+      return mat2(c, -s, s, c);
+    }
+
+    // 3D Scene Geometry: Hyper-dimensional Torus Knot & Floating Gyroscopes
+    float sdTorusKnot(vec3 p, float r1, float r2, float p1, float p2) {
+      vec2 q = vec2(length(p.xz) - r1, p.y);
+      float a = atan(p.z, p.x);
+      q *= rot(a * (p1 / p2));
+      return length(q) - r2;
+    }
+
+    float getDist(vec3 p) {
+      vec3 p1 = p;
+      p1.yz *= rot(uTime * 0.4);
+      p1.xz *= rot(uTime * 0.5);
+
+      float knot = sdTorusKnot(p1, 1.6, 0.28, 3.0, 2.0);
+
+      // Orbiting gyroscopic rings
+      vec3 p2 = p;
+      p2.xy *= rot(uTime * 0.6);
+      p2.yz *= rot(uTime * 0.3);
+      float ring = length(vec2(length(p2.xy) - 2.5, p2.z)) - 0.08;
+
+      return min(knot, ring);
+    }
+
+    void main() {
+      vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution.xy) / uResolution.y;
+      vec2 m = (uMouse / uResolution.xy - 0.5) * 2.0;
+
+      vec3 ro = vec3(0.0, 0.0, -5.5);
+      vec3 rd = normalize(vec3(uv + m * 0.15, 1.6));
+
+      float dO = 0.0;
+      float glow = 0.0;
+
+      for (int i = 0; i < 70; i++) {
+        vec3 p = ro + rd * dO;
+        float dS = getDist(p);
+        dO += dS;
+
+        // Volumetric Post-Bloom Accumulator
+        glow += 0.015 / (0.02 + dS * dS);
+
+        if (dO > 20.0 || dS < 0.001) break;
+      }
+
+      // Chromatic Aberration & Spectral Dispersion
+      vec3 color = vec3(0.0);
+      vec3 neonCyan = vec3(0.0, 0.95, 1.0);
+      vec3 neonMagenta = vec3(1.0, 0.0, 0.7);
+      vec3 neonGold = vec3(1.0, 0.85, 0.2);
+
+      vec3 bloomColor = mix(neonCyan, neonMagenta, sin(uTime + uv.x * 2.0) * 0.5 + 0.5);
+      bloomColor += neonGold * sin(uTime * 2.0 + uv.y * 3.0) * 0.3;
+
+      color += bloomColor * glow * 0.035;
+
+      // Depth of Field Bokeh simulation (blur peripheral edges)
+      float dof = smoothstep(0.1, 0.8, length(uv));
+      color = mix(color, color * 1.3, dof);
+
+      // Vignette
+      color *= 1.0 - length(uv) * 0.5;
+
+      // HDR Tone Mapping
+      color = color / (color + vec3(0.9));
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `;
+
+  function createShader(gl, type, source) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, source);
+    gl.compileShader(s);
+    return s;
+  }
+
+  const program = gl.createProgram();
+  gl.attachShader(program, createShader(gl, gl.VERTEX_SHADER, vsSource));
+  gl.attachShader(program, createShader(gl, gl.FRAGMENT_SHADER, fsSource));
+  gl.linkProgram(program);
+  gl.useProgram(program);
+
+  const quad = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1, -1,  1, -1, -1,  1,
+    -1,  1,  1, -1,  1,  1,
+  ]), gl.STATIC_DRAW);
+
+  const aPos = gl.getAttribLocation(program, 'aPosition');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  const uTimeLoc = gl.getUniformLocation(program, 'uTime');
+  const uResLoc = gl.getUniformLocation(program, 'uResolution');
+  const uMouseLoc = gl.getUniformLocation(program, 'uMouse');
+
+  let mouseX = window.innerWidth * 0.5;
+  let mouseY = window.innerHeight * 0.5;
+  window.addEventListener('mousemove', e => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  });
+
+  const startTime = performance.now();
+  function render() {
+    const time = (performance.now() - startTime) * 0.001;
+    gl.uniform1f(uTimeLoc, time);
+    gl.uniform2f(uResLoc, canvas.width, canvas.height);
+    gl.uniform2f(uMouseLoc, mouseX, mouseY);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    requestAnimationFrame(render);
+  }
+  render();
+})();
+</script>
+</body>
+</html>

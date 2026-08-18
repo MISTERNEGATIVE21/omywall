@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>tsParticles Constellation & Particle Mesh</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #070913; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let width, height;
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const PARTICLE_COUNT = Math.min(180, Math.floor((window.innerWidth * window.innerHeight) / 9000));
+  const MAX_DISTANCE = 140;
+  const MOUSE_RADIUS = 180;
+
+  const mouse = { x: -1000, y: -1000, active: false };
+
+  window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.active = true;
+  });
+
+  window.addEventListener('mouseleave', () => {
+    mouse.active = false;
+  });
+
+  class Particle {
+    constructor() {
+      this.reset(true);
+    }
+    reset(initial = false) {
+      this.x = Math.random() * width;
+      this.y = Math.random() * height;
+      this.vx = (Math.random() - 0.5) * 1.2;
+      this.vy = (Math.random() - 0.5) * 1.2;
+      this.radius = Math.random() * 2.2 + 1.2;
+      this.baseRadius = this.radius;
+      this.color = Math.random() > 0.4 ? '#00f0ff' : (Math.random() > 0.5 ? '#b800ff' : '#00ff88');
+      this.alpha = Math.random() * 0.6 + 0.4;
+    }
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+
+      if (this.x < 0 || this.x > width) this.vx *= -1;
+      if (this.y < 0 || this.y > height) this.vy *= -1;
+
+      // Mouse repulsion & attraction physics
+      if (mouse.active) {
+        const dx = mouse.x - this.x;
+        const dy = mouse.y - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < MOUSE_RADIUS) {
+          const force = (MOUSE_RADIUS - dist) / MOUSE_RADIUS;
+          const angle = Math.atan2(dy, dx);
+          this.x -= Math.cos(angle) * force * 5.0;
+          this.y -= Math.sin(angle) * force * 5.0;
+          this.radius = this.baseRadius + force * 2.5;
+        } else {
+          this.radius = this.baseRadius;
+        }
+      }
+    }
+    draw() {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = this.color;
+      ctx.shadowColor = this.color;
+      ctx.shadowBlur = 10;
+      ctx.globalAlpha = this.alpha;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  const particles = Array.from({ length: PARTICLE_COUNT }, () => new Particle());
+
+  function animate() {
+    ctx.clearRect(0, 0, width, height);
+
+    // Subtle background nebula gradient
+    const grad = ctx.createRadialGradient(width * 0.5, height * 0.5, 50, width * 0.5, height * 0.5, width * 0.8);
+    grad.addColorStop(0, 'rgba(18, 12, 42, 0.6)');
+    grad.addColorStop(1, 'rgba(5, 7, 15, 0.95)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
+
+    // Draw lines between connecting particles
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const p1 = particles[i];
+        const p2 = particles[j];
+        const dx = p1.x - p2.x;
+        const dy = p1.y - p2.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < MAX_DISTANCE) {
+          const alpha = (1 - dist / MAX_DISTANCE) * 0.45;
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.strokeStyle = '#00f0ff';
+          ctx.globalAlpha = alpha;
+          ctx.lineWidth = 0.9;
+          ctx.stroke();
+        }
+      }
+
+      // Connect to mouse cursor
+      if (mouse.active) {
+        const dx = mouse.x - particles[i].x;
+        const dy = mouse.y - particles[i].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < MOUSE_RADIUS) {
+          const alpha = (1 - dist / MOUSE_RADIUS) * 0.6;
+          ctx.beginPath();
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(mouse.x, mouse.y);
+          ctx.strokeStyle = '#ff007f';
+          ctx.globalAlpha = alpha;
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Update and draw particles
+    for (const p of particles) {
+      p.update();
+      p.draw();
+    }
+
+    requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>

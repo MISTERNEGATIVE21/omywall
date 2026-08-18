@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebGL Fluid Simulation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  canvas { width: 100%; height: 100%; display: block; position: absolute; top: 0; left: 0; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  if (!gl) return;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // WebGL 2 / 1 Shader compilation
+  const baseVertexShader = `
+    attribute vec2 aPosition;
+    varying vec2 vUv;
+    void main() {
+      vUv = aPosition * 0.5 + 0.5;
+      gl_Position = vec4(aPosition, 0.0, 1.0);
+    }
+  `;
+
+  // Navier-Stokes procedural fluid fragment shader with dye advection, pressure, vorticity, and bloom
+  const fluidFragmentShader = `
+    precision highp float;
+    varying vec2 vUv;
+    uniform float uTime;
+    uniform vec2 uResolution;
+    uniform vec2 uMouse;
+    uniform vec2 uMouseVelocity;
+    uniform float uMouseDown;
+
+    // Simplex Noise & FBM
+    vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
+
+    float snoise(vec2 v) {
+      const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+      vec2 i  = floor(v + dot(v, C.yy));
+      vec2 x0 = v - i + dot(i, C.xx);
+      vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+      vec4 x12 = x0.xyxy + C.xxzz;
+      x12.xy -= i1;
+      i = mod289(i);
+      vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
+      vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+      m = m*m;
+      m = m*m;
+      vec3 x = 2.0 * fract(p * C.www) - 1.0;
+      vec3 h = abs(x) - 0.5;
+      vec3 ox = floor(x + 0.5);
+      vec3 a0 = x - ox;
+      m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+      vec3 g;
+      g.x  = a0.x  * x0.x  + h.x  * x0.y;
+      g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+      return 130.0 * dot(m, g);
+    }
+
+    float fbm(vec2 p) {
+      float total = 0.0;
+      float amp = 0.5;
+      for (int i = 0; i < 5; i++) {
+        total += snoise(p) * amp;
+        p *= 2.02;
+        amp *= 0.5;
+      }
+      return total;
+    }
+
+    void main() {
+      vec2 uv = gl_FragCoord.xy / uResolution.xy;
+      vec2 aspect = vec2(uResolution.x / uResolution.y, 1.0);
+      vec2 p = (uv - 0.5) * aspect;
+
+      float t = uTime * 0.25;
+
+      // Automated natural fluid vortices
+      vec2 flow1 = vec2(sin(t + p.y * 3.0), cos(t + p.x * 3.0)) * 0.4;
+      vec2 flow2 = vec2(cos(t * 0.7 - p.y * 4.0), sin(t * 0.8 + p.x * 4.0)) * 0.3;
+      
+      // Interactive mouse swirl force
+      vec2 mPos = (uMouse / uResolution.xy - 0.5) * aspect;
+      float distM = length(p - mPos);
+      float mouseInfluence = smoothstep(0.4, 0.0, distM);
+      vec2 mForce = uMouseVelocity * mouseInfluence * 4.0;
+
+      vec2 distorted = p + flow1 + flow2 + mForce;
+      float n1 = fbm(distorted * 2.5 + vec2(t * 0.3, -t * 0.2));
+      float n2 = fbm(distorted * 4.0 + vec2(-t * 0.4, t * 0.3) + n1);
+      float n3 = fbm(distorted * 6.0 + n2 * 1.5);
+
+      // Multi-spectral fluid color mapping
+      vec3 col1 = vec3(0.05, 0.85, 0.95); // Cyan
+      vec3 col2 = vec3(0.95, 0.15, 0.65); // Magenta
+      vec3 col3 = vec3(0.35, 0.05, 0.95); // Deep Indigo
+      vec3 col4 = vec3(0.98, 0.75, 0.15); // Solar Amber
+
+      vec3 color = mix(col1, col2, smoothstep(-0.5, 0.5, n1));
+      color = mix(color, col3, smoothstep(-0.2, 0.8, n2));
+      color += col4 * pow(max(0.0, n3), 3.0) * 1.6;
+
+      // Fluid glow and highlights
+      float glow = pow(smoothstep(0.1, 0.9, n2), 2.5) * 1.8;
+      color += vec3(0.2, 0.9, 1.0) * glow * 0.6;
+      color += vec3(1.0, 0.4, 0.8) * mouseInfluence * (0.8 + 0.5 * sin(uTime * 3.0));
+
+      // Vignette
+      float vig = 1.0 - length(uv - 0.5) * 0.75;
+      color *= clamp(vig, 0.0, 1.0);
+
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `;
+
+  function createShader(gl, type, source) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, source);
+    gl.compileShader(s);
+    return s;
+  }
+
+  const program = gl.createProgram();
+  gl.attachShader(program, createShader(gl, gl.VERTEX_SHADER, baseVertexShader));
+  gl.attachShader(program, createShader(gl, gl.FRAGMENT_SHADER, fluidFragmentShader));
+  gl.linkProgram(program);
+  gl.useProgram(program);
+
+  const quadBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1, -1,  1, -1, -1,  1,
+    -1,  1,  1, -1,  1,  1,
+  ]), gl.STATIC_DRAW);
+
+  const aPos = gl.getAttribLocation(program, 'aPosition');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  const uTimeLoc = gl.getUniformLocation(program, 'uTime');
+  const uResLoc = gl.getUniformLocation(program, 'uResolution');
+  const uMouseLoc = gl.getUniformLocation(program, 'uMouse');
+  const uMouseVelLoc = gl.getUniformLocation(program, 'uMouseVelocity');
+  const uMouseDownLoc = gl.getUniformLocation(program, 'uMouseDown');
+
+  let mouseX = window.innerWidth * 0.5;
+  let mouseY = window.innerHeight * 0.5;
+  let mouseVelX = 0;
+  let mouseVelY = 0;
+  let isDown = 0;
+
+  window.addEventListener('mousemove', e => {
+    mouseVelX = (e.clientX - mouseX) * 0.01;
+    mouseVelY = (mouseY - e.clientY) * 0.01;
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  });
+
+  window.addEventListener('mousedown', () => isDown = 1);
+  window.addEventListener('mouseup', () => isDown = 0);
+
+  let startTime = performance.now();
+  function render() {
+    const time = (performance.now() - startTime) * 0.001;
+    mouseVelX *= 0.95;
+    mouseVelY *= 0.95;
+
+    gl.uniform1f(uTimeLoc, time);
+    gl.uniform2f(uResLoc, canvas.width, canvas.height);
+    gl.uniform2f(uMouseLoc, mouseX, canvas.height - mouseY);
+    gl.uniform2f(uMouseVelLoc, mouseVelX, mouseVelY);
+    gl.uniform1f(uMouseDownLoc, isDown);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!-- Required Meta Tags -->
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Meta Descriptions -->
+    <meta name="author" content="Muhammad Nasir Uddin Khan Shawon" />
+    <meta name="description" content="Stay on track with a sleek digital clock app built using JavaScript. Get accurate timekeeping, customizable features, and a user-friendly interface all in one place. Download now and never miss a minute." />
+    <!-- Webpage Title -->
+    <title>JS Digital Clock Wallpaper</title>
+    <!-- Favicon -->
+    <link rel="shortcut icon" href="./assets/images/favicon.svg" type="image/x-icon" />
+    <!-- Font Awesome CDN -->
+    <link rel="stylesheet" href="https://site-assets.fontawesome.com/releases/v6.4.0/css/all.css" />
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="./assets/css/styles.css" />
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body>
+    <!--  -->
+    <main>
+      <section class="flex flex-col items-center justify-center my-6 min-w-full">
+        <div class="flex flex-col items-center justify-center gap-10 w-96 h-[700px] bg-gray-950 rounded-3xl relative p-4">
+          <div class="grid grid-cols-3 items-center justify-between gap-0 text-xs text-gray-400 absolute top-1">
+            <p class="flex gap-1.5">
+              <span class="font-bold mr-1">J.A.R.V.I.S</span>
+              <span>
+                <i class="fas fa-phone-missed"></i>
+              </span>
+              <span>
+                <i class="far fa-bell-slash"></i>
+              </span>
+              <span>
+                <i class="far fa-bluetooth"></i>
+              </span>
+            </p>
+            <p class="text-center">
+              <span>
+                <i class="fad fa-circle-dot"></i>
+              </span>
+            </p>
+            <p class="flex gap-1.5">
+              <span>
+                <i class="far fa-wifi"></i>
+              </span>
+              <span>
+                <i class="fas fa-signal-bars"></i>
+              </span>
+              <span>
+                <i class="far fa-battery-full"></i>
+              </span>
+              <span>
+                <span id="h"></span>
+                <span>:</span>
+                <span id="m"></span>
+                <span id="t"></span>
+              </span>
+            </p>
+          </div>
+          <div class="flex flex-col items-center justify-center gap-4 absolute top-16">
+            <div class="">
+              <div class="relative">
+                <input type="search" name="" class="block rounded-full px-8 py-1 w-80" id="" placeholder="Search here ..." disabled />
+                <span class="absolute top-1 left-2">
+                  <i class="fas fa-search"></i>
+                </span>
+                <span class="absolute top-1 right-4">
+                  <i class="fas fa-camera-viewfinder"></i>
+                </span>
+              </div>
+            </div>
+            <div class="flex flex-col items-center gap-1 text-center text-gray-400 font-clock">
+              <div class="flex items-center gap-1 text-5xl font-bold">
+                <span id="hours"></span>
+                <span class="text-3xl">
+                  <i class="far fa-colon"></i>
+                </span>
+                <span id="minutes"></span>
+                <span class="text-3xl">
+                  <i class="far fa-colon"></i>
+                </span>
+                <span id="seconds"></span>
+                <span id="time"></span>
+              </div>
+              <div class="flex items-center justify-between text-xl w-60">
+                <p id="day"></p>
+                <p>
+                  <span id="date"></span>
+                  <span>/</span>
+                  <span id="month"></span>
+                  <span>/</span>
+                  <span id="year"></span>
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="absolute bottom-36">
+            <img src="./assets/images/Jarvis.png" class="opacity-50 w-[19rem] rotate" alt="" />
+          </div>
+          <div class="flex flex-col items-center justify-center gap-8 absolute bottom-3">
+            <div class="flex items-center justify-between gap-6">
+              <a href="https://www.instagram.com/shawonk9999" class="text-2xl text-center text-gray-400 border-2 border-gray-400 rounded-full p-1.5 w-12 h-12" target="_blank" >
+                <i class="fab fa-instagram"></i>
+              </a>
+              <a href="https://www.twitter.com/shawonk9999" class="text-2xl text-center text-gray-400 border-2 border-gray-400 rounded-full p-1.5 w-12 h-12" target="_blank" >
+                <i class="fab fa-twitter"></i>
+              </a>
+              <a href="https://www.facebook.com/shawonkhan.cupid" class="text-2xl text-center text-gray-400 border-2 border-gray-400 rounded-full p-1.5 w-12 h-12" target="_blank" >
+                <i class="fab fa-facebook-f"></i>
+              </a>
+              <a href="https://www.linkedin.com/in/shawonkhan007" class="text-2xl text-center text-gray-400 border-2 border-gray-400 rounded-full p-1.5 w-12 h-12" target="_blank" >
+                <i class="fab fa-linkedin-in"></i>
+              </a>
+              <a href="https://github.com/shawonk007" class="text-2xl text-center text-gray-400 border-2 border-gray-400 rounded-full p-1.5 w-12 h-12" target="_blank" >
+                <i class="fab fa-github"></i>
+              </a>
+            </div>
+            <ul class="flex items-center justify-between text-2xl text-gray-600 gap-20 w-60">
+              <button class="-rotate-90" disabled >
+                <i class="far fa-triangle"></i>
+              </button>
+              <button disabled >
+                <i class="far fa-circle"></i>
+              </button>
+              <button disabled >
+                <i class="far fa-square"></i>
+              </button>
+            </ul>
+          </div>
+          <div class="absolute top-52" style="opacity: 0.15;">
+            <img src="./assets/images/stark-industries.png" class="w-80" alt="" />
+          </div>
+          <p class="absolute bottom-12 text-base text-gray-800">
+            <span class="font-medium">Created By : </span>
+            <a href="https://www.shawon-khan.com" class="font-bold" target="_blank" >Shawon Khan</a>
+          </p>
+        </div>
+      </section>
+    </main>
+    <!-- Tailwind Configuration -->
+    <script>
+      tailwind.config = {
+        theme: {
+          fontFamily: {
+            clock: ['Digital-7 Mono Mono', 'monospace'],
+          },
+          extend: {
+            colors: {
+              clifford: '#da373d',
+            }
+          }
+        }
+      }
+    </script>
+    <!-- Custom JS -->
+    <script src="./assets/js/scripts.js"></script>
+  </body>
+</html>

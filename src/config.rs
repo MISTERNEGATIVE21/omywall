@@ -137,7 +137,9 @@ fn default_fps() -> u32 {
 }
 
 pub fn humanize_title(stem: &str) -> String {
-    stem.split(['-', '_'])
+    let clean_stem = stem.trim_start_matches(|c: char| c.is_ascii_digit() || c == '-' || c == '_');
+    let target = if clean_stem.is_empty() { stem } else { clean_stem };
+    target.split(['-', '_'])
         .filter(|s| !s.is_empty())
         .map(|w| {
             let mut chars = w.chars();
@@ -284,75 +286,111 @@ pub fn default_web_bookmarks() -> Vec<WebBookmark> {
             is_demo: true,
         },
         WebBookmark {
-            title: "Neon OLED Liquid Fluid 3D (Mouse Follow)".to_string(),
-            url: "assets/web_wallpapers/neon_oled_fluid_mouse_3d.html".to_string(),
-            category: "OLED Interactive Fluid".to_string(),
+            title: "WebGL Fluid Simulation (Navier-Stokes)".to_string(),
+            url: "assets/web_wallpapers/01-fluid-particles/webgl_fluid_simulation.html".to_string(),
+            category: "Fluid & Particles".to_string(),
             is_demo: true,
         },
         WebBookmark {
-            title: "OLED Cosmic Aurora 3D (Interactive Gravity)".to_string(),
-            url: "assets/web_wallpapers/oled_cosmic_aurora_interactive.html".to_string(),
-            category: "OLED Mouse Distortion".to_string(),
+            title: "tsParticles Constellation Network".to_string(),
+            url: "assets/web_wallpapers/01-fluid-particles/tsparticles_constellation.html".to_string(),
+            category: "Fluid & Particles".to_string(),
             is_demo: true,
         },
         WebBookmark {
-            title: "3D Holographic Black Hole".to_string(),
-            url: "assets/web_wallpapers/holographic_blackhole_3d.html".to_string(),
-            category: "3D Gravitational Physics".to_string(),
+            title: "FieldPlay Vector Flow Field".to_string(),
+            url: "assets/web_wallpapers/01-fluid-particles/fieldplay_vector_flow.html".to_string(),
+            category: "Fluid & Particles".to_string(),
             is_demo: true,
         },
         WebBookmark {
-            title: "3D Cyberpunk Neon Skyline".to_string(),
-            url: "assets/web_wallpapers/cyberpunk_city_3d.html".to_string(),
-            category: "3D Cyberpunk City".to_string(),
+            title: "Particle Image Dispersion".to_string(),
+            url: "assets/web_wallpapers/01-fluid-particles/particle_image_dispersion.html".to_string(),
+            category: "Fluid & Particles".to_string(),
             is_demo: true,
         },
         WebBookmark {
-            title: "3D Aurora Borealis Lights".to_string(),
-            url: "assets/web_wallpapers/aurora_borealis_3d.html".to_string(),
-            category: "3D Cosmic Aurora".to_string(),
+            title: "Vanta 3D Waves & Topology".to_string(),
+            url: "assets/web_wallpapers/02-3d-procedural/vanta_waves_topology.html".to_string(),
+            category: "3D Procedural".to_string(),
             is_demo: true,
         },
         WebBookmark {
-            title: "3D Quantum Energy Field".to_string(),
-            url: "assets/web_wallpapers/quantum_field_3d.html".to_string(),
-            category: "3D Quantum Dynamics".to_string(),
+            title: "Three.js PathTracing Glass Refraction".to_string(),
+            url: "assets/web_wallpapers/02-3d-procedural/pathtracing_glass_refraction.html".to_string(),
+            category: "3D Procedural".to_string(),
             is_demo: true,
         },
         WebBookmark {
-            title: "3D Sacred Geometry Tesseract".to_string(),
-            url: "assets/web_wallpapers/geometry_wireframe_3d.html".to_string(),
-            category: "3D Laser Geometry".to_string(),
+            title: "3D Point Cloud Sculpture".to_string(),
+            url: "assets/web_wallpapers/02-3d-procedural/point_cloud_3d_sculpture.html".to_string(),
+            category: "3D Procedural".to_string(),
             is_demo: true,
         },
         WebBookmark {
-            title: "3D Cyber Hyperspace Tunnel".to_string(),
-            url: "assets/web_wallpapers/cyber_tunnel_3d.html".to_string(),
-            category: "3D WebGL / Canvas".to_string(),
+            title: "Three.js Ocean & Glitch Visualizer".to_string(),
+            url: "assets/web_wallpapers/02-3d-procedural/threejs_ocean_glitch_visualizer.html".to_string(),
+            category: "3D Procedural".to_string(),
             is_demo: true,
         },
         WebBookmark {
-            title: "3D Synthwave Horizon".to_string(),
-            url: "assets/web_wallpapers/neon_synthwave_3d.html".to_string(),
-            category: "3D Synthwave".to_string(),
+            title: "Rezmason 3D Matrix Digital Rain".to_string(),
+            url: "assets/web_wallpapers/03-retro-cyberpunk/rezmason_matrix_3d.html".to_string(),
+            category: "Retro & Cyberpunk".to_string(),
             is_demo: true,
         },
         WebBookmark {
-            title: "3D Cosmic Nebula Vortex".to_string(),
-            url: "assets/web_wallpapers/cosmic_nebula_3d.html".to_string(),
-            category: "3D Space Particles".to_string(),
+            title: "80s Retro Grid Synthwave Outrun".to_string(),
+            url: "assets/web_wallpapers/03-retro-cyberpunk/retro_grid_synthwave.html".to_string(),
+            category: "Retro & Cyberpunk".to_string(),
             is_demo: true,
         },
         WebBookmark {
-            title: "3D Solar Energy Fluid".to_string(),
-            url: "assets/web_wallpapers/solar_fluid_3d.html".to_string(),
-            category: "3D Fluid Dynamics".to_string(),
+            title: "v86 Retro OS Canvas Terminal".to_string(),
+            url: "assets/web_wallpapers/03-retro-cyberpunk/v86_os_canvas_terminal.html".to_string(),
+            category: "Retro & Cyberpunk".to_string(),
             is_demo: true,
         },
         WebBookmark {
-            title: "Matrix Digital Rain".to_string(),
-            url: "assets/web_wallpapers/matrix_rain.html".to_string(),
-            category: "Cyberpunk Rain".to_string(),
+            title: "25th Hour Dynamic Day/Night Landscape".to_string(),
+            url: "assets/web_wallpapers/04-astronomy-clocks/twenty_fifth_hour_daynight.html".to_string(),
+            category: "Astronomy & Clocks".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "Astronomical Star Chart & Sky".to_string(),
+            url: "assets/web_wallpapers/04-astronomy-clocks/astronomy_canvas_stars.html".to_string(),
+            category: "Astronomy & Clocks".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "Orbital Minimalist Chrono Clock".to_string(),
+            url: "assets/web_wallpapers/04-astronomy-clocks/orbital_minimal_clock.html".to_string(),
+            category: "Astronomy & Clocks".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "GL Audio Spectrum GPU Analyzer".to_string(),
+            url: "assets/web_wallpapers/05-audio-shaders/gl_audio_spectrum_analyzer.html".to_string(),
+            category: "Audio & Shaders".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "Circular Waveform Audio Visualizer".to_string(),
+            url: "assets/web_wallpapers/05-audio-shaders/circular_waveform_audiovisualizer.html".to_string(),
+            category: "Audio & Shaders".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "glslCanvas Live GLSL Shader Engine".to_string(),
+            url: "assets/web_wallpapers/05-audio-shaders/glsl_canvas_live_shader.html".to_string(),
+            category: "Audio & Shaders".to_string(),
+            is_demo: true,
+        },
+        WebBookmark {
+            title: "Three.js Postprocessing Bloom & Depth".to_string(),
+            url: "assets/web_wallpapers/05-audio-shaders/threejs_postprocessing_bloom.html".to_string(),
+            category: "Audio & Shaders".to_string(),
             is_demo: true,
         },
     ]

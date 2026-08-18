@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>v86 Retro Canvas Terminal & Cyber OS</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #070a10; font-family: monospace; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let width, height;
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const bootLogs = [
+    "[    0.000000] Linux version 6.12.0-omywall-x86_64 (archlinux@build) #1 SMP PREEMPT",
+    "[    0.004120] BIOS-e820: [mem 0x0000000000000000-0x000000000009fbff] usable",
+    "[    0.045012] x86/fpu: Supporting XSAVE feature 0x001: 'x87 floating point registers'",
+    "[    0.112940] OMYWALL Core v5.0: Initializing Universal Hardware Video & Shader Subsystem",
+    "[    0.245100] Direct Rendering Manager: Initialized amdgpu/nvidia-drm 60.0.0 for Wayland",
+    "[    0.398012] systemd[1]: Reached target Graphical Interface & Multi-User Desktop",
+    "[    0.512000] omywall-daemon: Unix Socket IPC Bound at /run/user/1000/omywall.sock",
+    "[    0.680194] wlroots: Layer-shell surface active on eDP-1 (3840x2160@144Hz)",
+    "[    0.890123] kernel: ACPI: Core telemetry bridge listening on /tmp/omywall_telemetry.json",
+  ];
+
+  let logIndex = 0;
+  let activeLogs = [...bootLogs];
+  let cpuUsage = 18;
+  let ramUsage = 4.2;
+
+  setInterval(() => {
+    cpuUsage = Math.floor(Math.random() * 25 + 12);
+    ramUsage = +(3.8 + Math.random() * 0.8).toFixed(1);
+    const timeStr = new Date().toLocaleTimeString();
+    const pid = Math.floor(Math.random() * 8000 + 1000);
+    const messages = [
+      `[  ${(performance.now() * 0.001).toFixed(3)}] process[${pid}]: mpvpaper hardware frame commit (0 dropped)`,
+      `[  ${(performance.now() * 0.001).toFixed(3)}] compositor: Hyprland buffer sync OK | FPS: 144.0`,
+      `[  ${(performance.now() * 0.001).toFixed(3)}] audio: WebAudio spectral pipe active | Peak: -4.2 dB`,
+      `[  ${(performance.now() * 0.001).toFixed(3)}] memory: GC sweep complete | RSS: 52 MB | Jemalloc active`,
+    ];
+    activeLogs.push(messages[Math.floor(Math.random() * messages.length)]);
+    if (activeLogs.length > 28) activeLogs.shift();
+  }, 1200);
+
+  function animate() {
+    ctx.fillStyle = '#060912';
+    ctx.fillRect(0, 0, width, height);
+
+    // 1. Draw Retro OS Window Frame
+    const winW = Math.min(width - 60, 1100);
+    const winH = Math.min(height - 80, 720);
+    const winX = (width - winW) * 0.5;
+    const winY = (height - winH) * 0.5;
+
+    // Window shadow & body
+    ctx.fillStyle = 'rgba(10, 14, 24, 0.94)';
+    ctx.shadowColor = '#00f0ff';
+    ctx.shadowBlur = 24;
+    ctx.fillRect(winX, winY, winW, winH);
+
+    ctx.strokeStyle = '#00f0ff';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(winX, winY, winW, winH);
+    ctx.shadowBlur = 0;
+
+    // Window Header Bar
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(winX, winY, winW, 36);
+
+    ctx.fillStyle = '#00f0ff';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText('⚡ OMYWALL v86 OS - Linux Hardware Diagnostic Terminal', winX + 16, winY + 23);
+
+    // Top Right Status Badges
+    const statusText = `CPU: ${cpuUsage}% | RAM: ${ramUsage}GB/32GB | WAYLAND: ACTIVE`;
+    ctx.fillStyle = '#00ff88';
+    ctx.fillText(statusText, winX + winW - ctx.measureText(statusText).width - 16, winY + 23);
+
+    // 2. Terminal Output Stream
+    ctx.font = '13px monospace';
+    let lineY = winY + 65;
+    for (let i = 0; i < activeLogs.length; i++) {
+      const line = activeLogs[i];
+      if (line.includes('error') || line.includes('dropped')) {
+        ctx.fillStyle = '#ff4d4d';
+      } else if (line.includes('OK') || line.includes('Reached') || line.includes('active')) {
+        ctx.fillStyle = '#00ff88';
+      } else {
+        ctx.fillStyle = '#94a3b8';
+      }
+      ctx.fillText(line, winX + 20, lineY);
+      lineY += 21;
+    }
+
+    // Blinking Cursor
+    if (Math.floor(performance.now() * 0.003) % 2 === 0) {
+      ctx.fillStyle = '#00f0ff';
+      ctx.fillRect(winX + 20, lineY, 10, 16);
+    }
+
+    // 3. CRT Scanline Overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    for (let y = 0; y < height; y += 3) {
+      ctx.fillRect(0, y, width, 1);
+    }
+
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

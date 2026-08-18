@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Particle Image Dispersion</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05060a; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let width, height;
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    initParticles();
+  }
+  window.addEventListener('resize', resize);
+
+  const mouse = { x: -1000, y: -1000, radius: 120 };
+  window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+  });
+  window.addEventListener('mouseleave', () => {
+    mouse.x = -1000;
+    mouse.y = -1000;
+  });
+
+  class ImageParticle {
+    constructor(originX, originY, color) {
+      this.originX = originX;
+      this.originY = originY;
+      this.x = Math.random() * width;
+      this.y = Math.random() * height;
+      this.vx = (Math.random() - 0.5) * 4;
+      this.vy = (Math.random() - 0.5) * 4;
+      this.color = color;
+      this.size = 2.2;
+      this.ease = 0.08;
+      this.friction = 0.88;
+    }
+    update() {
+      // Spring attraction to origin position
+      const dxOrigin = this.originX - this.x;
+      const dyOrigin = this.originY - this.y;
+      this.vx += dxOrigin * this.ease;
+      this.vy += dyOrigin * this.ease;
+
+      // Mouse dispersion force field
+      const dxMouse = this.x - mouse.x;
+      const dyMouse = this.y - mouse.y;
+      const distMouse = Math.sqrt(dxMouse * dxMouse + dyMouse * dyMouse);
+      if (distMouse < mouse.radius) {
+        const force = (mouse.radius - distMouse) / mouse.radius;
+        const angle = Math.atan2(dyMouse, dxMouse);
+        this.vx += Math.cos(angle) * force * 16.0;
+        this.vy += Math.sin(angle) * force * 16.0;
+      }
+
+      this.vx *= this.friction;
+      this.vy *= this.friction;
+
+      this.x += this.vx;
+      this.y += this.vy;
+    }
+    draw() {
+      ctx.fillStyle = this.color;
+      ctx.fillRect(this.x, this.y, this.size, this.size);
+    }
+  }
+
+  let particles = [];
+
+  function initParticles() {
+    particles = [];
+    // Render high-res emblem / geometry onto offscreen canvas to sample particle targets
+    const offCanvas = document.createElement('canvas');
+    const offCtx = offCanvas.getContext('2d');
+    const size = Math.min(width, height) * 0.55;
+    offCanvas.width = size;
+    offCanvas.height = size;
+
+    // Draw stylized OMYWALL Cyber Geometric Core
+    offCtx.clearRect(0, 0, size, size);
+    offCtx.save();
+    offCtx.translate(size * 0.5, size * 0.5);
+
+    // Glowing concentric rings & cyber diamond
+    offCtx.strokeStyle = '#00f0ff';
+    offCtx.lineWidth = 14;
+    offCtx.beginPath();
+    offCtx.arc(0, 0, size * 0.35, 0, Math.PI * 2);
+    offCtx.stroke();
+
+    offCtx.strokeStyle = '#ff007f';
+    offCtx.lineWidth = 12;
+    offCtx.beginPath();
+    offCtx.moveTo(0, -size * 0.38);
+    offCtx.lineTo(size * 0.38, 0);
+    offCtx.lineTo(0, size * 0.38);
+    offCtx.lineTo(-size * 0.38, 0);
+    offCtx.closePath();
+    offCtx.stroke();
+
+    offCtx.fillStyle = '#ffffff';
+    offCtx.font = `900 ${Math.floor(size * 0.12)}px 'Inter', sans-serif`;
+    offCtx.textAlign = 'center';
+    offCtx.textBaseline = 'middle';
+    offCtx.fillText('OMYWALL', 0, 0);
+
+    offCtx.restore();
+
+    // Sample pixels at regular stride
+    const imgData = offCtx.getImageData(0, 0, size, size).data;
+    const startX = (width - size) * 0.5;
+    const startY = (height - size) * 0.5;
+    const step = 5;
+
+    for (let y = 0; y < size; y += step) {
+      for (let x = 0; x < size; x += step) {
+        const idx = (y * size + x) * 4;
+        const alpha = imgData[idx + 3];
+        if (alpha > 80) {
+          const r = imgData[idx];
+          const g = imgData[idx + 1];
+          const b = imgData[idx + 2];
+          const col = `rgb(${r}, ${g}, ${b})`;
+          particles.push(new ImageParticle(startX + x, startY + y, col));
+        }
+      }
+    }
+  }
+
+  resize();
+
+  function animate() {
+    ctx.fillStyle = 'rgba(5, 6, 10, 0.2)';
+    ctx.fillRect(0, 0, width, height);
+
+    for (const p of particles) {
+      p.update();
+      p.draw();
+    }
+
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

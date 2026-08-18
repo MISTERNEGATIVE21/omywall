@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Circular Waveform Audio Visualizer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #03040a; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let width, height;
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const BARS = 128;
+  let t = 0;
+
+  function animate() {
+    t += 0.02;
+
+    ctx.fillStyle = 'rgba(3, 4, 10, 0.2)';
+    ctx.fillRect(0, 0, width, height);
+
+    const cx = width * 0.5;
+    const cy = height * 0.5;
+    const baseRadius = Math.min(width, height) * 0.22;
+
+    // Outer and Inner Circular Equalizer Spectrum
+    for (let i = 0; i < BARS; i++) {
+      const angle = (i / BARS) * Math.PI * 2 + t * 0.2;
+      const freqNorm = (Math.sin(i * 0.2 + t * 3.0) * 0.4 + Math.cos(i * 0.5 - t * 2.0) * 0.3 + 0.7);
+      const barLen = freqNorm * (baseRadius * 0.65);
+
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+
+      const x1 = cx + cos * baseRadius;
+      const y1 = cy + sin * baseRadius;
+      const x2 = cx + cos * (baseRadius + barLen);
+      const y2 = cy + sin * (baseRadius + barLen);
+
+      // Gradient color based on spectrum frequency
+      const hue = (i / BARS) * 360 + t * 30;
+      ctx.strokeStyle = `hsl(${hue}, 100%, 55%)`;
+      ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
+      ctx.shadowBlur = 10;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+
+      // Inner Counter-Pulse Wave
+      const x3 = cx + cos * (baseRadius - barLen * 0.35);
+      const y3 = cy + sin * (baseRadius - barLen * 0.35);
+      ctx.strokeStyle = `hsla(${hue + 180}, 100%, 65%, 0.6)`;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x3, y3);
+      ctx.stroke();
+    }
+
+    // Central Core Pulse Disc
+    const corePulse = baseRadius * 0.75 + Math.sin(t * 4.0) * 12;
+    const coreGrad = ctx.createRadialGradient(cx, cy, 10, cx, cy, corePulse);
+    coreGrad.addColorStop(0, 'rgba(0, 240, 255, 0.9)');
+    coreGrad.addColorStop(0.6, 'rgba(180, 0, 255, 0.4)');
+    coreGrad.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, corePulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FieldPlay Vector Flow Field</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #030408; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let width, height;
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const PARTICLE_COUNT = 3000;
+  const STEP_SIZE = 1.8;
+  const FADE_RATE = 0.94;
+
+  const mouse = { x: width * 0.5, y: height * 0.5, isHover: false };
+  window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.isHover = true;
+  });
+
+  // Vector field evaluation: v(x, y) = (dx/dt, dy/dt)
+  function getVelocity(x, y, t) {
+    const nx = (x / width - 0.5) * 6.0;
+    const ny = (y / height - 0.5) * 6.0;
+
+    // FieldPlay non-linear trigonometric vector equations
+    let vx = Math.sin(ny * 2.0 + t) + Math.cos(nx * 1.5 - t * 0.5);
+    let vy = Math.cos(nx * 2.0 - t) - Math.sin(ny * 1.5 + t * 0.5);
+
+    // Mouse vortex interaction
+    if (mouse.isHover) {
+      const mx = (mouse.x / width - 0.5) * 6.0;
+      const my = (mouse.y / height - 0.5) * 6.0;
+      const dx = nx - mx;
+      const dy = ny - my;
+      const d2 = dx * dx + dy * dy + 0.1;
+      vx += (-dy / d2) * 1.5;
+      vy += (dx / d2) * 1.5;
+    }
+
+    return { vx, vy };
+  }
+
+  // Particle representation with Runge-Kutta 4th order numerical integration
+  class FlowParticle {
+    constructor() {
+      this.reset();
+    }
+    reset() {
+      this.x = Math.random() * width;
+      this.y = Math.random() * height;
+      this.prevX = this.x;
+      this.prevY = this.y;
+      this.life = Math.random() * 200 + 100;
+      this.age = 0;
+      this.speed = 0;
+    }
+    update(t) {
+      this.prevX = this.x;
+      this.prevY = this.y;
+
+      // RK4 step
+      const k1 = getVelocity(this.x, this.y, t);
+      const k2 = getVelocity(this.x + k1.vx * STEP_SIZE * 0.5, this.y + k1.vy * STEP_SIZE * 0.5, t);
+      const k3 = getVelocity(this.x + k2.vx * STEP_SIZE * 0.5, this.y + k2.vy * STEP_SIZE * 0.5, t);
+      const k4 = getVelocity(this.x + k3.vx * STEP_SIZE, this.y + k3.vy * STEP_SIZE, t);
+
+      const vx = (k1.vx + 2 * k2.vx + 2 * k3.vx + k4.vx) / 6.0;
+      const vy = (k1.vy + 2 * k2.vy + 2 * k3.vy + k4.vy) / 6.0;
+
+      this.speed = Math.sqrt(vx * vx + vy * vy);
+      this.x += vx * 3.2;
+      this.y += vy * 3.2;
+
+      this.age++;
+      if (this.age > this.life || this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
+        this.reset();
+      }
+    }
+  }
+
+  const particles = Array.from({ length: PARTICLE_COUNT }, () => new FlowParticle());
+
+  let t = 0;
+  function animate() {
+    t += 0.008;
+
+    // Semi-transparent background trail
+    ctx.fillStyle = 'rgba(3, 4, 8, 0.06)';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.lineWidth = 1.2;
+    for (const p of particles) {
+      p.update(t);
+
+      // Speed-to-color mapping (Electric Cyan -> Radiant Violet -> Amber)
+      const hue = (p.speed * 40.0 + 180.0) % 360;
+      const lightness = Math.min(85, Math.max(35, p.speed * 25.0 + 30.0));
+      ctx.strokeStyle = `hsl(${hue}, 100%, ${lightness}%)`;
+
+      ctx.beginPath();
+      ctx.moveTo(p.prevX, p.prevY);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

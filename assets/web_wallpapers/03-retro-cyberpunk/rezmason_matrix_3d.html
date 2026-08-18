@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rezmason Matrix 3D Digital Rain</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000200; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  let width, height;
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Authentic Matrix Katakana + Numerics + Symbols character set
+  const CHARS = 'ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ1234567890:・.=*+-<>¦｜';
+  const FONT_SIZE = 18;
+  const COLUMNS = Math.floor(window.innerWidth / FONT_SIZE) + 4;
+
+  const drops = [];
+  for (let i = 0; i < COLUMNS; i++) {
+    drops[i] = {
+      y: Math.random() * -100,
+      speed: Math.random() * 1.4 + 1.2,
+      length: Math.floor(Math.random() * 24 + 12),
+      chars: [],
+      zDepth: Math.random() * 0.6 + 0.7, // 3D depth layer
+    };
+  }
+
+  const mouse = { x: 0, y: 0 };
+  window.addEventListener('mousemove', e => {
+    mouse.x = (e.clientX / width - 0.5) * 40;
+    mouse.y = (e.clientY / height - 0.5) * 40;
+  });
+
+  function animate() {
+    // Atmospheric semi-transparent fade for trailing phosphors
+    ctx.fillStyle = 'rgba(0, 3, 1, 0.12)';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.save();
+    // 3D camera parallax tilt
+    ctx.translate(width * 0.5, height * 0.5);
+    ctx.rotate(mouse.x * 0.002);
+    ctx.translate(-width * 0.5, -height * 0.5);
+
+    ctx.font = `bold ${FONT_SIZE}px monospace`;
+    ctx.textBaseline = 'top';
+
+    for (let i = 0; i < drops.length; i++) {
+      const drop = drops[i];
+      const x = i * FONT_SIZE + mouse.x * drop.zDepth;
+
+      // Update lead position
+      drop.y += drop.speed;
+      const headRow = Math.floor(drop.y);
+
+      // Generate random glyphs for the trail
+      if (drop.chars.length <= headRow) {
+        drop.chars.push(CHARS[Math.floor(Math.random() * CHARS.length)]);
+      }
+
+      // Draw vertical rain stream
+      for (let j = 0; j < drop.length; j++) {
+        const charRow = headRow - j;
+        if (charRow < 0) continue;
+        const y = charRow * FONT_SIZE + mouse.y * drop.zDepth;
+        const char = drop.chars[charRow] || CHARS[Math.floor(Math.random() * CHARS.length)];
+
+        if (j === 0) {
+          // Leading glyph: pure white-hot phosphorus
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowColor = '#00ff66';
+          ctx.shadowBlur = 12;
+        } else if (j < 3) {
+          // Intense neon emerald
+          ctx.fillStyle = '#66ff99';
+          ctx.shadowColor = '#00ff66';
+          ctx.shadowBlur = 8;
+        } else {
+          // Fading phosphor green
+          const alpha = 1.0 - (j / drop.length);
+          ctx.fillStyle = `rgba(0, 255, 70, ${alpha * drop.zDepth})`;
+          ctx.shadowBlur = 0;
+        }
+
+        ctx.fillText(char, x, y);
+      }
+
+      // Reset drop when offscreen
+      if (drop.y * FONT_SIZE > height + drop.length * FONT_SIZE) {
+        drop.y = Math.random() * -30;
+        drop.chars = [];
+        drop.speed = Math.random() * 1.4 + 1.2;
+        drop.length = Math.floor(Math.random() * 24 + 12);
+        drop.zDepth = Math.random() * 0.6 + 0.7;
+      }
+    }
+
+    ctx.restore();
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>

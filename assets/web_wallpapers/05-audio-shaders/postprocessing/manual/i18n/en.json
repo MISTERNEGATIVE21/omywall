@@ -1,0 +1,53 @@
+{
+	"dateFormat": {
+		"other": "Jan 2, 2006"
+	},
+	"skipToContent": {
+		"other": "Skip to content"
+	},
+	"readMore": {
+		"other": "Read more"
+	},
+	"openNav": {
+		"other": "Open navigation menu"
+	},
+	"closeNav": {
+		"other": "Close navigation menu"
+	},
+	"archive": {
+		"other": "Archive"
+	},
+	"main": {
+		"other": "Start"
+	},
+	"demos": {
+		"other": "Demos"
+	},
+	"community": {
+		"other": "Community"
+	},
+	"loading": {
+		"other": "loading"
+	},
+	"fullscreen": {
+		"other": "Fullscreen"
+	},
+	"code": {
+		"other": "Code"
+	},
+	"info": {
+		"other": "Info"
+	},
+	"continue": {
+		"other": "Continue"
+	},
+	"error": {
+		"other": "Error"
+	},
+	"warning": {
+		"other": "Warning"
+	},
+	"epilepsyWarning": {
+		"other": "The following contains flashing imagery that may cause discomfort and/or seizures for those with photosensitive epilepsy."
+	}
+}
