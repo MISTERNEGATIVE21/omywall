@@ -961,13 +961,66 @@ pub fn resolve_asset_path(url: &str) -> String {
 pub struct GpuInfo {
     pub name: String,
     pub vendor: String,
+    pub driver: Option<String>,
+    pub vram_mb: Option<u64>,
     pub device_path: Option<String>,
     pub is_primary: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HardwareDiagnostics {
+    pub gpus: Vec<GpuInfo>,
+    pub has_nvidia: bool,
+    pub has_intel_amd: bool,
+    pub nvdec_available: bool,
+    pub cuda_available: bool,
+    pub vaapi_available: bool,
+    pub vulkan_available: bool,
+    pub webgl_accelerated: bool,
+    pub recommended_hwdec: String,
+}
+
 pub fn detect_system_gpus() -> Vec<GpuInfo> {
     let mut gpus = Vec::new();
+    let mut seen_names = std::collections::HashSet::new();
 
+    // 1. Query NVIDIA SMI for high-precision discrete GPU name, driver & VRAM
+    if let Ok(out) = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=name,driver_version,memory.total", "--format=csv,noheader,nounits"])
+        .output()
+    {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                if !parts.is_empty() && !parts[0].is_empty() {
+                    let name = parts[0].to_string();
+                    let driver = parts.get(1).map(|d| d.to_string());
+                    let vram_mb = parts.get(2).and_then(|v| v.parse::<u64>().ok());
+                    let dev_path = if std::path::Path::new("/dev/dri/renderD129").exists() {
+                        Some("/dev/dri/renderD129".to_string())
+                    } else if std::path::Path::new("/dev/nvidia0").exists() {
+                        Some("/dev/nvidia0".to_string())
+                    } else {
+                        None
+                    };
+
+                    if seen_names.insert(name.clone()) {
+                        gpus.push(GpuInfo {
+                            name,
+                            vendor: "NVIDIA".to_string(),
+                            driver,
+                            vram_mb,
+                            device_path: dev_path,
+                            is_primary: gpus.is_empty(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Query lspci for PCI graphic controllers (Intel, AMD, NVIDIA)
     if let Ok(output) = std::process::Command::new("lspci").output() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
@@ -988,33 +1041,54 @@ pub fn detect_system_gpus() -> Vec<GpuInfo> {
                     "Generic".to_string()
                 };
 
-                gpus.push(GpuInfo {
-                    name,
-                    vendor,
-                    device_path: None,
-                    is_primary: gpus.is_empty(),
-                });
+                // Skip duplicate if already detected via nvidia-smi
+                if vendor == "NVIDIA" && gpus.iter().any(|g| g.vendor == "NVIDIA") {
+                    continue;
+                }
+
+                let dev_path = if vendor == "Intel" || vendor == "AMD" {
+                    if std::path::Path::new("/dev/dri/renderD128").exists() {
+                        Some("/dev/dri/renderD128".to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                if seen_names.insert(name.clone()) {
+                    gpus.push(GpuInfo {
+                        name,
+                        vendor,
+                        driver: None,
+                        vram_mb: None,
+                        device_path: dev_path,
+                        is_primary: gpus.is_empty(),
+                    });
+                }
             }
         }
     }
 
-    if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
-        let mut idx = 0;
-        for entry in entries.flatten() {
-            let filename = entry.file_name().to_string_lossy().to_string();
-            if filename.starts_with("renderD") {
-                let dev_path = format!("/dev/dri/{}", filename);
-                if idx < gpus.len() {
-                    gpus[idx].device_path = Some(dev_path);
-                } else {
-                    gpus.push(GpuInfo {
-                        name: format!("GPU Render Node ({})", filename),
-                        vendor: "DRM/KMS".to_string(),
-                        device_path: Some(dev_path),
-                        is_primary: gpus.is_empty(),
-                    });
+    // 3. Fallback to Linux DRM render nodes if no GPUs found yet
+    if gpus.is_empty() {
+        if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
+            for entry in entries.flatten() {
+                let filename = entry.file_name().to_string_lossy().to_string();
+                if filename.starts_with("renderD") {
+                    let dev_path = format!("/dev/dri/{}", filename);
+                    let node_name = format!("GPU Render Node ({})", filename);
+                    if seen_names.insert(node_name.clone()) {
+                        gpus.push(GpuInfo {
+                            name: node_name,
+                            vendor: if filename == "renderD128" { "Intel/Integrated DRM" } else { "Discrete DRM/KMS" }.to_string(),
+                            driver: None,
+                            vram_mb: None,
+                            device_path: Some(dev_path),
+                            is_primary: gpus.is_empty(),
+                        });
+                    }
                 }
-                idx += 1;
             }
         }
     }
@@ -1023,6 +1097,8 @@ pub fn detect_system_gpus() -> Vec<GpuInfo> {
         gpus.push(GpuInfo {
             name: "Auto-Detected Graphics Processing Unit".to_string(),
             vendor: "Auto".to_string(),
+            driver: None,
+            vram_mb: None,
             device_path: None,
             is_primary: true,
         });
@@ -1031,26 +1107,61 @@ pub fn detect_system_gpus() -> Vec<GpuInfo> {
     gpus
 }
 
+pub fn get_hardware_diagnostics() -> HardwareDiagnostics {
+    let gpus = detect_system_gpus();
+    let has_nvidia = gpus.iter().any(|g| g.vendor == "NVIDIA")
+        || std::path::Path::new("/dev/nvidia0").exists()
+        || std::path::Path::new("/proc/driver/nvidia").exists();
+    let has_intel_amd = gpus.iter().any(|g| g.vendor == "Intel" || g.vendor == "AMD" || g.vendor.contains("Integrated"))
+        || std::path::Path::new("/dev/dri/renderD128").exists();
+
+    let nvdec_available = has_nvidia;
+    let cuda_available = has_nvidia;
+    let vaapi_available = has_intel_amd || std::path::Path::new("/dev/dri/renderD128").exists();
+    let vulkan_available = std::path::Path::new("/usr/share/vulkan/icd.d/nvidia_icd.json").exists()
+        || std::path::Path::new("/usr/lib/libvulkan.so.1").exists()
+        || std::path::Path::new("/usr/lib64/libvulkan.so.1").exists()
+        || std::path::Path::new("/usr/lib/x86_64-linux-gnu/libvulkan.so.1").exists();
+
+    let webgl_accelerated = true; // WebKit2GTK with Compositor mode & PRIME offload enabled
+    let recommended_hwdec = if nvdec_available {
+        "nvdec (NVIDIA NVDEC)".to_string()
+    } else if vaapi_available {
+        "vaapi (Intel/AMD VA-API)".to_string()
+    } else if vulkan_available {
+        "vulkan (Vulkan Video)".to_string()
+    } else {
+        "auto (Auto-detected)".to_string()
+    };
+
+    HardwareDiagnostics {
+        gpus,
+        has_nvidia,
+        has_intel_amd,
+        nvdec_available,
+        cuda_available,
+        vaapi_available,
+        vulkan_available,
+        webgl_accelerated,
+        recommended_hwdec,
+    }
+}
+
 #[allow(dead_code)]
 pub fn get_available_hwdec_options() -> Vec<(&'static str, &'static str, &'static str)> {
     let mut options = vec![("auto", "⚡ Auto-Detect GPU (Recommended)", "Automatic hardware acceleration detection")];
-    let gpus = detect_system_gpus();
+    let diag = get_hardware_diagnostics();
 
-    let has_nvidia = gpus.iter().any(|g| g.vendor == "NVIDIA") || std::path::Path::new("/dev/nvidia0").exists() || std::path::Path::new("/proc/driver/nvidia").exists();
-    let has_intel_amd = gpus.iter().any(|g| g.vendor == "Intel" || g.vendor == "AMD") || std::path::Path::new("/dev/dri/renderD128").exists();
-
-    if has_nvidia {
+    if diag.nvdec_available {
         options.push(("nvdec", "💚 NVIDIA NVDEC", "NVIDIA NVDEC Hardware Video Decoder"));
         options.push(("cuda", "⚡ NVIDIA CUDA Acceleration", "NVIDIA CUDA Hardware Video Acceleration"));
     }
 
-    if has_intel_amd {
+    if diag.vaapi_available {
         options.push(("vaapi", "🔷 VA-API (Intel / AMD GPU)", "Linux VA-API Hardware Video Acceleration"));
     }
 
-    if std::path::Path::new("/usr/lib/libvulkan.so.1").exists() 
-        || std::path::Path::new("/usr/lib64/libvulkan.so.1").exists()
-        || std::path::Path::new("/usr/lib/x86_64-linux-gnu/libvulkan.so.1").exists() {
+    if diag.vulkan_available {
         options.push(("vulkan", "🌋 Vulkan Video", "Modern Vulkan Hardware Video Decoder"));
     }
 

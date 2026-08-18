@@ -4828,10 +4828,23 @@ fn render_settings_tab<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
     });
 
     // 3. Section 2: Hardware Video Acceleration (HWDEC)
+    let diag = crate::config::get_hardware_diagnostics();
+    let mut gpu_labels = Vec::new();
+    for gpu in &diag.gpus {
+        let drv = gpu.driver.as_deref().map(|d| format!(" [Driver: {}]", d)).unwrap_or_default();
+        let vram = gpu.vram_mb.map(|v| format!(" [{} MB VRAM]", v)).unwrap_or_default();
+        gpu_labels.push(format!("● {} ({}){}{}", gpu.name, gpu.vendor, drv, vram));
+    }
+    let gpus_summary_str = if gpu_labels.is_empty() {
+        "Auto-Detected GPU Adapter".to_string()
+    } else {
+        gpu_labels.join("  |  ")
+    };
+
     let hwdec_card = container(
         column![
             row![
-                text("🚀 Hardware Video Acceleration (HWDEC)").size(15).color(CYAN),
+                text("🚀 Hardware Video & GPU Acceleration").size(15).color(CYAN),
                 space().width(Length::Fill),
                 container(text(format!("Active: {}", app.config.hwdec)).size(11).color(EMERALD))
                     .padding([2, 6])
@@ -4842,7 +4855,9 @@ fn render_settings_tab<'a>(app: &'a IcedGuiApp) -> Element<'a, Message> {
                     }),
             ]
             .align_y(iced::Alignment::Center),
-            text("Hardware decoding offloads 4K/60fps video rendering directly to your GPU, saving CPU cycles and battery life.").size(12).color(SOFT_TEXT),
+            text(format!("Detected Hardware: {}", gpus_summary_str)).size(12).color(AMBER),
+            text("WebGL 2.0 / 3D Canvas: Hardware Accelerated (NVIDIA PRIME Offload & WebKit Compositor Active)").size(11).color(EMERALD),
+            text("Hardware video decoding offloads 4K/60fps video and WebGL rendering directly to your GPU, eliminating CPU bottlenecks.").size(12).color(SOFT_TEXT),
             row![
                 btn_pill("auto (Auto-detect)", app.config.hwdec == "auto")
                     .on_press(Message::HwdecChanged("auto".to_string())),

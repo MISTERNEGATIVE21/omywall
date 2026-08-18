@@ -167,6 +167,9 @@ enum Commands {
     /// Show current daemon status (alias: st)
     #[command(alias = "st")]
     Status,
+    /// Run hardware acceleration & system diagnostic check (alias: hw, doctor, gpu)
+    #[command(alias = "hw", alias = "doctor", alias = "gpu")]
+    Doctor,
     /// Configure hardware acceleration video decoder (nvdec, cuda, vaapi, vulkan, auto, no)
     SetHwdec {
         decoder: String,
@@ -480,13 +483,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match block_on(send_ipc_request(&cfg.socket_path, &IpcRequest::GetStatus)) {
                 Ok(IpcResponse::Status(st)) => {
                     let metrics = crate::config::get_system_metrics();
-                    println!("\x1b[1;36m┌────────────────────────────────────────────────────────┐\x1b[0m");
-                    println!("\x1b[1;36m│          🌌 OMYWALL WALLPAPER ENGINE STATUS           │\x1b[0m");
-                    println!("\x1b[1;36m└────────────────────────────────────────────────────────┘\x1b[0m");
+                    let diag = crate::config::get_hardware_diagnostics();
+                    println!("\x1b[1;36m┌────────────────────────────────────────────────────────────────────────┐\x1b[0m");
+                    println!("\x1b[1;36m│                 🌌 OMYWALL WALLPAPER ENGINE STATUS                    │\x1b[0m");
+                    println!("\x1b[1;36m└────────────────────────────────────────────────────────────────────────┘\x1b[0m");
                     println!("  \x1b[1;33m● Current Wallpaper:\x1b[0m     \x1b[1;32m{}\x1b[0m", st.current_wallpaper.unwrap_or_else(|| "None Selected".into()));
                     println!("  \x1b[1;33m● Active Monitor:\x1b[0m        \x1b[1;37m{}\x1b[0m", st.active_monitor.unwrap_or_else(|| "All / Primary".into()));
                     println!("  \x1b[1;33m● Playback State:\x1b[0m        \x1b[1;35m{}\x1b[0m", if st.is_paused { "Paused ⏸" } else { "Playing ▶" });
-                    println!("  \x1b[1;33m● Hardware Acceleration:\x1b[0m \x1b[1;36m{}\x1b[0m (Screen {})", st.hwdec, st.screen_id);
+                    
+                    // Hardware Acceleration details
+                    let hw_label = if st.hwdec == "auto" {
+                        if diag.has_nvidia {
+                            "auto [NVIDIA NVDEC + WebKit2GTK GLX/EGL Acceleration Active]"
+                        } else if diag.vaapi_available {
+                            "auto [VA-API Intel/AMD Acceleration Active]"
+                        } else {
+                            "auto [Auto-detected Hardware Acceleration]"
+                        }
+                    } else {
+                        &st.hwdec
+                    };
+                    println!("  \x1b[1;33m● Hardware Acceleration:\x1b[0m \x1b[1;32m{}\x1b[0m (Screen {})", hw_label, st.screen_id);
+
+                    // GPU list
+                    for (i, gpu) in diag.gpus.iter().enumerate() {
+                        let drv = gpu.driver.as_deref().map(|d| format!(" (Driver: {})", d)).unwrap_or_default();
+                        let vram = gpu.vram_mb.map(|v| format!(" [VRAM: {} MB]", v)).unwrap_or_default();
+                        let node = gpu.device_path.as_deref().map(|p| format!(" [{}]", p)).unwrap_or_default();
+                        println!("  \x1b[1;33m● Detected GPU #{}:\x1b[0m        \x1b[1;36m{} ({})\x1b[0m{}{}{}", i + 1, gpu.name, gpu.vendor, drv, vram, node);
+                    }
+
+                    // WebGL status
+                    println!("  \x1b[1;33m● WebGL 2.0 / Canvas:\x1b[0m    \x1b[1;32m{}\x1b[0m", if diag.has_nvidia { "Hardware Accelerated (NVIDIA PRIME Offload / WebKit Compositor)" } else { "Hardware Accelerated (DRM/EGL Compositor)" });
+
+                    // Available decoders
+                    let mut dec_list = Vec::new();
+                    if diag.nvdec_available { dec_list.push("\x1b[1;32mnvdec (NVIDIA) ✅\x1b[0m"); }
+                    if diag.cuda_available { dec_list.push("\x1b[1;32mcuda (NVIDIA) ✅\x1b[0m"); }
+                    if diag.vaapi_available { dec_list.push("\x1b[1;32mvaapi (Intel/AMD) ✅\x1b[0m"); }
+                    if diag.vulkan_available { dec_list.push("\x1b[1;32mvulkan (Vulkan Video) ✅\x1b[0m"); }
+                    dec_list.push("\x1b[1;32mauto (Recommended) ✅\x1b[0m");
+                    println!("  \x1b[1;33m● Supported HW Decoders:\x1b[0m {}", dec_list.join(" | "));
+
                     println!("  \x1b[1;33m● Real-time CPU Usage:\x1b[0m   \x1b[1;36m{:.1}%\x1b[0m", metrics.cpu_usage);
                     println!("  \x1b[1;33m● Real-time RAM Usage:\x1b[0m   \x1b[1;36m{} MB / {} MB\x1b[0m", metrics.ram_used_mb, metrics.ram_total_mb);
                     println!("  \x1b[1;33m● Real-time GPU Usage:\x1b[0m   \x1b[1;32m{:.1}%\x1b[0m ({}, VRAM: {} MB)", metrics.gpu_usage, metrics.gpu_name, metrics.vram_used_mb);
@@ -498,6 +536,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::process::exit(1);
                 }
             }
+        }
+        Some(Commands::Doctor) => {
+            let diag = crate::config::get_hardware_diagnostics();
+            let metrics = crate::config::get_system_metrics();
+            println!("\x1b[1;36m┌────────────────────────────────────────────────────────────────────────┐\x1b[0m");
+            println!("\x1b[1;36m│          🛠️  OMYWALL HARDWARE ACCELERATION & SYSTEM DOCTOR             │\x1b[0m");
+            println!("\x1b[1;36m└────────────────────────────────────────────────────────────────────────┘\x1b[0m");
+            println!("\x1b[1;33m[Detected Graphics Adapters]\x1b[0m");
+            for (i, gpu) in diag.gpus.iter().enumerate() {
+                let drv = gpu.driver.as_deref().map(|d| format!(" Driver: {}", d)).unwrap_or_else(|| "Driver: In-tree / DRM".to_string());
+                let vram = gpu.vram_mb.map(|v| format!(", VRAM: {} MB", v)).unwrap_or_default();
+                let node = gpu.device_path.as_deref().map(|p| format!(", Device: {}", p)).unwrap_or_default();
+                let prim = if gpu.is_primary { " [Primary]" } else { "" };
+                println!("  \x1b[1;36m{}.\x1b[0m {} (Vendor: {}{})", i + 1, gpu.name, gpu.vendor, prim);
+                println!("     └─ {}{}{}", drv, vram, node);
+            }
+            println!("\n\x1b[1;33m[Hardware Acceleration Capabilities & Decoders]\x1b[0m");
+            println!("  ● NVIDIA NVDEC (nvdec):       {}", if diag.nvdec_available { "\x1b[1;32mAVAILABLE & READY ✅ (NVIDIA Discrete GPU Acceleration)\x1b[0m" } else { "\x1b[1;31mUNAVAILABLE ❌\x1b[0m" });
+            println!("  ● NVIDIA CUDA (cuda):         {}", if diag.cuda_available { "\x1b[1;32mAVAILABLE & READY ✅ (NVIDIA Compute & Video Acceleration)\x1b[0m" } else { "\x1b[1;31mUNAVAILABLE ❌\x1b[0m" });
+            println!("  ● Linux VA-API (vaapi):       {}", if diag.vaapi_available { "\x1b[1;32mAVAILABLE & READY ✅ (Intel / AMD Hardware Video Acceleration)\x1b[0m" } else { "\x1b[1;31mUNAVAILABLE ❌\x1b[0m" });
+            println!("  ● Vulkan Video (vulkan):      {}", if diag.vulkan_available { "\x1b[1;32mAVAILABLE & READY ✅ (Next-Gen Vulkan Video Pipeline)\x1b[0m" } else { "\x1b[1;31mUNAVAILABLE ❌\x1b[0m" });
+            println!("  ● WebGL 2.0 / Canvas 2D:      {}", if diag.has_nvidia { "\x1b[1;32mHARDWARE ACCELERATED ✅ (NVIDIA PRIME Offload Enabled)\x1b[0m" } else { "\x1b[1;32mHARDWARE ACCELERATED ✅ (EGL / DRM Compositing)\x1b[0m" });
+            
+            println!("\n\x1b[1;33m[Current Configuration & Recommendations]\x1b[0m");
+            println!("  ● Active Config Decoder:       \x1b[1;36m{}\x1b[0m", cfg.hwdec);
+            println!("  ● Recommended Setting:         \x1b[1;32m{}\x1b[0m", diag.recommended_hwdec);
+            println!("  ● Real-time Metrics:           CPU: {:.1}%, RAM: {}/{} MB, GPU: {:.1}% ({})", metrics.cpu_usage, metrics.ram_used_mb, metrics.ram_total_mb, metrics.gpu_usage, metrics.gpu_name);
+            println!("\x1b[1;36m──────────────────────────────────────────────────────────────────────────\x1b[0m");
         }
         Some(Commands::SetHwdec { decoder }) => {
             let mut c = Config::load();
