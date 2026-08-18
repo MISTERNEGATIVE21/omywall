@@ -1,65 +1,152 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
-    <!-- Deep Cosmic Void Radial Background -->
-    <radialGradient id="voidBg" cx="50%" cy="50%" r="55%">
-      <stop offset="0%" stop-color="#151b2c" />
-      <stop offset="60%" stop-color="#0a0e18" />
-      <stop offset="100%" stop-color="#04060b" />
+    <!-- Deep Cosmic Void Background -->
+    <radialGradient id="spaceVoid" cx="50%" cy="35%" r="75%">
+      <stop offset="0%" stop-color="#141c30" />
+      <stop offset="45%" stop-color="#090d18" />
+      <stop offset="100%" stop-color="#020408" />
     </radialGradient>
 
-    <!-- Vibrant Neon Cyan Gradient -->
-    <linearGradient id="neonCyan" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00f0ff" />
-      <stop offset="100%" stop-color="#0066ff" />
+    <!-- Neon Spectrum Gradients -->
+    <linearGradient id="cyberCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f5ff" />
+      <stop offset="50%" stop-color="#0088ff" />
+      <stop offset="100%" stop-color="#0044cc" />
     </linearGradient>
 
-    <!-- Luminous Emerald Gradient -->
-    <linearGradient id="neonEmerald" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#00ff9d" />
-      <stop offset="100%" stop-color="#00b377" />
-    </linearGradient>
-
-    <!-- Electric Violet Gradient -->
-    <linearGradient id="neonViolet" x1="100%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#d040ff" />
+    <linearGradient id="neonPink" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff1493" />
+      <stop offset="50%" stop-color="#cc00ff" />
       <stop offset="100%" stop-color="#7000ff" />
     </linearGradient>
 
-    <!-- Ambient Glow Filter -->
-    <filter id="hyperGlow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="16" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
+    <linearGradient id="solarAmber" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ff0077" />
+      <stop offset="50%" stop-color="#ff7700" />
+      <stop offset="100%" stop-color="#ffe600" />
+    </linearGradient>
 
-    <!-- Top Glass Highlight -->
-    <linearGradient id="glassSpecular" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.18" />
-      <stop offset="40%" stop-color="#ffffff" stop-opacity="0.03" />
+    <linearGradient id="emeraldMint" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00ffcc" />
+      <stop offset="100%" stop-color="#00aa88" />
+    </linearGradient>
+
+    <!-- Rim / Glass Lighting -->
+    <linearGradient id="glassRim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35" />
+      <stop offset="35%" stop-color="#00f5ff" stop-opacity="0.15" />
+      <stop offset="70%" stop-color="#7000ff" stop-opacity="0.1" />
       <stop offset="100%" stop-color="#ffffff" stop-opacity="0.0" />
     </linearGradient>
+
+    <linearGradient id="specularGloss" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.22" />
+      <stop offset="30%" stop-color="#ffffff" stop-opacity="0.04" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.0" />
+    </linearGradient>
+
+    <!-- Hyper Glow Filters -->
+    <filter id="bloomGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="18" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="coreIntenseGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10" result="b1" />
+      <feGaussianBlur stdDeviation="24" result="b2" />
+      <feMerge>
+        <feMergeNode in="b2" />
+        <feMergeNode in="b1" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="ambientShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.8" />
+    </filter>
   </defs>
 
-  <!-- Superellipse Background Frame -->
-  <rect width="512" height="512" rx="128" ry="128" fill="url(#voidBg)" />
-  <rect width="512" height="512" rx="128" ry="128" fill="url(#glassSpecular)" />
+  <!-- Base Superellipse Housing -->
+  <rect width="512" height="512" rx="120" ry="120" fill="url(#spaceVoid)" />
+  <rect width="512" height="512" rx="120" ry="120" fill="url(#specularGloss)" />
 
-  <!-- Outer Minimalist Precision Border -->
-  <rect width="504" height="504" x="4" y="4" rx="124" ry="124" fill="none" stroke="url(#neonCyan)" stroke-width="2" opacity="0.4" />
+  <!-- Outer Precision Cyber Rim -->
+  <rect width="504" height="504" x="4" y="4" rx="116" ry="116" fill="none" stroke="url(#glassRim)" stroke-width="2.5" />
+  <rect width="480" height="480" x="16" y="16" rx="104" ry="104" fill="none" stroke="#00f5ff" stroke-width="1" stroke-dasharray="12 16" opacity="0.25" />
 
-  <!-- High-Fidelity Abstract Portal Vector -->
-  <g filter="url(#hyperGlow)">
-    <!-- Back Outer Orbit Ring -->
-    <circle cx="256" cy="256" r="150" fill="none" stroke="url(#neonViolet)" stroke-width="12" opacity="0.8" />
+  <!-- Background Decorative Cyber Mesh Grid -->
+  <g opacity="0.07" stroke="#ffffff" stroke-width="1">
+    <line x1="128" y1="64" x2="128" y2="448" />
+    <line x1="256" y1="32" x2="256" y2="480" />
+    <line x1="384" y1="64" x2="384" y2="448" />
+    <line x1="64" y1="128" x2="448" y2="128" />
+    <line x1="32" y1="256" x2="480" y2="256" />
+    <line x1="64" y1="384" x2="448" y2="384" />
+  </g>
 
-    <!-- Primary Floating Hyper-Surfaces -->
-    <!-- Surface 1: Bottom Right Wave -->
-    <path d="M 170 340 C 220 410, 340 400, 390 320 C 420 270, 380 200, 310 230 C 240 260, 190 310, 170 340 Z" fill="url(#neonEmerald)" opacity="0.85" />
+  <!-- Ambient Light Radial Flare Behind Core -->
+  <circle cx="256" cy="256" r="160" fill="url(#cyberCyan)" opacity="0.12" filter="url(#bloomGlow)" />
+  <circle cx="256" cy="260" r="120" fill="url(#neonPink)" opacity="0.1" filter="url(#bloomGlow)" />
 
-    <!-- Surface 2: Top Left Wave -->
-    <path d="M 342 172 C 292 102, 172 112, 122 192 C 92 242, 132 312, 202 282 C 272 252, 322 202, 342 172 Z" fill="url(#neonCyan)" opacity="0.9" />
+  <!-- Outer Kinetic Aperture Rings (Live Wallpaper Movement) -->
+  <g filter="url(#ambientShadow)">
+    <!-- Segmented Outer Orbit Track -->
+    <circle cx="256" cy="256" r="172" fill="none" stroke="url(#neonPink)" stroke-width="3.5" opacity="0.4" stroke-dasharray="80 30 140 40" stroke-linecap="round" />
+    <circle cx="256" cy="256" r="184" fill="none" stroke="url(#cyberCyan)" stroke-width="2" opacity="0.35" stroke-dasharray="10 20 40 20" />
 
-    <!-- Central Glowing Core Prism -->
-    <circle cx="256" cy="256" r="36" fill="url(#neonCyan)" />
-    <circle cx="256" cy="256" r="20" fill="#ffffff" />
+    <!-- Outer Orbital Nodes -->
+    <circle cx="378" cy="134" r="5" fill="#00f5ff" filter="url(#coreIntenseGlow)" />
+    <circle cx="134" cy="378" r="4" fill="#ff1493" filter="url(#coreIntenseGlow)" />
+    <circle cx="398" cy="310" r="4" fill="#00ffcc" filter="url(#coreIntenseGlow)" />
+  </g>
+
+  <!-- PRIMARY EMBLEM: 3D Origami Kinetic "O" & "W" Wallpaper Prism Wave -->
+  <g filter="url(#bloomGlow)">
+    
+    <!-- Ribbon Wave 1 (Base Indigo Layer) -->
+    <path d="M 120 280 C 130 180, 200 130, 290 130 C 370 130, 410 180, 390 250 C 370 320, 290 390, 200 380 C 140 370, 110 330, 120 280 Z" 
+          fill="none" stroke="url(#neonPink)" stroke-width="28" stroke-linecap="round" opacity="0.75" />
+
+    <!-- Ribbon Wave 2 (Upper Cyber Cyan Horizon Wave - Forming the Top "O" Arch) -->
+    <path d="M 130 250 C 140 160, 220 120, 310 135 C 380 148, 410 200, 370 270 C 330 340, 230 380, 160 350 C 110 330, 120 280, 130 250 Z" 
+          fill="none" stroke="url(#cyberCyan)" stroke-width="22" stroke-linecap="round" opacity="0.95" />
+
+    <!-- Center Geometric Dynamic Lettermark "W" (Origami Laser Blades) -->
+    <!-- Left Wing -->
+    <path d="M 160 210 L 210 340 L 256 250 L 220 190 Z" fill="url(#cyberCyan)" opacity="0.95" />
+    
+    <!-- Right Wing -->
+    <path d="M 352 210 L 302 340 L 256 250 L 292 190 Z" fill="url(#neonPink)" opacity="0.95" />
+
+    <!-- Central Interlocking Core Prism (Faceted Diamond Apex) -->
+    <polygon points="256,170 302,250 256,330 210,250" fill="url(#solarAmber)" opacity="0.9" />
+    <polygon points="256,190 286,250 256,310 226,250" fill="#ffffff" opacity="0.8" />
+
+    <!-- Kinetic Laser Horizon Sweep (Crossing the Core) -->
+    <path d="M 100 256 Q 256 210 412 256" fill="none" stroke="url(#emeraldMint)" stroke-width="4.5" stroke-linecap="round" opacity="0.9" filter="url(#coreIntenseGlow)" />
+    
+    <!-- Central Supernova Energy Gem -->
+    <circle cx="256" cy="250" r="14" fill="#ffffff" filter="url(#coreIntenseGlow)" />
+    <circle cx="256" cy="250" r="7" fill="#00f5ff" />
+  </g>
+
+  <!-- Foreground Gloss / Edge Prism Flares -->
+  <circle cx="210" cy="250" r="3" fill="#ffffff" filter="url(#coreIntenseGlow)" />
+  <circle cx="302" cy="250" r="3" fill="#ffffff" filter="url(#coreIntenseGlow)" />
+  <circle cx="256" cy="170" r="4" fill="#ffffff" filter="url(#coreIntenseGlow)" />
+  <circle cx="256" cy="330" r="4" fill="#ffffff" filter="url(#coreIntenseGlow)" />
+
+  <!-- Bottom Cyber Brand Signature Detail -->
+  <g opacity="0.75" transform="translate(0, 8)">
+    <text x="256" y="445" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Outfit', 'Segoe UI', monospace, sans-serif" 
+          font-size="20" font-weight="900" letter-spacing="9" fill="#00f5ff" text-anchor="middle">
+      OMYWALL
+    </text>
+    <circle cx="150" cy="439" r="2.5" fill="#ff1493" />
+    <circle cx="362" cy="439" r="2.5" fill="#ff1493" />
   </g>
 </svg>
