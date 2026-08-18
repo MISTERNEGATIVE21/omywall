@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OMYWALL & Omarchy Particle Dispersion</title>
+  <title>OMYWALL Cyber Geometric Particle Dispersion</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; overflow: hidden; }
-    body { background: #030509; color: #fff; width: 100vw; height: 100vh; font-family: 'Inter', system-ui, sans-serif; }
+    body { background: #040508; color: #fff; width: 100vw; height: 100vh; font-family: 'Inter', system-ui, sans-serif; }
     canvas { display: block; width: 100vw; height: 100vh; }
   </style>
 </head>
@@ -28,14 +28,14 @@
       constructor(originX, originY, color, size) {
         this.originX = originX;
         this.originY = originY;
-        this.x = originX + (Math.random() - 0.5) * 600;
-        this.y = originY + (Math.random() - 0.5) * 600;
+        this.x = originX + (Math.random() - 0.5) * 500;
+        this.y = originY + (Math.random() - 0.5) * 500;
         this.vx = (Math.random() - 0.5) * 2;
         this.vy = (Math.random() - 0.5) * 2;
-        this.size = size || 2.3;
+        this.size = size || 2.2;
         this.color = color;
-        this.ease = 0.08 + Math.random() * 0.03;
-        this.friction = 0.86;
+        this.ease = 0.08 + Math.random() * 0.02;
+        this.friction = 0.87;
       }
       update() {
         const dx = mouse.x - this.x;
@@ -76,99 +76,84 @@
 
     function init() {
       particles = [];
-      const emblemW = Math.min(width * 0.82, 1000);
-      const emblemH = emblemW * 0.68;
+      const size = Math.min(width, height) * 0.82;
       const off = document.createElement('canvas');
-      off.width = Math.floor(emblemW);
-      off.height = Math.floor(emblemH);
+      off.width = Math.floor(size);
+      off.height = Math.floor(size);
       const octx = off.getContext('2d');
 
-      const cx = emblemW * 0.5;
-      const cy = emblemH * 0.44;
-      const frameW = emblemW * 0.72;
-      const frameH = emblemH * 0.58;
-      const frameX = cx - frameW * 0.5;
-      const frameY = cy - frameH * 0.52;
+      octx.clearRect(0, 0, size, size);
+      octx.save();
+      octx.translate(size * 0.5, size * 0.5);
 
-      // Outer Frame
-      octx.strokeStyle = '#00e5ff';
-      octx.lineWidth = 6;
+      // Rings
+      octx.strokeStyle = '#00f0ff';
+      octx.lineWidth = Math.max(14, size * 0.024);
       octx.beginPath();
-      octx.roundRect(frameX, frameY, frameW, frameH, 18);
+      octx.arc(0, 0, size * 0.38, 0, Math.PI * 2);
       octx.stroke();
 
-      // Cyber Sun
-      const sunGrad = octx.createRadialGradient(cx, frameY + frameH * 0.38, 5, cx, frameY + frameH * 0.38, frameH * 0.32);
-      sunGrad.addColorStop(0, '#ffff55');
-      sunGrad.addColorStop(0.4, '#ff3388');
-      sunGrad.addColorStop(1, 'rgba(255, 0, 100, 0)');
-      octx.fillStyle = sunGrad;
+      octx.strokeStyle = '#00ff9d';
+      octx.lineWidth = Math.max(6, size * 0.010);
       octx.beginPath();
-      octx.arc(cx, frameY + frameH * 0.38, frameH * 0.32, 0, Math.PI * 2);
-      octx.fill();
+      octx.arc(0, 0, size * 0.43, 0, Math.PI * 2);
+      octx.stroke();
 
-      // Peaks
-      octx.fillStyle = '#6a11cb';
+      // Diamonds
+      octx.strokeStyle = '#ff007f';
+      octx.lineWidth = Math.max(12, size * 0.020);
       octx.beginPath();
-      octx.moveTo(frameX + frameW * 0.05, frameY + frameH * 0.9);
-      octx.lineTo(cx - frameW * 0.16, frameY + frameH * 0.28);
-      octx.lineTo(cx + frameW * 0.12, frameY + frameH * 0.9);
+      octx.moveTo(0, -size * 0.42);
+      octx.lineTo(size * 0.42, 0);
+      octx.lineTo(0, size * 0.42);
+      octx.lineTo(-size * 0.42, 0);
       octx.closePath();
-      octx.fill();
+      octx.stroke();
 
-      octx.fillStyle = '#2575fc';
+      octx.strokeStyle = '#9900ff';
+      octx.lineWidth = Math.max(5, size * 0.008);
       octx.beginPath();
-      octx.moveTo(cx - frameW * 0.08, frameY + frameH * 0.9);
-      octx.lineTo(cx + frameW * 0.18, frameY + frameH * 0.22);
-      octx.lineTo(frameX + frameW * 0.95, frameY + frameH * 0.9);
+      octx.moveTo(0, -size * 0.28);
+      octx.lineTo(size * 0.28, 0);
+      octx.lineTo(0, size * 0.28);
+      octx.lineTo(-size * 0.28, 0);
       octx.closePath();
-      octx.fill();
+      octx.stroke();
 
-      octx.fillStyle = '#120b29';
+      // Arch Chevron
+      octx.strokeStyle = '#00e5ff';
+      octx.lineWidth = Math.max(7, size * 0.012);
       octx.beginPath();
-      octx.moveTo(frameX, frameY + frameH * 0.9);
-      octx.lineTo(cx - frameW * 0.25, frameY + frameH * 0.62);
-      octx.lineTo(cx, frameY + frameH * 0.48);
-      octx.lineTo(cx + frameW * 0.28, frameY + frameH * 0.65);
-      octx.lineTo(frameX + frameW, frameY + frameH * 0.9);
-      octx.closePath();
-      octx.fill();
-
-      // Horizon Wave
-      const waveGrad = octx.createLinearGradient(frameX, 0, frameX + frameW, 0);
-      waveGrad.addColorStop(0, '#00f5ff');
-      waveGrad.addColorStop(0.5, '#00ff9d');
-      waveGrad.addColorStop(1, '#00aaff');
-      octx.strokeStyle = waveGrad;
-      octx.lineWidth = 5;
-      octx.beginPath();
-      octx.moveTo(frameX + 10, frameY + frameH * 0.88);
-      octx.lineTo(frameX + frameW - 10, frameY + frameH * 0.88);
+      octx.moveTo(-size * 0.22, -size * 0.08);
+      octx.lineTo(0, -size * 0.24);
+      octx.lineTo(size * 0.22, -size * 0.08);
       octx.stroke();
 
       // Typography
-      const fontSize = Math.floor(emblemW * 0.095);
+      const fontSize = Math.floor(size * 0.135);
+      octx.fillStyle = '#ffffff';
       octx.font = `900 ${fontSize}px 'Inter', sans-serif`;
       octx.textAlign = 'center';
       octx.textBaseline = 'middle';
-      octx.fillStyle = '#ffffff';
-      octx.fillText('OMYWALL', cx, cy + frameH * 0.62);
+      octx.fillText('OMYWALL', 0, size * 0.02);
 
-      const subSize = Math.floor(emblemW * 0.038);
-      octx.font = `800 ${subSize}px 'Inter', sans-serif`;
+      const subFontSize = Math.floor(size * 0.045);
+      octx.font = `800 ${subFontSize}px 'Inter', sans-serif`;
       octx.fillStyle = '#00f0ff';
-      octx.fillText('OMARCHY DESKTOP ENGINE', cx, cy + frameH * 0.78);
+      octx.fillText('OMARCHY ENGINE', 0, size * 0.15);
 
-      const imgData = octx.getImageData(0, 0, Math.floor(emblemW), Math.floor(emblemH)).data;
-      const startX = (width - emblemW) * 0.5;
-      const startY = (height - emblemH) * 0.5;
+      octx.restore();
+
+      const imgData = octx.getImageData(0, 0, Math.floor(size), Math.floor(size)).data;
+      const startX = (width - size) * 0.5;
+      const startY = (height - size) * 0.5;
       const step = 4;
-      for (let y = 0; y < emblemH; y += step) {
-        for (let x = 0; x < emblemW; x += step) {
-          const idx = Math.floor(y * Math.floor(emblemW) + x) * 4;
-          if (imgData[idx + 3] > 70) {
+      for (let y = 0; y < size; y += step) {
+        for (let x = 0; x < size; x += step) {
+          const idx = Math.floor(y * Math.floor(size) + x) * 4;
+          if (imgData[idx + 3] > 75) {
             const color = `rgb(${imgData[idx]}, ${imgData[idx+1]}, ${imgData[idx+2]})`;
-            particles.push(new Particle(startX + x, startY + y, color, 2.3));
+            particles.push(new Particle(startX + x, startY + y, color, 2.2));
           }
         }
       }
@@ -181,11 +166,11 @@
     window.addEventListener('mouseleave', () => { mouse.x = -9999; mouse.y = -9999; });
     window.addEventListener('touchend', () => { mouse.x = -9999; mouse.y = -9999; });
     window.addEventListener('mousedown', (e) => {
-      shockwaves.push({ x: e.clientX, y: e.clientY, radius: 5, maxRadius: 180, strength: 28, alpha: 1.0 });
+      shockwaves.push({ x: e.clientX, y: e.clientY, radius: 4, maxRadius: 200, strength: 30, alpha: 1.0 });
     });
     window.addEventListener('touchstart', (e) => {
       if (e.touches && e.touches[0]) {
-        shockwaves.push({ x: e.touches[0].clientX, y: e.touches[0].clientY, radius: 5, maxRadius: 180, strength: 28, alpha: 1.0 });
+        shockwaves.push({ x: e.touches[0].clientX, y: e.touches[0].clientY, radius: 4, maxRadius: 200, strength: 30, alpha: 1.0 });
       }
     }, { passive: true });
 
@@ -193,12 +178,12 @@
     resize();
 
     function render() {
-      ctx.fillStyle = 'rgba(3, 5, 9, 0.22)';
+      ctx.fillStyle = 'rgba(4, 5, 8, 0.22)';
       ctx.fillRect(0, 0, width, height);
 
       for (let i = shockwaves.length - 1; i >= 0; i--) {
         const sw = shockwaves[i];
-        sw.radius += 5.5;
+        sw.radius += 6.0;
         sw.alpha = 1.0 - (sw.radius / sw.maxRadius);
         if (sw.radius >= sw.maxRadius) shockwaves.splice(i, 1);
       }
