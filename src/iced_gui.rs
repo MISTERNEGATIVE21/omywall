@@ -712,25 +712,29 @@ impl IcedGuiApp {
     pub fn scan_wallpapers(dir: &Path, bookmarks: &[crate::config::WebBookmark]) -> Vec<PathBuf> {
         let mut files = Vec::new();
         let mut seen = HashSet::new();
-        let valid_exts = ["mkv", "mp4", "webm", "avi", "mov", "gif", "html", "htm", "js", "pkg", "m4v", "flv", "wmv", "png", "jpg", "jpeg", "webp"];
+        let valid_exts = ["mkv", "mp4", "webm", "avi", "mov", "gif", "html", "htm", "pkg", "m4v", "png", "jpg", "jpeg", "webp"];
 
         let _ = std::fs::create_dir_all(dir);
+
+        fn is_ignored_subfolder(name: &str) -> bool {
+            name.starts_with('.')
+                || name.eq_ignore_ascii_case("docs")
+                || name.eq_ignore_ascii_case("documentation")
+                || name.eq_ignore_ascii_case("test")
+                || name.eq_ignore_ascii_case("tests")
+                || name.eq_ignore_ascii_case("node_modules")
+                || name.eq_ignore_ascii_case("manual")
+                || name.eq_ignore_ascii_case("devtools")
+                || name.eq_ignore_ascii_case("coverage")
+                || name.eq_ignore_ascii_case(".github")
+        }
 
         fn walk_dir(d: &Path, depth: usize, files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, valid_exts: &[&str]) {
             if depth > 4 {
                 return;
             }
             let dir_name = d.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if dir_name.starts_with('.')
-                || dir_name.eq_ignore_ascii_case("docs")
-                || dir_name.eq_ignore_ascii_case("documentation")
-                || dir_name.eq_ignore_ascii_case("test")
-                || dir_name.eq_ignore_ascii_case("tests")
-                || dir_name.eq_ignore_ascii_case("node_modules")
-                || dir_name.eq_ignore_ascii_case("manual")
-                || dir_name.eq_ignore_ascii_case("devtools")
-                || dir_name.eq_ignore_ascii_case("coverage")
-            {
+            if is_ignored_subfolder(dir_name) {
                 return;
             }
 
@@ -742,12 +746,27 @@ impl IcedGuiApp {
                 return;
             }
 
+            if depth > 1 {
+                if let Some(html_entry) = crate::config::find_primary_html_entry(d) {
+                    let canon = std::fs::canonicalize(&html_entry).unwrap_or(html_entry);
+                    if seen.insert(canon.clone()) {
+                        files.push(canon);
+                    }
+                    return;
+                }
+            }
+
             if let Ok(entries) = std::fs::read_dir(d) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.is_file() {
                         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                            if valid_exts.contains(&ext.to_lowercase().as_str()) {
+                            let ext_lower = ext.to_lowercase();
+                            if valid_exts.contains(&ext_lower.as_str()) {
+                                // Skip internal JS/TS/markdown files
+                                if matches!(ext_lower.as_str(), "js" | "ts" | "mjs" | "cjs" | "md" | "json" | "txt") {
+                                    continue;
+                                }
                                 let canon = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
                                 if seen.insert(canon.clone()) {
                                     files.push(canon);
@@ -756,18 +775,26 @@ impl IcedGuiApp {
                         }
                     } else if path.is_dir() {
                         let sub_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                        if sub_name.starts_with('.')
-                            || sub_name.eq_ignore_ascii_case("docs")
-                            || sub_name.eq_ignore_ascii_case("documentation")
-                            || sub_name.eq_ignore_ascii_case("test")
-                            || sub_name.eq_ignore_ascii_case("tests")
-                            || sub_name.eq_ignore_ascii_case("node_modules")
-                            || sub_name.eq_ignore_ascii_case("manual")
-                            || sub_name.eq_ignore_ascii_case("devtools")
-                            || sub_name.eq_ignore_ascii_case("coverage")
-                        {
+                        if is_ignored_subfolder(sub_name) {
                             continue;
                         }
+
+                        if path.join("project.json").exists() {
+                            let canon = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                            if seen.insert(canon.clone()) {
+                                files.push(canon);
+                            }
+                            continue;
+                        }
+
+                        if let Some(html_entry) = crate::config::find_primary_html_entry(&path) {
+                            let canon = std::fs::canonicalize(&html_entry).unwrap_or(html_entry);
+                            if seen.insert(canon.clone()) {
+                                files.push(canon);
+                            }
+                            continue;
+                        }
+
                         walk_dir(&path, depth + 1, files, seen, valid_exts);
                     }
                 }

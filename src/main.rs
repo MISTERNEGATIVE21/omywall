@@ -1262,32 +1262,94 @@ async fn send_response(stream: &mut tokio::net::UnixStream, resp: &IpcResponse) 
 
 fn scan_wallpapers(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    let valid_exts = ["mkv", "mp4", "webm", "avi", "mov", "gif", "html", "htm", "js", "m4v", "flv", "wmv", "png", "jpg", "jpeg", "webp"];
+    let mut seen = std::collections::HashSet::new();
+    let valid_exts = ["mkv", "mp4", "webm", "avi", "mov", "gif", "html", "htm", "pkg", "m4v", "png", "jpg", "jpeg", "webp"];
 
-    fn walk_dir(d: &Path, depth: usize, files: &mut Vec<PathBuf>, valid_exts: &[&str]) {
+    fn is_ignored_subfolder(name: &str) -> bool {
+        name.starts_with('.')
+            || name.eq_ignore_ascii_case("docs")
+            || name.eq_ignore_ascii_case("documentation")
+            || name.eq_ignore_ascii_case("test")
+            || name.eq_ignore_ascii_case("tests")
+            || name.eq_ignore_ascii_case("node_modules")
+            || name.eq_ignore_ascii_case("manual")
+            || name.eq_ignore_ascii_case("devtools")
+            || name.eq_ignore_ascii_case("coverage")
+            || name.eq_ignore_ascii_case(".github")
+    }
+
+    fn walk_dir(d: &Path, depth: usize, files: &mut Vec<PathBuf>, seen: &mut std::collections::HashSet<PathBuf>, valid_exts: &[&str]) {
         if depth > 4 {
             return;
         }
+        let dir_name = d.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if is_ignored_subfolder(dir_name) {
+            return;
+        }
+
+        if d.join("project.json").exists() {
+            let canon = fs::canonicalize(d).unwrap_or_else(|_| d.to_path_buf());
+            if seen.insert(canon.clone()) {
+                files.push(canon);
+            }
+            return;
+        }
+
+        if depth > 1 {
+            if let Some(html_entry) = crate::config::find_primary_html_entry(d) {
+                let canon = fs::canonicalize(&html_entry).unwrap_or(html_entry);
+                if seen.insert(canon.clone()) {
+                    files.push(canon);
+                }
+                return;
+            }
+        }
+
         if let Ok(entries) = fs::read_dir(d) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() {
                     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        if valid_exts.contains(&ext.to_lowercase().as_str()) {
-                            let canon = fs::canonicalize(&path).unwrap_or(path);
-                            if !files.contains(&canon) {
+                        let ext_lower = ext.to_lowercase();
+                        if valid_exts.contains(&ext_lower.as_str()) {
+                            if matches!(ext_lower.as_str(), "js" | "ts" | "mjs" | "cjs" | "md" | "json" | "txt") {
+                                continue;
+                            }
+                            let canon = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                            if seen.insert(canon.clone()) {
                                 files.push(canon);
                             }
                         }
                     }
                 } else if path.is_dir() {
-                    walk_dir(&path, depth + 1, files, valid_exts);
+                    let sub_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if is_ignored_subfolder(sub_name) {
+                        continue;
+                    }
+
+                    if path.join("project.json").exists() {
+                        let canon = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                        if seen.insert(canon.clone()) {
+                            files.push(canon);
+                        }
+                        continue;
+                    }
+
+                    if let Some(html_entry) = crate::config::find_primary_html_entry(&path) {
+                        let canon = fs::canonicalize(&html_entry).unwrap_or(html_entry);
+                        if seen.insert(canon.clone()) {
+                            files.push(canon);
+                        }
+                        continue;
+                    }
+
+                    walk_dir(&path, depth + 1, files, seen, valid_exts);
                 }
             }
         }
     }
 
-    walk_dir(dir, 0, &mut files, &valid_exts);
+    walk_dir(dir, 0, &mut files, &mut seen, &valid_exts);
 
     if let Some(home) = dirs::home_dir() {
         let candidate_dirs = [
@@ -1305,7 +1367,7 @@ fn scan_wallpapers(dir: &Path) -> Vec<PathBuf> {
 
         for c_dir in &candidate_dirs {
             if c_dir.exists() {
-                walk_dir(c_dir, 0, &mut files, &valid_exts);
+                walk_dir(c_dir, 0, &mut files, &mut seen, &valid_exts);
             }
         }
     }
