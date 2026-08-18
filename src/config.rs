@@ -533,7 +533,26 @@ impl Default for Config {
             screen_id: 0,
             slideshow_interval: 300,
             slideshow_shuffle: false,
-            default_wallpaper: None,
+            default_wallpaper: {
+                let default_wall = PathBuf::from("assets/wallpapers/bunny.mp4");
+                if default_wall.exists() {
+                    Some(default_wall)
+                } else if let Some(home) = dirs::home_dir() {
+                    let user_wall = home.join(".local").join("share").join("omywall").join("assets").join("wallpapers").join("bunny.mp4");
+                    if user_wall.exists() {
+                        Some(user_wall)
+                    } else {
+                        let user_wall2 = home.join(".local").join("share").join("omywall").join("wallpapers").join("bunny.mp4");
+                        if user_wall2.exists() {
+                            Some(user_wall2)
+                        } else {
+                            Some(default_wall)
+                        }
+                    }
+                } else {
+                    Some(default_wall)
+                }
+            },
             opacity: 1.0,
             enable_widgets: false,
             widget_url: None,

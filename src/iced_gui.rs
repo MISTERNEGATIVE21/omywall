@@ -163,7 +163,7 @@ pub enum CategoryFilter {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ViewMode {
     Grid,
-    Carousel,
+    List,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -363,8 +363,6 @@ pub enum Message {
     ThemeChanged(ThemeScheme),
     Category(CategoryFilter),
     ViewMode(ViewMode),
-    CarouselNext,
-    CarouselPrev,
     SearchFilterChanged(String),
 
     CardEntered(PathBuf),
@@ -488,7 +486,6 @@ pub struct IcedGuiApp {
     pub search_filter: String,
     pub category_filter: CategoryFilter,
     pub view_mode: ViewMode,
-    pub carousel_index: usize,
 
     pub web_url_input: String,
     pub new_web_title: String,
@@ -643,8 +640,7 @@ impl IcedGuiApp {
             selected_wallpaper,
             search_filter: String::new(),
             category_filter: CategoryFilter::All,
-            view_mode: ViewMode::Carousel,
-            carousel_index: 0,
+            view_mode: ViewMode::Grid,
             web_url_input: "https://".to_string(),
             new_web_title: String::new(),
             new_web_category: "Web Animation".to_string(),
@@ -1658,26 +1654,6 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                 manage_hover_stream(app, &hovered);
             }
 
-            // Keep the spotlight player previewing the active catalog item
-            // (HTML/web and video) even without hovering.
-            if app.hover_streaming.is_none() {
-                if let Some(active) = active_carousel_item(app) {
-                    if is_live_item(&active) {
-                        manage_hover_stream(app, &active);
-                    }
-                }
-            }
-
-            if let Some(ref player) = app.madamiru_player {
-                if let Some(frame) = player.get_current_frame() {
-                    let handle = iced::widget::image::Handle::from_rgba(frame.width, frame.height, frame.data);
-                    app.image_cache.insert(PathBuf::from(HOVER_VIDEO_LIVE_PATH), CachedImage {
-                        mtime: SystemTime::now(),
-                        handle,
-                    });
-                }
-            }
-
             // Decode live web preview frame if updated (batched with catalog
             // decodes so a continuously-updating live stream can't starve the
             // wallpaper thumbnail queue).
@@ -1692,12 +1668,9 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
                 }
             }
 
-            // Asynchronously decode catalog wallpaper thumbnails, prioritizing
-            // the wallpaper currently shown in the spotlight player.
-            let filtered = filtered_wallpapers(app);
-            if !filtered.is_empty() {
-                let active_idx = app.carousel_index.min(filtered.len() - 1);
-                if let Some(thumb_path) = get_web_thumbnail_path(&filtered[active_idx].to_string_lossy()) {
+            // Asynchronously decode catalog wallpaper thumbnails
+            if let Some(ref sel) = app.selected_wallpaper {
+                if let Some(thumb_path) = get_web_thumbnail_path(&sel.to_string_lossy()) {
                     if thumb_path.exists() && !app.image_cache.contains_key(&thumb_path) && !app.pending_decodes.contains(&thumb_path) {
                         app.pending_decodes.insert(thumb_path.clone());
                         decode_tasks.push(Task::perform(decode_thumb(thumb_path), |(p, m, r)| Message::ThumbDecoded(p, m, r)));
@@ -1943,44 +1916,14 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
         }
         Message::Category(cat) => {
             app.category_filter = cat;
-            app.carousel_index = 0;
             Task::none()
         }
         Message::ViewMode(mode) => {
             app.view_mode = mode;
             Task::none()
         }
-        Message::CarouselNext => {
-            let filtered = filtered_wallpapers(app);
-            if !filtered.is_empty() {
-                app.carousel_index = (app.carousel_index + 1) % filtered.len();
-                if let Some(active) = active_carousel_item(app) {
-                    if app.hover_streaming.as_deref() != Some(&active) {
-                        stop_hover_stream(app);
-                    }
-                }
-            }
-            Task::none()
-        }
-        Message::CarouselPrev => {
-            let filtered = filtered_wallpapers(app);
-            if !filtered.is_empty() {
-                if app.carousel_index == 0 {
-                    app.carousel_index = filtered.len() - 1;
-                } else {
-                    app.carousel_index -= 1;
-                }
-                if let Some(active) = active_carousel_item(app) {
-                    if app.hover_streaming.as_deref() != Some(&active) {
-                        stop_hover_stream(app);
-                    }
-                }
-            }
-            Task::none()
-        }
         Message::SearchFilterChanged(text) => {
             app.search_filter = text;
-            app.carousel_index = 0;
             Task::none()
         }
         Message::CardEntered(path) => {
@@ -2004,10 +1947,6 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
 
             app.last_click = Some((path.clone(), Instant::now()));
             app.selected_wallpaper = Some(path.clone());
-            let filtered = filtered_wallpapers(app);
-            if let Some(idx) = filtered.iter().position(|w| w == &path) {
-                app.carousel_index = idx;
-            }
             if app.hover_streaming.as_deref() != Some(&path) {
                 stop_hover_stream(app);
             }
@@ -2026,10 +1965,6 @@ fn update(app: &mut IcedGuiApp, message: Message) -> Task<Message> {
 
         Message::CardDoubleClicked(path) => {
             app.selected_wallpaper = Some(path.clone());
-            let filtered = filtered_wallpapers(app);
-            if let Some(idx) = filtered.iter().position(|w| w == &path) {
-                app.carousel_index = idx;
-            }
             if app.hover_streaming.as_deref() != Some(&path) {
                 stop_hover_stream(app);
             }
@@ -3247,15 +3182,6 @@ pub fn filtered_wallpapers(app: &IcedGuiApp) -> Vec<PathBuf> {
     }).cloned().collect()
 }
 
-pub fn active_carousel_item(app: &IcedGuiApp) -> Option<PathBuf> {
-    let filtered = filtered_wallpapers(app);
-    if filtered.is_empty() {
-        return None;
-    }
-    let active_idx = app.carousel_index.min(filtered.len() - 1);
-    Some(filtered[active_idx].clone())
-}
-
 #[allow(dead_code)]
 fn is_live_item(path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
@@ -3267,7 +3193,7 @@ fn is_live_item(path: &Path) -> bool {
     is_web || is_video
 }
 
-fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Element<'a, Message> {
+fn render_list_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Element<'a, Message> {
     if filtered.is_empty() {
         return container(text("No wallpapers match the search or category filter.").color(AMBER).size(16))
             .width(Length::Fill)
@@ -3275,163 +3201,111 @@ fn render_carousel_view<'a>(app: &'a IcedGuiApp, filtered: &[PathBuf]) -> Elemen
             .into();
     }
 
-    let active_idx = app.carousel_index.min(filtered.len() - 1);
-    let target = &filtered[active_idx];
-    let path_str = target.to_string_lossy().to_string();
-    let ext = target.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-    let is_web = matches!(ext.as_str(), "html" | "htm" | "js")
-        || path_str.starts_with("http://")
-        || path_str.starts_with("https://");
+    let mut list_col = column![].spacing(8);
 
-    let bookmark_opt = app.config.saved_web_wallpapers.iter().find(|b| {
-        b.url == path_str
-            || Path::new(&crate::config::resolve_asset_path(&b.url)) == target
-            || Path::new(&b.url) == target
-            || std::fs::canonicalize(Path::new(&crate::config::resolve_asset_path(&b.url))).map(|p| p == *target).unwrap_or(false)
-    });
+    for path in filtered.iter().take(100) {
+        let path_clone = path.clone();
+        let path_str = path.to_string_lossy().to_string();
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        let is_selected = app.selected_wallpaper.as_ref() == Some(path);
 
-    let default_name = target.file_name().and_then(|n| n.to_str()).unwrap_or("Wallpaper").to_string();
-    let name: String = bookmark_opt.map(|b| b.title.clone()).unwrap_or(default_name);
+        let bookmark_opt = app.config.saved_web_wallpapers.iter().find(|b| {
+            b.url == path_str
+                || Path::new(&crate::config::resolve_asset_path(&b.url)) == path
+                || Path::new(&b.url) == path
+                || std::fs::canonicalize(Path::new(&crate::config::resolve_asset_path(&b.url))).map(|p| p == *path).unwrap_or(false)
+        });
 
-    let live_path = if is_web {
-        PathBuf::from(HOVER_WEB_LIVE_PATH)
-    } else {
-        PathBuf::from(HOVER_VIDEO_LIVE_PATH)
-    };
+        let default_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("Wallpaper").to_string();
+        let title: String = bookmark_opt.map(|b| b.title.clone()).unwrap_or(default_name);
 
-    let is_live = app.hover_streaming.as_ref() == Some(target);
+        let (badge_text, badge_color) = media_type_badge(app, path);
+        let badge_pill = container(text(badge_text).size(10).color(badge_color))
+            .padding([2, 6])
+            .style(move |_| container::Style {
+                background: Some(Background::Color(Color::from_rgba(0.04, 0.06, 0.10, 0.90))),
+                border: Border {
+                    color: badge_color,
+                    width: 1.0,
+                    radius: 4.0.into(),
+                },
+                ..Default::default()
+            });
 
-    let is_img = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif");
-
-    let spotlight_img: Element<'a, Message> = if is_img && Path::new(&path_str).exists() {
-        image(PathBuf::from(&path_str)).width(600).height(337).content_fit(iced::ContentFit::Cover).into()
-    } else if let Some(cached) = app.image_cache.get(target) {
-        image(cached.handle.clone()).width(600).height(337).content_fit(iced::ContentFit::Cover).into()
-    } else if let Some(cached) = app.image_cache.get(&live_path) {
-        image(cached.handle.clone()).width(600).height(337).content_fit(iced::ContentFit::Cover).into()
-    } else if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
-        if let Some(cached) = app.image_cache.get(&thumb_path) {
-            image(cached.handle.clone()).width(600).height(337).content_fit(iced::ContentFit::Cover).into()
-        } else if thumb_path.exists() {
-            image(thumb_path).width(600).height(337).content_fit(iced::ContentFit::Cover).into()
+        let thumb_elem: Element<'a, Message> = if let Some(thumb_path) = get_web_thumbnail_path(&path_str) {
+            if let Some(cached) = app.image_cache.get(&thumb_path) {
+                image(cached.handle.clone()).width(80).height(45).content_fit(iced::ContentFit::Cover).into()
+            } else if thumb_path.exists() {
+                image(thumb_path).width(80).height(45).content_fit(iced::ContentFit::Cover).into()
+            } else {
+                container(text(badge_text).size(11).color(SOFT_TEXT))
+                    .width(80).height(45)
+                    .align_x(iced::Alignment::Center)
+                    .align_y(iced::Alignment::Center)
+                    .into()
+            }
         } else {
-            container(text(if is_web { "🌐 Web 3D Preset Preview" } else { "🎥 Video Wallpaper Preview" }).color(AMBER).size(18))
-                .width(600)
-                .height(337)
+            container(text(badge_text).size(11).color(SOFT_TEXT))
+                .width(80).height(45)
                 .align_x(iced::Alignment::Center)
                 .align_y(iced::Alignment::Center)
                 .into()
+        };
+
+        let file_info = text(truncate_text(&path_str, 55)).size(11).color(SOFT_TEXT);
+
+        let info_col = column![
+            row![
+                text(title).size(14).color(if is_selected { CYAN } else { Color::WHITE }),
+                badge_pill,
+            ].spacing(8).align_y(iced::Alignment::Center),
+            file_info,
+        ].spacing(4);
+
+        let mut actions = row![
+            btn_primary("▶ Apply").on_press(Message::ApplyPath(path_clone.clone())),
+        ].spacing(6).align_y(iced::Alignment::Center);
+
+        if matches!(ext.as_str(), "html" | "htm" | "js") || path_str.starts_with("http") {
+            actions = actions.push(btn_secondary("👁 Preview").on_press(Message::OpenWebPreview(path_str.clone())));
+        } else if matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "avi" | "mov" | "gif") {
+            actions = actions.push(btn_secondary("👁 Preview").on_press(Message::OpenVideoPreview(path_str.clone())));
         }
-    } else {
-        container(text("🌌 OMYWALL Spotlight Preview Player").color(CYAN).size(18))
-            .width(600)
-            .height(337)
-            .align_x(iced::Alignment::Center)
-            .align_y(iced::Alignment::Center)
-            .into()
-    };
 
+        let item_row = row![
+            thumb_elem,
+            info_col,
+            space().width(Length::Fill),
+            actions,
+        ]
+        .spacing(14)
+        .align_y(iced::Alignment::Center);
 
-    let target_click = target.clone();
-    let interactive_img = mouse_area(spotlight_img)
-        .on_press(Message::CardClicked(target_click));
+        let item_card = container(item_row)
+            .padding([8, 14])
+            .width(Length::Fill)
+            .style(move |_| container::Style {
+                background: Some(Background::Color(if is_selected {
+                    Color::from_rgba(0.0, 0.94, 1.0, 0.12)
+                } else {
+                    Color::from_rgba(0.07, 0.10, 0.16, 0.70)
+                })),
+                border: Border {
+                    color: if is_selected { CYAN } else { Color::from_rgba(0.2, 0.3, 0.45, 0.3) },
+                    width: 1.0,
+                    radius: 8.0.into(),
+                },
+                ..Default::default()
+            });
 
-    let mut controls = row![
-        btn_primary("◀ Previous").on_press(Message::CarouselPrev),
-        btn_primary("▶ Set Wallpaper").on_press(Message::ApplyPath(target.clone())),
-    ]
-    .spacing(12);
+        let target_click = path_clone.clone();
+        let clickable_item = mouse_area(item_card)
+            .on_press(Message::CardClicked(target_click));
 
-    if is_web {
-        controls = controls.push(btn_primary("👁 Preview Web (Electron/Browser)").on_press(Message::OpenWebPreview(target.to_string_lossy().to_string())));
-    } else if is_img {
-        controls = controls.push(btn_primary("👁 Preview Image").on_press(Message::OpenImagePreview(target.to_string_lossy().to_string())));
-    } else {
-        controls = controls.push(btn_primary("👁 Preview Video (MPV)").on_press(Message::OpenVideoPreview(target.to_string_lossy().to_string())));
+        list_col = list_col.push(clickable_item);
     }
 
-    if let Some(bm) = bookmark_opt {
-        if !bm.is_demo {
-            controls = controls.push(btn_danger("🗑 Remove Bookmark").on_press(Message::RemoveWebBookmark(bm.url.clone())));
-        }
-    }
-
-    controls = controls.push(btn_primary("Next ▶").on_press(Message::CarouselNext));
-
-    let (spot_badge_text, spot_badge_color) = if is_live {
-        ("● LIVE STREAMING", EMERALD)
-    } else {
-        media_type_badge(app, target)
-    };
-
-    let spot_badge_pill = container(
-        text(spot_badge_text).size(11).color(spot_badge_color)
-    )
-    .padding([3, 8])
-    .style(move |_| container::Style {
-        background: Some(Background::Color(Color::from_rgba(0.04, 0.06, 0.10, 0.90))),
-        border: Border {
-            color: spot_badge_color,
-            width: 1.0,
-            radius: 6.0.into(),
-        },
-        ..Default::default()
-    });
-
-    let spotlight_card = mouse_area(
-        container(
-            column![
-                row![
-                    text(format!("● SPOTLIGHT PLAYER ({}/{})", active_idx + 1, filtered.len()))
-                        .color(if is_live { EMERALD } else { CYAN })
-                        .size(14),
-                    space().width(Length::Fill),
-                    spot_badge_pill,
-                    space().width(8),
-                    text(if is_web { "WebKit2GTK / Electron Layer" } else { "MPV Hardware Video" }).color(AMBER).size(12),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
-                interactive_img,
-                text(name).color(Color::WHITE).size(18),
-                text(path_str).color(DIM_TEXT).size(12),
-                controls,
-            ]
-            .spacing(12)
-            .padding(16)
-        )
-        .style(|_| container::Style {
-            background: Some(Background::Color(CARD_BG_SEL)),
-            border: Border {
-                color: CYAN,
-                width: 2.0,
-                radius: 12.0.into(),
-            },
-            ..Default::default()
-        })
-    )
-    .on_enter(Message::CardEntered(target.clone()))
-    .on_exit(Message::CardExited(target.clone()));
-
-    let mut filmstrip = row![].spacing(8);
-    for (idx, w) in filtered.iter().enumerate().take(24) {
-        let is_current = idx == active_idx;
-        let w_name = w.file_name().and_then(|n| n.to_str()).unwrap_or("Item");
-        let truncated = truncate_text(w_name, 14);
-        let path_clone = w.clone();
-        filmstrip = filmstrip.push(
-            btn_pill(truncated, is_current)
-                .on_press(Message::CardClicked(path_clone))
-        );
-    }
-
-    column![
-        spotlight_card,
-        scrollable(filmstrip).width(Length::Fill),
-    ]
-    .spacing(16)
-    .align_x(iced::Alignment::Center)
-    .into()
+    scrollable(list_col.padding(4)).into()
 }
 
 fn view(app: &IcedGuiApp) -> Element<'_, Message> {
@@ -3594,10 +3468,10 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
                 .width(220);
 
             let view_mode_toggle = row![
-                btn_pill("⣿ Grid", app.view_mode == ViewMode::Grid)
+                btn_pill("⊞ Grid", app.view_mode == ViewMode::Grid)
                     .on_press(Message::ViewMode(ViewMode::Grid)),
-                btn_pill("🎠 Carousel", app.view_mode == ViewMode::Carousel)
-                    .on_press(Message::ViewMode(ViewMode::Carousel)),
+                btn_pill("☰ List", app.view_mode == ViewMode::List)
+                    .on_press(Message::ViewMode(ViewMode::List)),
             ].spacing(8);
 
             let file_folder_buttons = row![
@@ -3637,10 +3511,10 @@ fn view(app: &IcedGuiApp) -> Element<'_, Message> {
             .spacing(8);
 
 
-            if app.view_mode == ViewMode::Carousel {
+            if app.view_mode == ViewMode::List {
                 column![
                     top_bar,
-                    render_carousel_view(app, &filtered_wallpapers),
+                    render_list_view(app, &filtered_wallpapers),
                 ]
                 .spacing(16)
                 .into()

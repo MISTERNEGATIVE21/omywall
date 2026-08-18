@@ -1233,11 +1233,22 @@ fn apply_active_wallpaper(
         }
     }
 
+    let bunny_candidates = [
+        PathBuf::from("assets/wallpapers/bunny.mp4"),
+        dirs::home_dir().unwrap_or_default().join(".local/share/omywall/assets/wallpapers/bunny.mp4"),
+        dirs::home_dir().unwrap_or_default().join(".local/share/omywall/wallpapers/bunny.mp4"),
+    ];
+    for b in &bunny_candidates {
+        if b.exists() {
+            let _ = engine.set_wallpaper(b);
+            return;
+        }
+    }
+
     let catalog = scan_wallpapers(&config.wallpaper_dir);
     if let Some(first) = catalog.first() {
         let _ = engine.set_wallpaper(first);
     }
-
 }
 
 async fn send_response(stream: &mut tokio::net::UnixStream, resp: &IpcResponse) -> Result<(), String> {
